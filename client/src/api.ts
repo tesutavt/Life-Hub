@@ -1,6 +1,24 @@
 import { NotificationInput, notify } from './notifications/notificationBus';
 
-const BASE = import.meta.env.VITE_API_URL;
+const BASE = (() => {
+  const fromEnv = import.meta.env.VITE_API_URL;
+  if (typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
+    return fromEnv.replace(/\/+$/, '');
+  }
+
+  if (typeof window === 'undefined') return '';
+
+  const { protocol, hostname, port } = window.location;
+  if (port === '5173' || port === '4173') {
+    return `${protocol}//${hostname}:4000`;
+  }
+
+  if (port && port.length > 0) {
+    return `${protocol}//${hostname}:${port}`.replace(/\/+$/, '');
+  }
+
+  return `${protocol}//${hostname}`;
+})();
 
 type ApiRequestInit = RequestInit & {
   notifySuccess?: string | NotificationInput;
@@ -81,7 +99,8 @@ export const api = {
 
     let response: Response;
     try {
-      response = await fetch(`${BASE}${path}`, { ...fetchOptions, headers });
+      const url = path.startsWith('http://') || path.startsWith('https://') ? path : `${BASE}${path}`;
+      response = await fetch(url, { ...fetchOptions, headers });
     } catch (error) {
       if (!silentError) {
         const { message, options: extra } = resolveMessage(notifyError, ERROR_DEFAULT[method] || 'Не удалось выполнить действие');
