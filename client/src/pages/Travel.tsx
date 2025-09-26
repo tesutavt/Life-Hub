@@ -1,0 +1,85 @@
+import React, { useEffect, useState } from 'react';
+import Shell from '../components/Shell';
+import { api } from '../api';
+
+type Travel = { id:number; title:string; location?:string; date_from?:string; date_to?:string; status?:string };
+
+export default function Travel(){
+  const [items, setItems] = useState<Travel[]>([]);
+  const [form, setForm] = useState({ title:'', location:'', date_from:'', date_to:'', status:'planned' });
+  const [editing, setEditing] = useState<Travel|null>(null);
+
+  const load = async()=>{ const r = await api.get('/api/life/travel'); setItems(r.items||[]); };
+  useEffect(()=>{ load(); },[]);
+
+  const add = async(e:React.FormEvent)=>{
+    e.preventDefault();
+    await api.post('/api/life/travel', form);
+    await api.post('/api/life/xp/add', { amount: 20 });
+    setForm({ title:'', location:'', date_from:'', date_to:'', status:'planned' });
+    await load();
+  };
+
+  const save = async()=>{
+    if(!editing) return;
+    await api.put('/api/life/travel/'+editing.id, editing);
+    setEditing(null);
+    await load();
+  };
+
+  const del = async(id:number)=>{ if(!confirm('Удалить поездку?')) return; await api.del('/api/life/travel/'+id); await load(); };
+
+  return (
+    <Shell>
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-2xl font-semibold">Путешествия</div>
+      </div>
+
+      <form onSubmit={add} className="card grid md:grid-cols-5 gap-2 mb-6">
+        <input placeholder="Название" value={form.title} onChange={e=>setForm({...form, title:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
+        <input placeholder="Локация" value={form.location} onChange={e=>setForm({...form, location:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
+        <input type="date" placeholder="c" value={form.date_from} onChange={e=>setForm({...form, date_from:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
+        <input type="date" placeholder="по" value={form.date_to} onChange={e=>setForm({...form, date_to:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
+        <button className="px-4 py-2 rounded bg-white text-black">Добавить</button>
+      </form>
+
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {(items||[]).map(t => (
+          <div key={t.id} className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-lg font-semibold">{t.title}</div>
+              <span className="px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-xs">{t.status||'planned'}</span>
+            </div>
+            <div className="text-sm opacity-80">{t.location}</div>
+            <div className="text-xs opacity-70">{t.date_from} — {t.date_to}</div>
+            <div className="flex items-center gap-2 text-xs">
+              <button onClick={()=>setEditing(t)} className="ml-auto px-2 py-1 rounded bg-white/10 hover:bg-white/20">✎</button>
+              <button onClick={()=>del(t.id)} className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40">Удалить</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {editing && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-black p-6 rounded-xl w-96 border border-white/20 space-y-3">
+            <div className="text-lg font-medium">Редактировать</div>
+            <input className="px-3 py-2 rounded bg-white/10 w-full" value={editing.title} onChange={e=>setEditing({...editing, title:e.target.value})}/>
+            <input className="px-3 py-2 rounded bg-white/10 w-full" value={editing.location||''} onChange={e=>setEditing({...editing, location:e.target.value})}/>
+            <input type="date" className="px-3 py-2 rounded bg-white/10 w-full" value={editing.date_from||''} onChange={e=>setEditing({...editing, date_from:e.target.value})}/>
+            <input type="date" className="px-3 py-2 rounded bg-white/10 w-full" value={editing.date_to||''} onChange={e=>setEditing({...editing, date_to:e.target.value})}/>
+            <select className="px-3 py-2 rounded bg-white/10 w-full" value={editing.status||'planned'} onChange={e=>setEditing({...editing, status:e.target.value})}>
+              <option value="planned">Планируется</option>
+              <option value="done">Совершено</option>
+              <option value="cancelled">Отменено</option>
+            </select>
+            <div className="flex justify-between">
+              <button onClick={()=>setEditing(null)} className="px-3 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
+              <button onClick={save} className="px-3 py-2 rounded bg-green-600 hover:bg-green-700">Сохранить</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+}

@@ -1,0 +1,12 @@
+# Подключение server/routes-pages.js
+
+1) Скопируйте файл **server/routes-pages.js** в папку `server/` проекта.
+
+2) В `server/server.js` добавьте:
+   ```js
+   import pagesRouter from './routes-pages.js';
+   // ...
+   app.use('/api/life/pages', requireAuth, pagesRouter);
+   ```
+
+3) БД-схемы `journal_pages` и `life_feed` создаются автоматически при первом обращении.
