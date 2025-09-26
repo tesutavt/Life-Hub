@@ -1,8 +1,8 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Shell from '../components/Shell';
 import { api } from '../api';
 import { requestMenuCountersRefresh } from '../menuBus';
-
+import SiteSearch from '../components/SiteSearch';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -129,6 +129,12 @@ export default function YearGoals() {
           </button>
         </form>
       </div>
+
+      <SiteSearch
+        sections={['goals', 'pages']}
+        className="mb-6 bg-black/30 border-white/15"
+        placeholder="Поиск по целям или страницам..."
+      />
 
       {activeGoals.length > 0 && (
         <div className="mb-6">
