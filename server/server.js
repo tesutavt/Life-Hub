@@ -12,6 +12,7 @@ import lifeRouter from './routes-life.js';
 import socialsRouter from './routes-socials.js';
 import pagesRouter from './routes-pages.js';
 
+
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,10 +37,9 @@ app.use('/api/socials', requireAuth, socialsRouter);
 app.use('/api/life/pages', requireAuth, pagesRouter);
 
 
-const path = require("path");
-app.use(express.static(path.join(__dirname, "../client/build")));
-app.get("*", (_, res) =>
-  res.sendFile(path.join(__dirname, "../client/build/index.html"))
+app.use(express.static(path.join(__dirname, '../client/build')));
+app.get('*', (_, res) =>
+  res.sendFile(path.join(__dirname, '../client/build/index.html'))
 );
 
 // Serve client dist if present (optional)
