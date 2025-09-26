@@ -2,6 +2,7 @@ import { NotificationInput, notify } from './notifications/notificationBus';
 
 const BASE = (() => {
   const fromEnv = import.meta.env.VITE_API_URL;
+
   if (typeof fromEnv === 'string') {
     const trimmed = fromEnv.trim();
     if (trimmed.length > 0 && trimmed.toLowerCase() !== 'undefined' && trimmed.toLowerCase() !== 'null') {
