@@ -1,7 +1,44 @@
-﻿import express from 'express';
+import express from 'express';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 import { getDB, levelFromXp } from './utils.js';
 
 const router = express.Router();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsDir = path.join(__dirname, 'uploads');
+
+const storage = multer.diskStorage({
+  destination(_req, _file, cb) {
+    fs.promises
+      .mkdir(uploadsDir, { recursive: true })
+      .then(() => cb(null, uploadsDir))
+      .catch((error) => cb(error, uploadsDir));
+  },
+  filename(_req, file, cb) {
+    const ext = path.extname(file?.originalname || '').slice(0, 16);
+    const random = crypto.randomBytes(8).toString('hex');
+    cb(null, `${Date.now()}-${random}${ext}`);
+  }
+});
+
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+async function removeLocalUpload(url) {
+  if (!url || typeof url !== 'string') return;
+  if (!url.startsWith('/uploads/')) return;
+  const filename = path.basename(url);
+  const filePath = path.join(uploadsDir, filename);
+  try {
+    await fs.promises.unlink(filePath);
+  } catch {
+    // ignore missing files
+  }
+}
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -291,6 +328,71 @@ router.get('/profile', async (req, res) => {
   const badges = await db.all('SELECT b.*, ub.earned_at FROM user_badges ub JOIN badges b ON b.id=ub.badge_id WHERE ub.user_id=?', [req.user.uid]);
   res.json({ user, xp, badges });
 });
+
+router.post(
+  '/profile',
+  upload.fields([
+    { name: 'avatar', maxCount: 1 },
+    { name: 'banner', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      const db = await getDB();
+      const current = await db.get('SELECT avatar_url, banner_url FROM users WHERE id=?', [req.user.uid]);
+
+      const updates = [];
+      const params = [];
+
+      const displayNameRaw = req.body?.display_name;
+      if (typeof displayNameRaw === 'string') {
+        updates.push('name=?');
+        params.push(displayNameRaw);
+      }
+
+      const bioRaw = req.body?.bio;
+      if (typeof bioRaw === 'string') {
+        updates.push('bio=?');
+        params.push(bioRaw);
+      }
+
+      let avatarToRemove = null;
+      const avatarFile = Array.isArray(req.files?.avatar) ? req.files.avatar[0] : null;
+      if (avatarFile) {
+        const avatarPath = `/uploads/${avatarFile.filename}`;
+        updates.push('avatar_url=?');
+        params.push(avatarPath);
+        if (current?.avatar_url && current.avatar_url !== avatarPath) {
+          avatarToRemove = current.avatar_url;
+        }
+      }
+
+      let bannerToRemove = null;
+      const bannerFile = Array.isArray(req.files?.banner) ? req.files.banner[0] : null;
+      if (bannerFile) {
+        const bannerPath = `/uploads/${bannerFile.filename}`;
+        updates.push('banner_url=?');
+        params.push(bannerPath);
+        if (current?.banner_url && current.banner_url !== bannerPath) {
+          bannerToRemove = current.banner_url;
+        }
+      }
+
+      if (updates.length > 0) {
+        params.push(req.user.uid);
+        await db.run(`UPDATE users SET ${updates.join(', ')} WHERE id=?`, params);
+      }
+
+      const user = await db.get('SELECT id,name,avatar_url,banner_url,bio FROM users WHERE id=?', [req.user.uid]);
+      res.json({ user });
+
+      if (avatarToRemove) await removeLocalUpload(avatarToRemove);
+      if (bannerToRemove) await removeLocalUpload(bannerToRemove);
+    } catch (error) {
+      console.error('Failed to update profile', error);
+      res.status(500).json({ error: 'failed to update profile' });
+    }
+  }
+);
 
 router.get('/calendar', async (req, res) => {
   const db = await getDB();
