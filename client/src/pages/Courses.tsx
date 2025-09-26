@@ -2,6 +2,7 @@
 import Shell from '../components/Shell';
 import { api } from '../api';
 import { requestMenuCountersRefresh } from '../menuBus';
+import SiteSearch from '../components/SiteSearch';
 
 type Course = {
   id: number;
@@ -124,6 +125,12 @@ export default function Courses() {
       <div className="flex items-center justify-between mb-4">
         <div className="text-2xl font-semibold">Курсы</div>
       </div>
+
+      <SiteSearch
+        sections={['courses', 'pages']}
+        className="mb-6 bg-black/30 border-white/15"
+        placeholder="Поиск по курсам или страницам..."
+      />
 
       <form onSubmit={add} className="card grid md:grid-cols-5 gap-2 mb-6">
         <input
