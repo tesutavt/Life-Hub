@@ -35,6 +35,13 @@ app.use('/api/life', requireAuth, lifeRouter);
 app.use('/api/socials', requireAuth, socialsRouter);
 app.use('/api/life/pages', requireAuth, pagesRouter);
 
+
+const path = require("path");
+app.use(express.static(path.join(__dirname, "../client/build")));
+app.get("*", (_, res) =>
+  res.sendFile(path.join(__dirname, "../client/build/index.html"))
+);
+
 // Serve client dist if present (optional)
 const clientDist = path.join(__dirname, '../client/dist');
 app.use(express.static(clientDist));
