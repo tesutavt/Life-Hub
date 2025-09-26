@@ -37,10 +37,11 @@ app.use('/api/socials', requireAuth, socialsRouter);
 app.use('/api/life/pages', requireAuth, pagesRouter);
 
 
-app.use(express.static(path.join(__dirname, '../client/build')));
-app.get('*', (_, res) =>
-  res.sendFile(path.join(__dirname, '../client/build/index.html'))
+app.use(express.static(path.join(__dirname, "../client/dist")));
+app.get("*", (_, res) =>
+  res.sendFile(path.join(__dirname, "../client/dist/index.html"))
 );
+
 
 // Serve client dist if present (optional)
 const clientDist = path.join(__dirname, '../client/dist');
