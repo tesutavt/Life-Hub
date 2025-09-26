@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Shell from '../components/Shell';
-import { api } from '../api';
+import { api, resolveApiUrl } from '../api';
 import { useAuth } from '../AuthContext';
 
 export default function ProfileFull() {
@@ -59,7 +59,7 @@ export default function ProfileFull() {
     if (avatarFile) fd.append('avatar', avatarFile);
     if (bannerFile) fd.append('banner', bannerFile);
 
-    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/life/profile`, {
+    const res = await fetch(resolveApiUrl('/api/life/profile'), {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: fd
@@ -78,7 +78,7 @@ export default function ProfileFull() {
           className="h-40 bg-gradient-to-r from-purple-600/40 to-blue-600/40"
           style={{
             backgroundImage: data?.user?.banner_url
-              ? `url(${import.meta.env.VITE_API_URL}${data.user.banner_url})`
+              ? `url(${resolveApiUrl(data.user.banner_url)})`
               : undefined,
             backgroundSize: 'cover'
           }}
@@ -87,7 +87,7 @@ export default function ProfileFull() {
           <img
             src={
               data?.user?.avatar_url
-                ? `${import.meta.env.VITE_API_URL}${data.user.avatar_url}`
+                ? resolveApiUrl(data.user.avatar_url)
                 : 'https://api.dicebear.com/9.x/identicon/svg'
             }
             className="w-20 h-20 rounded-2xl border-4 border-black -mt-12"

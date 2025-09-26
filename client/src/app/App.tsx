@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
-import { api } from '../api';
+import { api, resolveApiUrl } from '../api';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -127,7 +127,7 @@ function Sidebar() {
             className="h-16 bg-gradient-to-r from-purple-600/40 to-blue-600/40"
             style={{
               backgroundImage: profile.banner_url
-                ? `url(${import.meta.env.VITE_API_URL}${profile.banner_url})`
+                ? `url(${resolveApiUrl(profile.banner_url)})`
                 : undefined,
               backgroundSize: 'cover',
               backgroundPosition: 'center'
@@ -136,7 +136,7 @@ function Sidebar() {
           <div className="flex items-center p-3 gap-3 -mt-8">
             <img
               src={profile.avatar_url
-                ? `${import.meta.env.VITE_API_URL}${profile.avatar_url}`
+                ? resolveApiUrl(profile.avatar_url)
                 : 'https://api.dicebear.com/9.x/identicon/svg'}
               className="w-12 h-12 rounded-xl border-2 border-black"
             />
