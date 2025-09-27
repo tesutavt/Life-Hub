@@ -137,6 +137,149 @@ const mapLanguagePage = (row) => ({
   page_title: row.page_title || 'Untitled page'
 });
 
+const HABIT_MILESTONES = [1, 10, 25, 50, 100, 200];
+const LANGUAGE_MILESTONES = [25, 50, 75, 100];
+const COURSE_MILESTONES = [50, 100];
+const GOAL_MILESTONES = [50, 100];
+
+const formatDateToIso = (date) => {
+  if (!date || typeof date !== 'string') return null;
+  const iso = new Date(date.endsWith('Z') ? date : `${date}T00:00:00Z`);
+  if (Number.isNaN(iso.getTime())) return null;
+  return iso.toISOString();
+};
+
+async function buildDynamicBadges(db, userId) {
+  const dynamicBadges = [];
+
+  const habitRows = await db.all('SELECT id, title FROM habits WHERE user_id=? ORDER BY title COLLATE NOCASE', [userId]);
+  if (habitRows.length) {
+    const checkStats = await db.all(
+      'SELECT habit_id, COUNT(*) AS total, MAX(date) AS last_date FROM habit_checks WHERE user_id=? GROUP BY habit_id',
+      [userId]
+    );
+    const habitStats = new Map();
+    for (const row of checkStats) {
+      habitStats.set(row.habit_id, {
+        total: Number(row.total) || 0,
+        lastDate: formatDateToIso(row.last_date)
+      });
+    }
+    for (const habit of habitRows) {
+      const stats = habitStats.get(habit.id) || { total: 0, lastDate: null };
+      for (const milestone of HABIT_MILESTONES) {
+        if (stats.total >= milestone) {
+          const firstMilestone = milestone === HABIT_MILESTONES[0];
+          dynamicBadges.push({
+            id: `habit_${habit.id}_${milestone}`,
+            name: firstMilestone
+              ? `Первая отметка по привычке «${habit.title}»`
+              : `Привычка «${habit.title}» выполнена ${milestone} раз`,
+            description: `Вы отметили привычку «${habit.title}» ${stats.total} раз.`,
+            icon: '✅',
+            earned_at: stats.lastDate
+          });
+        }
+      }
+    }
+  }
+
+  const languageRows = await db.all(
+    `SELECT l.id, l.name,
+            COUNT(lp.id) AS total_pages,
+            SUM(CASE WHEN lp.done = 1 THEN 1 ELSE 0 END) AS done_pages,
+            MAX(lp.done_at) AS last_done
+     FROM languages l
+     LEFT JOIN language_pages lp
+       ON lp.language_id = l.id AND lp.user_id = l.user_id
+     WHERE l.user_id=?
+     GROUP BY l.id, l.name
+     ORDER BY l.name COLLATE NOCASE`,
+    [userId]
+  );
+  for (const lang of languageRows) {
+    const totalPages = Number(lang.total_pages) || 0;
+    const donePages = Number(lang.done_pages) || 0;
+    if (totalPages <= 0 || donePages <= 0) continue;
+    const completion = Math.round((donePages * 100) / totalPages);
+    for (const milestone of LANGUAGE_MILESTONES) {
+      if (completion >= milestone) {
+        dynamicBadges.push({
+          id: `language_${lang.id}_${milestone}`,
+          name: `Изучил язык «${lang.name}» на ${milestone}%`,
+          description: `Пройдено ${donePages} из ${totalPages} учебных страниц по языку «${lang.name}».`,
+          icon: '🗣️',
+          earned_at: formatDateToIso(lang.last_done)
+        });
+      }
+    }
+  }
+
+  const courseRows = await db.all(
+    'SELECT id, title, progress, status, archived_at FROM courses WHERE user_id=? ORDER BY title COLLATE NOCASE',
+    [userId]
+  );
+  for (const course of courseRows) {
+    const progress = Number(course.progress) || 0;
+    for (const milestone of COURSE_MILESTONES) {
+      if (progress >= milestone || (milestone === 100 && (course.status === 'completed' || course.archived_at))) {
+        dynamicBadges.push({
+          id: `course_${course.id}_${milestone}`,
+          name:
+            milestone === 100
+              ? `Курс «${course.title}» завершён`
+              : `Продвинулся в курсе «${course.title}» на ${milestone}%`,
+          description: `Текущий прогресс курса «${course.title}»: ${progress}%.`,
+          icon: '🎓',
+          earned_at: formatDateToIso(course.archived_at)
+        });
+      }
+    }
+  }
+
+  const goalRows = await db.all(
+    `SELECT g.id, g.title, g.target, g.completed, g.status, g.archived_at,
+            MAX(l.date) AS last_log
+     FROM yearly_goals g
+     LEFT JOIN yearly_goal_logs l
+       ON l.goal_id = g.id AND l.user_id = g.user_id
+     WHERE g.user_id=?
+     GROUP BY g.id, g.title, g.target, g.completed, g.status, g.archived_at
+     ORDER BY g.created_at DESC`,
+    [userId]
+  );
+  for (const goal of goalRows) {
+    const target = Math.max(0, Number(goal.target) || 0);
+    const completed = Math.max(0, Number(goal.completed) || 0);
+    const pct = target > 0 ? Math.min(100, Math.round((completed * 100) / target)) : 0;
+    for (const milestone of GOAL_MILESTONES) {
+      const reached =
+        milestone === 100
+          ? pct >= 100 || goal.status === 'archived'
+          : pct >= milestone;
+      if (reached && milestone === 100) {
+        dynamicBadges.push({
+          id: `goal_${goal.id}_100`,
+          name: `Годовая цель «${goal.title}» выполнена`,
+          description: `Цель достигнута: ${completed} из ${target}.`,
+          icon: '🎯',
+          earned_at: formatDateToIso(goal.archived_at || goal.last_log)
+        });
+      } else if (reached) {
+        dynamicBadges.push({
+          id: `goal_${goal.id}_${milestone}`,
+          name: `Цель «${goal.title}» достигнута на ${milestone}%`,
+          description: `Прогресс по цели: ${completed} из ${target}.`,
+          icon: '🎯',
+          earned_at: formatDateToIso(goal.last_log)
+        });
+      }
+    }
+  }
+
+  return dynamicBadges;
+}
+
 function attachGoalMeta(goal, logs) {
   const completionPct = goal.target > 0 ? Math.min(100, Math.round((goal.completed || 0) * 100 / goal.target)) : 0;
   const recent = logs.slice(0, 10);
@@ -325,8 +468,12 @@ router.get('/profile', async (req, res) => {
   const db = await getDB();
   const user = await db.get('SELECT id,name,avatar_url,banner_url,bio FROM users WHERE id=?', [req.user.uid]);
   const xp = await db.get('SELECT xp, level FROM user_xp WHERE user_id=?', [req.user.uid]) || { xp: 0, level: 1 };
-  const badges = await db.all('SELECT b.*, ub.earned_at FROM user_badges ub JOIN badges b ON b.id=ub.badge_id WHERE ub.user_id=?', [req.user.uid]);
-  res.json({ user, xp, badges });
+  const storedBadges = await db.all(
+    'SELECT b.*, ub.earned_at FROM user_badges ub JOIN badges b ON b.id=ub.badge_id WHERE ub.user_id=?',
+    [req.user.uid]
+  );
+  const dynamicBadges = await buildDynamicBadges(db, req.user.uid);
+  res.json({ user, xp, badges: [...storedBadges, ...dynamicBadges] });
 });
 
 router.post(
