@@ -67,6 +67,12 @@ async function runMigrations(database) {
     if (!pagesInfo.some(col => col.name === 'pinned')) {
       await database.exec('ALTER TABLE journal_pages ADD COLUMN pinned INTEGER DEFAULT 0;');
     }
+    if (!pagesInfo.some(col => col.name === 'banner_url')) {
+      await database.exec('ALTER TABLE journal_pages ADD COLUMN banner_url TEXT;');
+    }
+    if (!pagesInfo.some(col => col.name === 'banner_gradient')) {
+      await database.exec('ALTER TABLE journal_pages ADD COLUMN banner_gradient TEXT;');
+    }
   }
 
   const feedInfo = await database.all('PRAGMA table_info(life_feed)').catch(() => []);

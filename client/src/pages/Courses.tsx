@@ -160,21 +160,32 @@ export default function Courses() {
         {(items || []).map(c => {
           const languageLabel = c.language_id != null ? languageMap.get(c.language_id) : undefined;
           const gradient = COURSE_BANNER_GRADIENTS[c.id % COURSE_BANNER_GRADIENTS.length];
+
+          const rawProgress = typeof c.progress === 'number' ? c.progress : null;
+          const clampedProgress =
+            rawProgress != null && Number.isFinite(rawProgress)
+              ? Math.min(100, Math.max(0, rawProgress))
+              : null;
           return (
             <div key={c.id} className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-              <div className="relative h-24">
+              <div className="relative h-32">
                 <div className={`absolute inset-0 bg-gradient-to-r ${gradient}`} />
-                <div className="absolute inset-0 bg-black/30" />
+                <div className="absolute inset-0 bg-black/40" />
+                <div className="absolute inset-0 flex flex-col justify-between p-4 text-white">
+                  <div className="text-base font-semibold leading-tight line-clamp-2 drop-shadow">
+                    {c.title}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-xs text-white/80">
+                    <Pill>{courseTypeLabel(c.course_type)}</Pill>
+                    <StatusPill status={c.status} />
+                  </div>
+                </div>
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="text-lg font-semibold leading-tight text-white">{c.title}</div>
-                  <StatusPill status={c.status} />
-                </div>
-                <div className="text-sm text-white/70">{c.provider}</div>
+                <div className="text-sm text-white/70 line-clamp-2 min-h-[1.5rem]">{c.provider}</div>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <Pill>{courseTypeLabel(c.course_type)}</Pill>
                   {languageLabel && <Pill>{languageLabel}</Pill>}
+                  {clampedProgress != null && <Pill>Прогресс: {Math.round(clampedProgress)}%</Pill>}
                 </div>
                 {c.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 text-xs">
@@ -186,7 +197,7 @@ export default function Courses() {
                 <div className="mt-1 h-2 w-full overflow-hidden rounded bg-white/10">
                   <div
                     className="h-2 rounded bg-white"
-                    style={{ width: `${Math.min(100, c.progress || 0)}%` }}
+                    style={{ width: `${clampedProgress != null ? clampedProgress : 0}%` }}
                   />
                 </div>
                 <div className="mt-auto flex items-center gap-2 text-xs">

@@ -25,6 +25,13 @@ const sanitizeDate = (value) => {
   }
 };
 
+const sanitizeOptionalText = (value, limit = 2048) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, limit);
+};
+
 const serializeBlocks = (blocks) => {
   if (!Array.isArray(blocks)) return "[]";
   return JSON.stringify(
@@ -71,6 +78,8 @@ const mapPageRow = (row) => ({
   updated_at: row.updated_at,
   created_at: row.created_at,
   page_date: row.page_date,
+  banner_url: row.banner_url ?? null,
+  banner_gradient: row.banner_gradient ?? null,
   pinned: !!row.pinned
 });
 
@@ -215,7 +224,7 @@ router.delete("/tags/:id", async (req, res) => {
 router.get("/", async (req, res) => {
   const db = await getDB();
   const rows = await db.all(
-    "SELECT id, title, blocks_json, updated_at, created_at, page_date, pinned FROM journal_pages WHERE user_id=? ORDER BY pinned DESC, updated_at DESC",
+    "SELECT id, title, blocks_json, updated_at, created_at, page_date, banner_url, banner_gradient, pinned FROM journal_pages WHERE user_id=? ORDER BY pinned DESC, updated_at DESC",
     [req.user.uid]
   );
   const ids = rows.map((row) => row.id);
@@ -233,12 +242,17 @@ router.post("/", async (req, res) => {
   const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
   const pageDate = sanitizeDate(req.body?.page_date);
   const pinned = req.body?.pinned ? 1 : 0;
+  const bannerUrl = sanitizeOptionalText(req.body?.banner_url ?? req.body?.bannerUrl);
+  const bannerGradient = sanitizeOptionalText(
+    req.body?.banner_gradient ?? req.body?.bannerGradient,
+    4096
+  );
   const now = new Date().toISOString();
   const serialized = serializeBlocks(blocks);
 
   const result = await db.run(
-    "INSERT INTO journal_pages(user_id, title, blocks_json, page_date, pinned, created_at, updated_at) VALUES(?,?,?,?,?,?,?)",
-    [req.user.uid, title, serialized, pageDate, pinned, now, now]
+    "INSERT INTO journal_pages(user_id, title, blocks_json, page_date, banner_url, banner_gradient, pinned, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+    [req.user.uid, title, serialized, pageDate, bannerUrl, bannerGradient, pinned, now, now]
   );
 
   await db.run(
@@ -289,6 +303,19 @@ router.put("/:id", async (req, res) => {
     values.push(req.body.pinned ? 1 : 0);
   }
 
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "banner_url") || Object.prototype.hasOwnProperty.call(req.body || {}, "bannerUrl")) {
+    updates.push("banner_url=?");
+    values.push(sanitizeOptionalText(req.body?.banner_url ?? req.body?.bannerUrl));
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(req.body || {}, "banner_gradient") ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, "bannerGradient")
+  ) {
+    updates.push("banner_gradient=?");
+    values.push(sanitizeOptionalText(req.body?.banner_gradient ?? req.body?.bannerGradient, 4096));
+  }
+
   updates.push("updated_at=?");
   values.push(now, req.params.id, req.user.uid);
 
@@ -323,7 +350,7 @@ router.put("/:id/tags", async (req, res) => {
 router.get("/:id", async (req, res) => {
   const db = await getDB();
   const row = await db.get(
-    "SELECT id, title, blocks_json, created_at, updated_at, page_date, pinned FROM journal_pages WHERE id=? AND user_id=?",
+    "SELECT id, title, blocks_json, created_at, updated_at, page_date, banner_url, banner_gradient, pinned FROM journal_pages WHERE id=? AND user_id=?",
     [req.params.id, req.user.uid]
   );
   if (!row) return res.status(404).json({ error: "not_found" });
@@ -341,6 +368,8 @@ router.get("/:id", async (req, res) => {
       created_at: row.created_at,
       updated_at: row.updated_at,
       page_date: row.page_date,
+      banner_url: row.banner_url || null,
+      banner_gradient: row.banner_gradient || null,
       pinned: !!row.pinned,
       blocks,
       tags: tagMap.get(row.id) || []

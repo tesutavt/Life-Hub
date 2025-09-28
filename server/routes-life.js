@@ -46,6 +46,13 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const pad = (n) => n.toString().padStart(2, '0');
 const toISODate = (date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
+const sanitizeOptionalText = (value, limit = 2048) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, limit);
+};
+
 async function recomputeGoal(db, userId, goalId) {
   const goal = await db.get('SELECT * FROM yearly_goals WHERE id=? AND user_id=?', [goalId, userId]);
   if (!goal) return null;
@@ -358,7 +365,7 @@ router.get('/search', async (req, res) => {
 
   let pages = [];
   if (showPageResults) {
-    let pageSql = 'SELECT jp.id, jp.title, jp.blocks_json, jp.updated_at, jp.created_at, jp.pinned FROM journal_pages jp WHERE jp.user_id=?';
+    let pageSql = 'SELECT jp.id, jp.title, jp.blocks_json, jp.updated_at, jp.created_at, jp.banner_url, jp.banner_gradient, jp.pinned FROM journal_pages jp WHERE jp.user_id=?';
     const pageParams = [req.user.uid];
     if (hasTextQuery) {
       const like = '%' + query + '%';
@@ -381,6 +388,8 @@ router.get('/search', async (req, res) => {
       snippet: extractPageSnippet(row.blocks_json),
       updated_at: row.updated_at,
       created_at: row.created_at,
+      banner_url: row.banner_url || null,
+      banner_gradient: row.banner_gradient || null,
       pinned: !!row.pinned,
       tags: pageTagMap.get(row.id) || []
     }));
@@ -1541,22 +1550,40 @@ router.delete('/yearly-goals/:id', async (req, res) => {
 
 router.get('/journal-pages', async (req, res) => {
   const db = await getDB();
-  const rows = await db.all('SELECT id,title,blocks_json,updated_at FROM journal_pages WHERE user_id=? ORDER BY updated_at DESC', [req.user.uid]);
+  const rows = await db.all(
+    'SELECT id,title,blocks_json,updated_at,banner_url,banner_gradient FROM journal_pages WHERE user_id=? ORDER BY updated_at DESC',
+    [req.user.uid]
+  );
   res.json({ items: rows });
 });
 
 router.post('/journal-pages', async (req, res) => {
   const { title = '', blocks = [] } = req.body || {};
   const db = await getDB();
-  const result = await db.run('INSERT INTO journal_pages(user_id,title,blocks_json,updated_at) VALUES(?,?,?,?)', [req.user.uid, title, JSON.stringify(blocks || []), new Date().toISOString()]);
+  const bannerUrl = sanitizeOptionalText(req.body?.banner_url ?? req.body?.bannerUrl);
+  const bannerGradient = sanitizeOptionalText(req.body?.banner_gradient ?? req.body?.bannerGradient, 4096);
+  const result = await db.run(
+    'INSERT INTO journal_pages(user_id,title,blocks_json,updated_at,banner_url,banner_gradient) VALUES(?,?,?,?,?,?)',
+    [req.user.uid, title, JSON.stringify(blocks || []), new Date().toISOString(), bannerUrl, bannerGradient]
+  );
   res.json({ id: result.lastID });
 });
 
 router.put('/journal-pages/:id', async (req, res) => {
   const { title, blocks } = req.body || {};
   const db = await getDB();
-  await db.run('UPDATE journal_pages SET title=COALESCE(?,title), blocks_json=COALESCE(?,blocks_json), updated_at=? WHERE id=? AND user_id=?',
-    [title, blocks ? JSON.stringify(blocks) : null, new Date().toISOString(), req.params.id, req.user.uid]);
+  await db.run(
+    'UPDATE journal_pages SET title=COALESCE(?,title), blocks_json=COALESCE(?,blocks_json), banner_url=COALESCE(?,banner_url), banner_gradient=COALESCE(?,banner_gradient), updated_at=? WHERE id=? AND user_id=?',
+    [
+      title,
+      blocks ? JSON.stringify(blocks) : null,
+      sanitizeOptionalText(req.body?.banner_url ?? req.body?.bannerUrl),
+      sanitizeOptionalText(req.body?.banner_gradient ?? req.body?.bannerGradient, 4096),
+      new Date().toISOString(),
+      req.params.id,
+      req.user.uid
+    ]
+  );
   res.json({ ok: true });
 });
 
