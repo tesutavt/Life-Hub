@@ -731,7 +731,10 @@ router.get('/calendar', async (req, res) => {
       url: row.url || null
     })));
 
-  const pages = await db.all('SELECT id, title, page_date FROM journal_pages WHERE user_id=? AND page_date IS NOT NULL AND page_date BETWEEN ? AND ? ORDER BY page_date ASC', [req.user.uid, startISO, endISO])
+  const pages = await db.all(
+    'SELECT id, title, page_date, banner_url, banner_gradient FROM journal_pages WHERE user_id=? AND page_date IS NOT NULL AND page_date BETWEEN ? AND ? ORDER BY page_date ASC',
+    [req.user.uid, startISO, endISO]
+  )
     .then(rows => rows.map(row => ({
       id: 'page_' + row.id,
       user_id: req.user.uid,
@@ -740,7 +743,9 @@ router.get('/calendar', async (req, res) => {
       type: 'page',
       mood: null,
       page_id: row.id,
-      url: '/pages/' + row.id
+      url: '/pages/' + row.id,
+      banner_url: row.banner_url || null,
+      banner_gradient: row.banner_gradient || null
     })));
 
   res.json({ items: [...storedWithTags, ...virtual, ...socials, ...pages] });

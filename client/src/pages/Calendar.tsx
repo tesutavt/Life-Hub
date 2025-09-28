@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Shell from '../components/Shell';
-import { api } from '../api';
-import TagSelector from '../components/tags/TagSelector';
+import { api, resolveApiUrl } from '../api';
+import CalendarMaster from '../components/master/CalendarMaster';
 
 const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
@@ -20,6 +20,8 @@ type CalendarEvent = {
   page_id?: number;
   url?: string | null;
   tags?: CalendarTag[];
+  pageBannerUrl?: string | null;
+  pageBannerGradient?: string | null;
 };
 
 const typeIcon = (type: string) => {
@@ -68,11 +70,7 @@ export default function CalendarPage() {
   const [current, setCurrent] = useState(new Date());
   const [items, setItems] = useState<CalendarEvent[]>([]);
   const navigate = useNavigate();
-  const [form, setForm] = useState({ date: '', title: '', type: 'note', mood: 3 });
-  const [formTagIds, setFormTagIds] = useState<number[]>([]);
   const [tagOptions, setTagOptions] = useState<CalendarTag[]>([]);
-  const [pattern, setPattern] = useState('2/2');
-  const [autoStart, setAutoStart] = useState('');
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [clearingShifts, setClearingShifts] = useState(false);
 
@@ -87,6 +85,9 @@ export default function CalendarPage() {
       tags: Array.isArray(item?.tags)
         ? item.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
         : [],
+      pageBannerUrl: item.page_banner_url ?? item.pageBannerUrl ?? item.banner_url ?? item.bannerUrl ?? null,
+      pageBannerGradient:
+        item.page_banner_gradient ?? item.pageBannerGradient ?? item.banner_gradient ?? item.bannerGradient ?? null,
     }));
     setItems(normalized);
   };
@@ -101,21 +102,6 @@ export default function CalendarPage() {
     load();
     loadTagOptions();
   }, [current]);
-
-  const add = async (event: React.FormEvent) => {
-    event.preventDefault();
-    await api.post('/api/life/calendar', { ...form, tags: formTagIds });
-    await api.post('/api/life/xp/add', { amount: 20, note: 'calendar add' });
-    setForm({ date: '', title: '', type: 'note', mood: 3 });
-    setFormTagIds([]);
-    await load();
-  };
-
-  const generateShifts = async () => {
-    const startDate = autoStart || toISODate(new Date(current.getFullYear(), current.getMonth(), 1));
-    await api.post('/api/life/calendar/auto-shifts', { startDate, pattern, days: 120 });
-    await load();
-  };
 
   const eventsByDate = (date: string) => items.filter((item) => item.date === date);
 
@@ -166,14 +152,43 @@ export default function CalendarPage() {
   const goPrevMonth = () => setCurrent(new Date(current.getFullYear(), current.getMonth() - 1, 1));
   const goNextMonth = () => setCurrent(new Date(current.getFullYear(), current.getMonth() + 1, 1));
 
+  const dayBackgroundStyle = (event: CalendarEvent | undefined): React.CSSProperties | undefined => {
+    if (!event) return undefined;
+    const layers: string[] = [];
+    if (event.pageBannerGradient) {
+      layers.push(event.pageBannerGradient);
+    }
+    if (event.pageBannerUrl) {
+      const url = event.pageBannerUrl.startsWith('http') || event.pageBannerUrl.startsWith('data:')
+        ? event.pageBannerUrl
+        : resolveApiUrl(event.pageBannerUrl);
+      layers.push(`url(${url})`);
+    }
+    if (!layers.length) return undefined;
+    const size = layers.map(() => 'cover').join(',');
+    const position = layers.map(() => 'center').join(',');
+    const repeat = layers.map(() => 'no-repeat').join(',');
+    return {
+      backgroundImage: layers.join(','),
+      backgroundSize: size,
+      backgroundPosition: position,
+      backgroundRepeat: repeat,
+    };
+  };
+
   return (
     <Shell>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="text-2xl font-semibold">Календарь</div>
-        <div className="flex items-center gap-2">
-          <button onClick={goPrevMonth} className="px-3 py-1 rounded bg-white/10">‹</button>
-          <div>{current.toLocaleString('ru-RU', { month: 'long', year: 'numeric' })}</div>
-          <button onClick={goNextMonth} className="px-3 py-1 rounded bg-white/10">›</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <CalendarMaster tagOptions={tagOptions} currentMonth={current} onCompleted={load} />
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1">
+            <button onClick={goPrevMonth} className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition">‹</button>
+            <div className="min-w-[140px] text-center text-sm font-medium uppercase tracking-wide">
+              {current.toLocaleString('ru-RU', { month: 'long', year: 'numeric' })}
+            </div>
+            <button onClick={goNextMonth} className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition">›</button>
+          </div>
         </div>
       </div>
 
@@ -186,16 +201,24 @@ export default function CalendarPage() {
           const inCurrentMonth = date.getMonth() === current.getMonth();
           const dayEvents = eventsByDate(iso);
           const mood = dayEvents.find((event) => event.mood)?.mood;
+          const bannerSource = dayEvents.find(
+            (event) => event.type === 'page' && (event.pageBannerGradient || event.pageBannerUrl)
+          );
+          const backgroundStyle = dayBackgroundStyle(bannerSource);
           return (
             <div
               key={`${iso}-${index}`}
-              className={`p-2 rounded-xl min-h-[120px] border ${inCurrentMonth ? 'border-white/10 bg-white/5' : 'border-white/5 bg-white/2'} flex flex-col gap-1`}
+              className={`relative overflow-hidden rounded-2xl border p-2 min-h-[120px] flex flex-col gap-1 ${
+                inCurrentMonth ? 'border-white/10 bg-white/5' : 'border-white/5 bg-white/2'
+              }`}
+              style={backgroundStyle}
             >
-              <div className="text-xs opacity-70 flex justify-between items-center">
+              {backgroundStyle ? <div className="pointer-events-none absolute inset-0 bg-black/45" /> : null}
+              <div className="relative z-10 flex items-center justify-between text-xs opacity-70">
                 <span>{date.getDate()}</span>
                 {mood ? <span>{emojiByMood[Math.max(1, Math.min(5, mood)) - 1]}</span> : null}
               </div>
-              <div className="space-y-1 text-[11px] leading-tight">
+              <div className="relative z-10 space-y-1 text-[11px] leading-tight">
                 {dayEvents.slice(0, 4).map((event: CalendarEvent) => {
                   const key = event.id || `${event.title}-${event.date}`;
                   const highlight = event.type === 'work' ? 'text-amber-300' : event.type === 'off' ? 'text-emerald-300' : 'text-white/80';
@@ -284,49 +307,16 @@ export default function CalendarPage() {
         })}
       </div>
 
-      <div className="card mt-6 grid md:grid-cols-2 gap-4">
-        <form onSubmit={add} className="space-y-2">
-          <div className="font-medium">Создать событие / смену</div>
-          <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="w-full px-3 py-2 rounded bg-white/10" />
-          <input placeholder="Название" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="w-full px-3 py-2 rounded bg-white/10" />
-          <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })} className="w-full px-3 py-2 rounded bg-white/10">
-            <option value="note">Заметка</option>
-            <option value="work">Рабочая смена</option>
-            <option value="off">Выходной</option>
-          </select>
-          <label className="text-xs opacity-70">Настроение (1-5)</label>
-          <input type="number" min={1} max={5} value={form.mood} onChange={e => setForm({ ...form, mood: +e.target.value })} className="w-full px-3 py-2 rounded bg-white/10" />
-          <TagSelector
-            tags={tagOptions}
-            selectedIds={formTagIds}
-            onChange={setFormTagIds}
-            label="Теги события"
-            emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-            onManageTags={() => window.open('/pages', '_blank')}
-          />
-          <button className="px-4 py-2 rounded bg-white text-black">Сохранить</button>
-        </form>
-
-        <div className="space-y-2">
-          <div className="font-medium">Автогенерация смен</div>
-          <div className="flex gap-2">
-            <input placeholder="Паттерн (например 2/2)" value={pattern} onChange={e => setPattern(e.target.value)} className="px-3 py-2 rounded bg-white/10 flex-1" />
-            <button onClick={generateShifts} className="px-4 py-2 rounded bg-white text-black">Сгенерировать</button>
-          </div>
-          <div className="flex items-center gap-2 text-xs opacity-70">
-            <span>Старт с даты</span>
-            <input type="date" value={autoStart} onChange={e => setAutoStart(e.target.value)} className="px-3 py-2 rounded bg-white/10" />
-            <span>(необязательно)</span>
-          </div>
-          <p className="text-xs opacity-70">Смена будет чередоваться по заданному паттерну начиная с указанной даты.</p>
-          <button
-            onClick={handleClearShifts}
-            className={`px-4 py-2 rounded border border-white/20 hover:bg-white/10 transition ${clearingShifts ? 'opacity-50 pointer-events-none' : ''}`}
-            type="button"
-          >
-            {clearingShifts ? 'Удаление…' : 'Удалить все смены'}
-          </button>
-        </div>
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={handleClearShifts}
+          className={`rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white/80 transition hover:bg-white/10 ${
+            clearingShifts ? 'pointer-events-none opacity-50' : ''
+          }`}
+          type="button"
+        >
+          {clearingShifts ? 'Удаление…' : 'Удалить все смены'}
+        </button>
       </div>
     </Shell>
   );
