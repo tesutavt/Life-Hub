@@ -25,6 +25,8 @@ type SearchLanguage = {
   name: string;
   level?: string | null;
   minutes_today?: number | null;
+  image_url?: string | null;
+  banner_url?: string | null;
   tags: SearchTag[];
 };
 

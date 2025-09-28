@@ -14,12 +14,16 @@ type FormState = {
   name: string;
   level: string;
   minutes_today: number;
+  imageUrl: string;
+  bannerUrl: string;
 };
 
 const INITIAL_FORM: FormState = {
   name: "",
   level: "A1",
   minutes_today: 0,
+  imageUrl: "",
+  bannerUrl: "",
 };
 
 export default function LanguageMaster({ tagOptions, onCreated }: LanguageMasterProps) {
@@ -31,7 +35,16 @@ export default function LanguageMaster({ tagOptions, onCreated }: LanguageMaster
     if (!form.name.trim()) return;
     setSaving(true);
     try {
-      await api.post("/api/life/languages", { ...form, tags: tagIds });
+      const imageUrl = form.imageUrl.trim();
+      const bannerUrl = form.bannerUrl.trim();
+      await api.post("/api/life/languages", {
+        name: form.name,
+        level: form.level,
+        minutes_today: form.minutes_today,
+        image_url: imageUrl.length > 0 ? imageUrl : null,
+        banner_url: bannerUrl.length > 0 ? bannerUrl : null,
+        tags: tagIds,
+      });
       await api.post("/api/life/xp/add", { amount: 15 });
       setForm({ ...INITIAL_FORM });
       setTagIds([]);
@@ -89,6 +102,20 @@ export default function LanguageMaster({ tagOptions, onCreated }: LanguageMaster
                 className="px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-white/40 outline-none transition"
               />
             </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              placeholder="Ссылка на изображение (опционально)"
+              value={form.imageUrl}
+              onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
+              className="px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-white/40 outline-none transition"
+            />
+            <input
+              placeholder="Ссылка на баннер (опционально)"
+              value={form.bannerUrl}
+              onChange={(event) => setForm({ ...form, bannerUrl: event.target.value })}
+              className="px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-white/40 outline-none transition"
+            />
           </div>
           <TagSelector
             tags={tagOptions}

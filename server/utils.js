@@ -138,6 +138,12 @@ async function runMigrations(database) {
     if (!hasLanguage('archived_at')) {
       await database.exec('ALTER TABLE languages ADD COLUMN archived_at TEXT;');
     }
+    if (!hasLanguage('image_url')) {
+      await database.exec('ALTER TABLE languages ADD COLUMN image_url TEXT;');
+    }
+    if (!hasLanguage('banner_url')) {
+      await database.exec('ALTER TABLE languages ADD COLUMN banner_url TEXT;');
+    }
     await database.exec("UPDATE languages SET status = COALESCE(status, 'active');");
     await database.exec("UPDATE languages SET status = 'archived' WHERE status <> 'archived' AND archived_at IS NOT NULL;");
   }
