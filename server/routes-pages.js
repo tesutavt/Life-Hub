@@ -1,6 +1,7 @@
 import express from "express";
 import { randomUUID } from "crypto";
 import { getDB } from "./utils.js";
+import { TAG_ENTITY_TYPES, coerceTagIds, fetchTagLinks, sortTags, syncTagLinks } from "./tagUtils.js";
 
 const router = express.Router();
 
@@ -73,63 +74,46 @@ const mapPageRow = (row) => ({
   pinned: !!row.pinned
 });
 
-const parseTagIds = (input) => {
-  if (!Array.isArray(input)) return null;
-  const seen = new Set();
-  for (const raw of input) {
-    const parsed = Number(raw);
-    if (Number.isInteger(parsed) && parsed > 0) {
-      seen.add(parsed);
-    }
-  }
-  return Array.from(seen);
-};
-
-const sortTags = (tags) =>
-  [...tags].sort((a, b) => a.label.localeCompare(b.label, "ru", { sensitivity: "base" }));
-
-const fetchPageTags = async (db, userId, pageIds = null) => {
-  if (Array.isArray(pageIds) && pageIds.length === 0) return new Map();
-  const params = [userId];
-  let sql =
-    "SELECT pt.page_id, t.id, t.label, t.color FROM page_tags pt JOIN tags t ON t.id = pt.tag_id WHERE pt.user_id = ?";
-  if (Array.isArray(pageIds) && pageIds.length > 0) {
-    const placeholders = pageIds.map(() => "?").join(",");
-    sql += " AND pt.page_id IN (" + placeholders + ")";
-    params.push(...pageIds);
-  }
-  sql += " ORDER BY t.label COLLATE NOCASE";
-  const rows = await db.all(sql, params);
-  const map = new Map();
-  for (const row of rows) {
-    if (!map.has(row.page_id)) map.set(row.page_id, []);
-    map.get(row.page_id).push(formatTag(row));
-  }
-  for (const [key, list] of map) {
-    map.set(key, sortTags(list));
-  }
-  return map;
-};
+const fetchPageTags = (db, userId, pageIds = null) =>
+  fetchTagLinks(db, userId, TAG_ENTITY_TYPES.PAGE, pageIds);
 
 const fetchTagsWithCounts = async (db, userId) => {
   const rows = await db.all(
-    "SELECT t.id, t.label, t.color, COUNT(pt.page_id) AS page_count FROM tags t LEFT JOIN page_tags pt ON pt.tag_id = t.id AND pt.user_id = t.user_id WHERE t.user_id = ? GROUP BY t.id ORDER BY t.label COLLATE NOCASE",
+    `SELECT
+       t.id,
+       t.label,
+       t.color,
+       SUM(CASE WHEN tl.entity_type = 'page' THEN 1 ELSE 0 END) AS page_count,
+       SUM(CASE WHEN tl.entity_type = 'language' THEN 1 ELSE 0 END) AS language_count,
+       SUM(CASE WHEN tl.entity_type = 'course' THEN 1 ELSE 0 END) AS course_count,
+       SUM(CASE WHEN tl.entity_type = 'travel' THEN 1 ELSE 0 END) AS travel_count,
+       SUM(CASE WHEN tl.entity_type = 'calendar_event' THEN 1 ELSE 0 END) AS calendar_count
+     FROM tags t
+     LEFT JOIN tag_links tl ON tl.tag_id = t.id AND tl.user_id = t.user_id
+     WHERE t.user_id = ?
+     GROUP BY t.id
+     ORDER BY t.label COLLATE NOCASE`,
     [userId]
   );
   return rows.map((row) => ({
     id: row.id,
     label: row.label,
     color: row.color,
-    page_count: Number(row.page_count) || 0
+    page_count: Number(row.page_count) || 0,
+    language_count: Number(row.language_count) || 0,
+    course_count: Number(row.course_count) || 0,
+    travel_count: Number(row.travel_count) || 0,
+    calendar_count: Number(row.calendar_count) || 0
   }));
 };
 
 const syncPageTags = async (db, userId, pageId, tagIdsInput) => {
-  const tagIds = parseTagIds(tagIdsInput);
+  const tagIds = coerceTagIds(tagIdsInput);
   if (tagIds === null) return null;
 
   if (tagIds.length === 0) {
     await db.run("DELETE FROM page_tags WHERE user_id=? AND page_id=?", [userId, pageId]);
+    await syncTagLinks(db, userId, TAG_ENTITY_TYPES.PAGE, pageId, []);
     return [];
   }
 
@@ -157,7 +141,8 @@ const syncPageTags = async (db, userId, pageId, tagIdsInput) => {
     );
   }
 
-  return sortTags(tagRows.map(formatTag));
+  const synced = await syncTagLinks(db, userId, TAG_ENTITY_TYPES.PAGE, pageId, allowedIds);
+  return synced ?? sortTags(tagRows.map(formatTag));
 };
 
 router.get("/tags", async (req, res) => {
@@ -219,6 +204,10 @@ router.put("/tags/:id", async (req, res) => {
 router.delete("/tags/:id", async (req, res) => {
   const db = await getDB();
   await db.run("DELETE FROM page_tags WHERE tag_id=? AND user_id=?", [req.params.id, req.user.uid]);
+  await db.run(
+    "DELETE FROM tag_links WHERE tag_id=? AND user_id=?",
+    [req.params.id, req.user.uid]
+  );
   await db.run("DELETE FROM tags WHERE id=? AND user_id=?", [req.params.id, req.user.uid]);
   res.json({ success: true });
 });
@@ -362,6 +351,10 @@ router.get("/:id", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   const db = await getDB();
   await db.run("DELETE FROM page_tags WHERE page_id=? AND user_id=?", [req.params.id, req.user.uid]);
+  await db.run(
+    "DELETE FROM tag_links WHERE entity_type=? AND entity_id=? AND user_id=?",
+    [TAG_ENTITY_TYPES.PAGE, req.params.id, req.user.uid]
+  );
   await db.run("DELETE FROM journal_pages WHERE id=? AND user_id=?", [req.params.id, req.user.uid]);
   res.json({ success: true });
 });

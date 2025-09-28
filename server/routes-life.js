@@ -1,5 +1,6 @@
 ﻿import express from 'express';
 import { getDB, levelFromXp } from './utils.js';
+import { TAG_ENTITY_TYPES, fetchTagLinks, sortTags, syncTagLinks } from './tagUtils.js';
 
 const router = express.Router();
 
@@ -122,9 +123,6 @@ function attachGoalMeta(goal, logs) {
 
 const MAX_SEARCH_RESULTS = 20;
 
-const sortSearchTags = (tags) =>
-  [...tags].sort((a, b) => a.label.localeCompare(b.label, 'ru', { sensitivity: 'base' }));
-
 const fetchPageTagsMap = async (db, userId, pageIds) => {
   if (!Array.isArray(pageIds) || pageIds.length === 0) return new Map();
   const placeholders = pageIds.map(() => '?').join(',');
@@ -140,7 +138,7 @@ const fetchPageTagsMap = async (db, userId, pageIds) => {
     map.get(row.page_id).push({ id: row.id, label: row.label, color: row.color });
   }
   for (const [key, list] of map) {
-    map.set(key, sortSearchTags(list));
+    map.set(key, sortTags(list));
   }
   return map;
 };
@@ -172,53 +170,68 @@ router.get('/search', async (req, res) => {
     'SELECT id, label, color FROM tags WHERE user_id=? ORDER BY label COLLATE NOCASE',
     [req.user.uid]
   );
-  const tags = sortSearchTags(tagRows.map((row) => ({ id: row.id, label: row.label, color: row.color })));
+  const tags = sortTags(tagRows.map((row) => ({ id: row.id, label: row.label, color: row.color })));
   const selectedTag = tagId ? tags.find((tag) => tag.id === tagId) || null : null;
+  const hasTextQuery = query.length > 0;
+  const includeTagFilter = !!selectedTag;
+  const showPageResults = hasTextQuery || includeTagFilter;
 
-  let pageSql = 'SELECT jp.id, jp.title, jp.blocks_json, jp.updated_at, jp.created_at, jp.pinned FROM journal_pages jp WHERE jp.user_id=?';
-  const pageParams = [req.user.uid];
-  if (query) {
-    const like = '%' + query + '%';
-    pageSql += ' AND (LOWER(jp.title) LIKE ? OR LOWER(COALESCE(jp.blocks_json, "")) LIKE ?)';
-    pageParams.push(like, like);
+  let pages = [];
+  if (showPageResults) {
+    let pageSql = 'SELECT jp.id, jp.title, jp.blocks_json, jp.updated_at, jp.created_at, jp.pinned FROM journal_pages jp WHERE jp.user_id=?';
+    const pageParams = [req.user.uid];
+    if (hasTextQuery) {
+      const like = '%' + query + '%';
+      pageSql += ' AND (LOWER(jp.title) LIKE ? OR LOWER(COALESCE(jp.blocks_json, "")) LIKE ?)';
+      pageParams.push(like, like);
+    }
+    if (selectedTag) {
+      pageSql +=
+        ' AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=jp.id AND tl.user_id=? AND tl.tag_id=?)';
+      pageParams.push(TAG_ENTITY_TYPES.PAGE, req.user.uid, selectedTag.id);
+    }
+    pageSql += ' ORDER BY jp.pinned DESC, jp.updated_at DESC LIMIT ?';
+    pageParams.push(limit);
+    const pageRows = await db.all(pageSql, pageParams);
+    const pageIds = pageRows.map((row) => row.id);
+    const pageTagMap = await fetchPageTagsMap(db, req.user.uid, pageIds);
+    pages = pageRows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      snippet: extractPageSnippet(row.blocks_json),
+      updated_at: row.updated_at,
+      created_at: row.created_at,
+      pinned: !!row.pinned,
+      tags: pageTagMap.get(row.id) || []
+    }));
   }
-  if (selectedTag) {
-    pageSql += ' AND EXISTS (SELECT 1 FROM page_tags pt WHERE pt.page_id = jp.id AND pt.user_id=? AND pt.tag_id=?)';
-    pageParams.push(req.user.uid, selectedTag.id);
-  }
-  pageSql += ' ORDER BY jp.pinned DESC, jp.updated_at DESC LIMIT ?';
-  pageParams.push(limit);
-  const pageRows = await db.all(pageSql, pageParams);
-  const pageIds = pageRows.map((row) => row.id);
-  const pageTagMap = await fetchPageTagsMap(db, req.user.uid, pageIds);
-  const pages = pageRows.map((row) => ({
-    id: row.id,
-    title: row.title,
-    snippet: extractPageSnippet(row.blocks_json),
-    updated_at: row.updated_at,
-    created_at: row.created_at,
-    pinned: !!row.pinned,
-    tags: pageTagMap.get(row.id) || []
-  }));
 
-  const shouldSearchOther = query.length > 0;
+  const shouldSearchOther = hasTextQuery || includeTagFilter;
 
   let languages = [];
   if (shouldSearchOther) {
     let languageSql = 'SELECT id, name, level, minutes_today FROM languages WHERE user_id=?';
     const languageParams = [req.user.uid];
-    if (query) {
+    if (hasTextQuery) {
       languageSql += ' AND LOWER(name) LIKE ?';
       languageParams.push('%' + query + '%');
+    }
+    if (selectedTag) {
+      languageSql +=
+        ' AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=languages.id AND tl.user_id=? AND tl.tag_id=?)';
+      languageParams.push(TAG_ENTITY_TYPES.LANGUAGE, req.user.uid, selectedTag.id);
     }
     languageSql += ' ORDER BY minutes_today DESC, name COLLATE NOCASE ASC LIMIT ?';
     languageParams.push(limit);
     const languageRows = await db.all(languageSql, languageParams);
+    const languageIds = languageRows.map((row) => row.id);
+    const languageTagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, languageIds);
     languages = languageRows.map((row) => ({
       id: row.id,
       name: row.name,
       level: row.level,
-      minutes_today: row.minutes_today
+      minutes_today: row.minutes_today,
+      tags: languageTagMap.get(row.id) || []
     }));
   }
 
@@ -226,32 +239,152 @@ router.get('/search', async (req, res) => {
   if (shouldSearchOther) {
     let courseSql = 'SELECT id, title, provider, progress, status, course_type FROM courses WHERE user_id=?';
     const courseParams = [req.user.uid];
-    if (query) {
+    if (hasTextQuery) {
       const like = '%' + query + '%';
       courseSql += ' AND (LOWER(title) LIKE ? OR LOWER(COALESCE(provider, "")) LIKE ?)';
       courseParams.push(like, like);
     }
+    if (selectedTag) {
+      courseSql +=
+        ' AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=courses.id AND tl.user_id=? AND tl.tag_id=?)';
+      courseParams.push(TAG_ENTITY_TYPES.COURSE, req.user.uid, selectedTag.id);
+    }
     courseSql += ' ORDER BY id DESC LIMIT ?';
     courseParams.push(limit);
     const courseRows = await db.all(courseSql, courseParams);
+    const courseIds = courseRows.map((row) => row.id);
+    const courseTagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, courseIds);
     courses = courseRows.map((row) => ({
       id: row.id,
       title: row.title,
       provider: row.provider,
       progress: row.progress,
       status: row.status,
-      course_type: row.course_type
+      course_type: row.course_type,
+      tags: courseTagMap.get(row.id) || []
+    }));
+  }
+
+  let travel = [];
+  if (shouldSearchOther) {
+    let travelSql = 'SELECT id, title, location, date_from, date_to, status FROM travel_plans WHERE user_id=?';
+    const travelParams = [req.user.uid];
+    if (hasTextQuery) {
+      const like = '%' + query + '%';
+      travelSql += ' AND (LOWER(title) LIKE ? OR LOWER(COALESCE(location, "")) LIKE ?)';
+      travelParams.push(like, like);
+    }
+    if (selectedTag) {
+      travelSql +=
+        ' AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=travel_plans.id AND tl.user_id=? AND tl.tag_id=?)';
+      travelParams.push(TAG_ENTITY_TYPES.TRAVEL, req.user.uid, selectedTag.id);
+    }
+    travelSql += ' ORDER BY COALESCE(date_from, date_to) DESC, id DESC LIMIT ?';
+    travelParams.push(limit);
+    const travelRows = await db.all(travelSql, travelParams);
+    const travelIds = travelRows.map((row) => row.id);
+    const travelTagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, travelIds);
+    travel = travelRows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      location: row.location,
+      date_from: row.date_from,
+      date_to: row.date_to,
+      status: row.status,
+      tags: travelTagMap.get(row.id) || []
+    }));
+  }
+
+  let loans = [];
+  if (shouldSearchOther) {
+    let loanSql = 'SELECT id, bank, payment_monthly, remaining, due_day FROM loans WHERE user_id=?';
+    const loanParams = [req.user.uid];
+    if (hasTextQuery) {
+      loanSql += ' AND LOWER(bank) LIKE ?';
+      loanParams.push('%' + query + '%');
+    }
+    if (selectedTag) {
+      loanSql +=
+        ' AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=loans.id AND tl.user_id=? AND tl.tag_id=?)';
+      loanParams.push(TAG_ENTITY_TYPES.LOAN, req.user.uid, selectedTag.id);
+    }
+    loanSql += ' ORDER BY id DESC LIMIT ?';
+    loanParams.push(limit);
+    const loanRows = await db.all(loanSql, loanParams);
+    const loanIds = loanRows.map((row) => row.id);
+    const loanTagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LOAN, loanIds);
+    loans = loanRows.map((row) => ({
+      id: row.id,
+      bank: row.bank,
+      payment_monthly: row.payment_monthly,
+      remaining: row.remaining,
+      due_day: row.due_day,
+      tags: loanTagMap.get(row.id) || []
+    }));
+  }
+
+  let habits = [];
+  if (shouldSearchOther) {
+    let habitSql = 'SELECT id, title, target_per_week, done_this_week FROM habits WHERE user_id=?';
+    const habitParams = [req.user.uid];
+    if (hasTextQuery) {
+      habitSql += ' AND LOWER(title) LIKE ?';
+      habitParams.push('%' + query + '%');
+    }
+    if (selectedTag) {
+      habitSql +=
+        ' AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=habits.id AND tl.user_id=? AND tl.tag_id=?)';
+      habitParams.push(TAG_ENTITY_TYPES.HABIT, req.user.uid, selectedTag.id);
+    }
+    habitSql += ' ORDER BY id DESC LIMIT ?';
+    habitParams.push(limit);
+    const habitRows = await db.all(habitSql, habitParams);
+    const habitIds = habitRows.map((row) => row.id);
+    const habitTagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.HABIT, habitIds);
+    habits = habitRows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      target_per_week: row.target_per_week,
+      done_this_week: row.done_this_week,
+      tags: habitTagMap.get(row.id) || []
+    }));
+  }
+
+  let calendar = [];
+  if (shouldSearchOther) {
+    let calendarSql = 'SELECT id, date, title, type, mood FROM calendar_events WHERE user_id=?';
+    const calendarParams = [req.user.uid];
+    if (hasTextQuery) {
+      calendarSql += ' AND (LOWER(title) LIKE ? OR LOWER(type) LIKE ?)';
+      const like = '%' + query + '%';
+      calendarParams.push(like, like);
+    }
+    if (selectedTag) {
+      calendarSql +=
+        ' AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=calendar_events.id AND tl.user_id=? AND tl.tag_id=?)';
+      calendarParams.push(TAG_ENTITY_TYPES.CALENDAR_EVENT, req.user.uid, selectedTag.id);
+    }
+    calendarSql += ' ORDER BY date DESC, id DESC LIMIT ?';
+    calendarParams.push(limit);
+    const calendarRows = await db.all(calendarSql, calendarParams);
+    const calendarIds = calendarRows.map((row) => row.id);
+    const calendarTagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.CALENDAR_EVENT, calendarIds);
+    calendar = calendarRows.map((row) => ({
+      id: row.id,
+      date: row.date,
+      title: row.title,
+      type: row.type,
+      mood: row.mood,
+      tags: calendarTagMap.get(row.id) || []
     }));
   }
 
   let goals = [];
-  if (shouldSearchOther) {
+  if (hasTextQuery) {
     let goalSql = 'SELECT id, title, target, completed, status, streak_current, streak_best, archived_at, created_at FROM yearly_goals WHERE user_id=?';
     const goalParams = [req.user.uid];
-    if (query) {
-      goalSql += ' AND LOWER(title) LIKE ?';
-      goalParams.push('%' + query + '%');
-    }
+    goalSql += ' AND LOWER(title) LIKE ?';
+    goalParams.push('%' + query + '%');
     goalSql += ' ORDER BY status, created_at DESC LIMIT ?';
     goalParams.push(limit);
     const goalRows = await db.all(goalSql, goalParams);
@@ -269,7 +402,7 @@ router.get('/search', async (req, res) => {
     }));
   }
 
-  const tagMatches = query
+  const tagMatches = hasTextQuery
     ? tags.filter((tag) => tag.label.toLowerCase().includes(query)).slice(0, limit)
     : [];
 
@@ -280,6 +413,10 @@ router.get('/search', async (req, res) => {
     pages,
     languages,
     courses,
+    travel,
+    loans,
+    habits,
+    calendar,
     goals
   });
 });
@@ -304,6 +441,9 @@ router.get('/calendar', async (req, res) => {
   const endISO = toISODate(monthEnd);
 
   const stored = await db.all('SELECT id, user_id, date, title, type, mood FROM calendar_events WHERE user_id=? AND date BETWEEN ? AND ? ORDER BY date ASC', [req.user.uid, startISO, endISO]);
+  const storedIds = stored.map((row) => row.id);
+  const eventTagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.CALENDAR_EVENT, storedIds);
+  const storedWithTags = stored.map((item) => ({ ...item, tags: eventTagMap.get(item.id) || [] }));
 
   const loans = await db.all('SELECT id, bank, due_day FROM loans WHERE user_id=?', [req.user.uid]);
   const virtual = [];
@@ -343,7 +483,7 @@ router.get('/calendar', async (req, res) => {
       url: '/pages/' + row.id
     })));
 
-  res.json({ items: [...stored, ...virtual, ...socials, ...pages] });
+  res.json({ items: [...storedWithTags, ...virtual, ...socials, ...pages] });
 });
 router.post('/xp/add', async (req, res) => {
   const { amount = 0, note = null } = req.body || {};
@@ -386,22 +526,52 @@ router.post('/feed/add', async (req, res) => {
   res.json({ ok: true });
 });
 router.post('/calendar', async (req, res) => {
-  const { date, title, type = 'note', mood = null } = req.body;
+  const { date, title, type = 'note', mood = null, tags: tagsInput } = req.body || {};
   const db = await getDB();
-  const r = await db.run('INSERT INTO calendar_events(user_id,date,title,type,mood) VALUES(?,?,?,?,?)', [req.user.uid, date, title, type, mood]);
-  res.json({ id: r.lastID });
+  const result = await db.run('INSERT INTO calendar_events(user_id,date,title,type,mood) VALUES(?,?,?,?,?)', [req.user.uid, date, title, type, mood]);
+  const row = await db.get('SELECT id, date, title, type, mood FROM calendar_events WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
+  let tags = [];
+  if (tagsInput !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.CALENDAR_EVENT, result.lastID, tagsInput);
+    if (synced !== null) tags = synced;
+  }
+  if (tags.length === 0) {
+    const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.CALENDAR_EVENT, [result.lastID]);
+    tags = tagMap.get(result.lastID) || [];
+  }
+  res.json({ event: { ...row, tags } });
 });
 
 router.put('/calendar/:id', async (req, res) => {
-  const { date, title, type, mood } = req.body;
+  const payload = req.body || {};
   const db = await getDB();
-  await db.run('UPDATE calendar_events SET date=?, title=?, type=?, mood=? WHERE id=? AND user_id=?', [date, title, type, mood, req.params.id, req.user.uid]);
-  res.json({ success: true });
+  const updates = [];
+  const values = [];
+  if (payload.date !== undefined) { updates.push('date=?'); values.push(payload.date); }
+  if (payload.title !== undefined) { updates.push('title=?'); values.push(payload.title); }
+  if (payload.type !== undefined) { updates.push('type=?'); values.push(payload.type); }
+  if (payload.mood !== undefined) { updates.push('mood=?'); values.push(payload.mood); }
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.CALENDAR_EVENT, req.params.id, payload.tags);
+    if (synced === null) {
+      return res.status(400).json({ error: 'bad_tags' });
+    }
+  }
+  if (updates.length) {
+    const setClause = updates.join(', ');
+    const result = await db.run('UPDATE calendar_events SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
+    if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
+  }
+  const row = await db.get('SELECT id, date, title, type, mood FROM calendar_events WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.CALENDAR_EVENT, [row.id]);
+  res.json({ event: { ...row, tags: tagMap.get(row.id) || [] } });
 });
 
 router.delete('/calendar/:id', async (req, res) => {
   const db = await getDB();
   await db.run('DELETE FROM calendar_events WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  await db.run('DELETE FROM tag_links WHERE entity_type=? AND entity_id=? AND user_id=?', [TAG_ENTITY_TYPES.CALENDAR_EVENT, req.params.id, req.user.uid]);
   res.json({ success: true });
 });
 
@@ -508,14 +678,15 @@ function crud(table) {
   return routerCrud;
 }
 
-const mapLanguageRow = (row) => ({
+const mapLanguageRow = (row, tags = []) => ({
   id: row.id,
   name: row.name,
   level: row.level,
   streak: row.streak ?? 0,
   minutes_today: row.minutes_today ?? 0,
   status: row.status || 'active',
-  archived_at: row.archived_at
+  archived_at: row.archived_at,
+  tags
 });
 
 const languagesRouter = express.Router();
@@ -523,10 +694,12 @@ const languagesRouter = express.Router();
 languagesRouter.get('/', async (req, res) => {
   const db = await getDB();
   const rows = await db.all('SELECT id,name,level,streak,minutes_today,status,archived_at FROM languages WHERE user_id=? ORDER BY name COLLATE NOCASE', [req.user.uid]);
+  const ids = rows.map((row) => row.id);
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, ids);
   const active = [];
   const archived = [];
   for (const row of rows) {
-    const mapped = mapLanguageRow(row);
+    const mapped = mapLanguageRow(row, tagMap.get(row.id) || []);
     if (mapped.archived_at || mapped.status === 'archived') archived.push(mapped); else active.push(mapped);
   }
   res.json({ items: active, archived });
@@ -542,7 +715,18 @@ languagesRouter.post('/', async (req, res) => {
   const status = typeof payload.status === 'string' && payload.status === 'archived' ? 'archived' : 'active';
   const result = await db.run('INSERT INTO languages(user_id,name,level,streak,minutes_today,status,archived_at) VALUES(?,?,?,?,?,?,NULL)', [req.user.uid, name, level, streak, minutes, status]);
   const row = await db.get('SELECT id,name,level,streak,minutes_today,status,archived_at FROM languages WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
-  res.json({ language: mapLanguageRow(row) });
+  let tags = [];
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, row.id, payload.tags);
+    if (synced !== null) {
+      tags = synced;
+    }
+  }
+  if (tags.length === 0) {
+    const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, [row.id]);
+    tags = tagMap.get(row.id) || [];
+  }
+  res.json({ language: mapLanguageRow(row, tags) });
 });
 
 languagesRouter.put('/:id', async (req, res) => {
@@ -554,11 +738,22 @@ languagesRouter.put('/:id', async (req, res) => {
   if (payload.level !== undefined) { updates.push('level=?'); values.push(String(payload.level)); }
   if (payload.streak !== undefined) { updates.push('streak=?'); values.push(Number(payload.streak) || 0); }
   if (payload.minutes_today !== undefined) { updates.push('minutes_today=?'); values.push(Number(payload.minutes_today) || 0); }
-  if (!updates.length) return res.json({ success: true });
-  const setClause = updates.join(', ');
-  const result = await db.run('UPDATE languages SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
-  if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
-  res.json({ success: true });
+  const tagsPayload = payload.tags;
+  if (tagsPayload !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, req.params.id, tagsPayload);
+    if (synced === null) {
+      return res.status(400).json({ error: 'bad_tags' });
+    }
+  }
+  if (updates.length) {
+    const setClause = updates.join(', ');
+    const result = await db.run('UPDATE languages SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
+    if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
+  }
+  const row = await db.get('SELECT id,name,level,streak,minutes_today,status,archived_at FROM languages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, [row.id]);
+  res.json({ language: mapLanguageRow(row, tagMap.get(row.id) || []) });
 });
 
 languagesRouter.delete('/:id', async (req, res) => {
@@ -576,7 +771,7 @@ languagesRouter.post('/:id/restore', async (req, res) => {
   res.json({ success: true });
 });
 
-const mapCourseRow = (row) => ({
+const mapCourseRow = (row, tags = []) => ({
   id: row.id,
   title: row.title,
   provider: row.provider,
@@ -584,7 +779,8 @@ const mapCourseRow = (row) => ({
   language_id: row.language_id,
   progress: row.progress ?? 0,
   status: row.status || 'in-progress',
-  archived_at: row.archived_at
+  archived_at: row.archived_at,
+  tags
 });
 
 const coursesRouter = express.Router();
@@ -592,10 +788,12 @@ const coursesRouter = express.Router();
 coursesRouter.get('/', async (req, res) => {
   const db = await getDB();
   const rows = await db.all('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE user_id=? ORDER BY title COLLATE NOCASE', [req.user.uid]);
+  const ids = rows.map((row) => row.id);
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, ids);
   const active = [];
   const archived = [];
   for (const row of rows) {
-    const mapped = mapCourseRow(row);
+    const mapped = mapCourseRow(row, tagMap.get(row.id) || []);
     if (mapped.archived_at) archived.push(mapped); else active.push(mapped);
   }
   res.json({ items: active, archived });
@@ -617,7 +815,18 @@ coursesRouter.post('/', async (req, res) => {
   const status = typeof payload.status === 'string' ? payload.status : 'in-progress';
   const result = await db.run('INSERT INTO courses(user_id,title,provider,course_type,language_id,progress,status,archived_at) VALUES(?,?,?,?,?,?,?,NULL)', [req.user.uid, title, provider, courseType, languageId, progress, status]);
   const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
-  res.json({ course: mapCourseRow(row) });
+  let tags = [];
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, row.id, payload.tags);
+    if (synced !== null) {
+      tags = synced;
+    }
+  }
+  if (tags.length === 0) {
+    const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, [row.id]);
+    tags = tagMap.get(row.id) || [];
+  }
+  res.json({ course: mapCourseRow(row, tags) });
 });
 
 coursesRouter.put('/:id', async (req, res) => {
@@ -640,10 +849,188 @@ coursesRouter.put('/:id', async (req, res) => {
   }
   if (payload.progress !== undefined) { updates.push('progress=?'); values.push(Number(payload.progress) || 0); }
   if (payload.status !== undefined) { updates.push('status=?'); values.push(String(payload.status)); }
-  if (!updates.length) return res.json({ success: true });
-  const setClause = updates.join(', ');
-  const result = await db.run('UPDATE courses SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
-  if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, req.params.id, payload.tags);
+    if (synced === null) {
+      return res.status(400).json({ error: 'bad_tags' });
+    }
+  }
+  if (updates.length) {
+    const setClause = updates.join(', ');
+    const result = await db.run('UPDATE courses SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
+    if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
+  }
+  const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, [row.id]);
+  res.json({ course: mapCourseRow(row, tagMap.get(row.id) || []) });
+});
+
+const mapTravelRow = (row, tags = []) => ({
+  id: row.id,
+  title: row.title,
+  location: row.location,
+  date_from: row.date_from,
+  date_to: row.date_to,
+  status: row.status,
+  notes: row.notes,
+  tags
+});
+
+const mapHabitRow = (row, tags = []) => ({
+  id: row.id,
+  title: row.title,
+  target_per_week: row.target_per_week,
+  done_this_week: row.done_this_week,
+  tags
+});
+
+const travelRouter = express.Router();
+
+travelRouter.get('/', async (req, res) => {
+  const db = await getDB();
+  const rows = await db.all('SELECT id,title,location,date_from,date_to,status,notes FROM travel_plans WHERE user_id=? ORDER BY date_from DESC, id DESC', [req.user.uid]);
+  const ids = rows.map((row) => row.id);
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, ids);
+  res.json({
+    items: rows.map((row) => mapTravelRow(row, tagMap.get(row.id) || []))
+  });
+});
+
+travelRouter.post('/', async (req, res) => {
+  const db = await getDB();
+  const payload = req.body || {};
+  const title = typeof payload.title === 'string' ? payload.title : '';
+  const location = typeof payload.location === 'string' ? payload.location : '';
+  const dateFrom = payload.date_from || null;
+  const dateTo = payload.date_to || null;
+  const status = typeof payload.status === 'string' ? payload.status : 'planned';
+  const notes = typeof payload.notes === 'string' ? payload.notes : null;
+  const result = await db.run(
+    'INSERT INTO travel_plans(user_id,title,location,date_from,date_to,status,notes) VALUES(?,?,?,?,?,?,?)',
+    [req.user.uid, title, location, dateFrom, dateTo, status, notes]
+  );
+  const row = await db.get('SELECT id,title,location,date_from,date_to,status,notes FROM travel_plans WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
+  let tags = [];
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, row.id, payload.tags);
+    if (synced !== null) tags = synced;
+  }
+  if (tags.length === 0) {
+    const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, [row.id]);
+    tags = tagMap.get(row.id) || [];
+  }
+  res.json({ travel: mapTravelRow(row, tags) });
+});
+
+travelRouter.put('/:id', async (req, res) => {
+  const db = await getDB();
+  const payload = req.body || {};
+  const updates = [];
+  const values = [];
+  if (payload.title !== undefined) { updates.push('title=?'); values.push(String(payload.title)); }
+  if (payload.location !== undefined) { updates.push('location=?'); values.push(String(payload.location)); }
+  if (payload.date_from !== undefined) { updates.push('date_from=?'); values.push(payload.date_from || null); }
+  if (payload.date_to !== undefined) { updates.push('date_to=?'); values.push(payload.date_to || null); }
+  if (payload.status !== undefined) { updates.push('status=?'); values.push(String(payload.status)); }
+  if (payload.notes !== undefined) { updates.push('notes=?'); values.push(payload.notes ? String(payload.notes) : null); }
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, req.params.id, payload.tags);
+    if (synced === null) {
+      return res.status(400).json({ error: 'bad_tags' });
+    }
+  }
+  if (updates.length) {
+    const setClause = updates.join(', ');
+    const result = await db.run('UPDATE travel_plans SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
+    if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
+  }
+  const row = await db.get('SELECT id,title,location,date_from,date_to,status,notes FROM travel_plans WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, [row.id]);
+  res.json({ travel: mapTravelRow(row, tagMap.get(row.id) || []) });
+});
+
+travelRouter.delete('/:id', async (req, res) => {
+  const db = await getDB();
+  await db.run('DELETE FROM travel_plans WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  await db.run('DELETE FROM tag_links WHERE entity_type=? AND entity_id=? AND user_id=?', [TAG_ENTITY_TYPES.TRAVEL, req.params.id, req.user.uid]);
+  res.json({ success: true });
+});
+
+const habitsRouter = express.Router();
+
+habitsRouter.get('/', async (req, res) => {
+  const db = await getDB();
+  const rows = await db.all('SELECT id, title, target_per_week, done_this_week FROM habits WHERE user_id=? ORDER BY id DESC', [
+    req.user.uid
+  ]);
+  const ids = rows.map((row) => row.id);
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.HABIT, ids);
+  res.json({ items: rows.map((row) => mapHabitRow(row, tagMap.get(row.id) || [])) });
+});
+
+habitsRouter.post('/', async (req, res) => {
+  const db = await getDB();
+  const payload = req.body || {};
+  const title = typeof payload.title === 'string' ? payload.title : '';
+  const target = Number.isFinite(Number(payload.target_per_week)) ? Number(payload.target_per_week) : 0;
+  const result = await db.run(
+    'INSERT INTO habits(user_id,title,target_per_week,done_this_week) VALUES(?,?,?,0)',
+    [req.user.uid, title, target]
+  );
+  const row = await db.get(
+    'SELECT id, title, target_per_week, done_this_week FROM habits WHERE id=? AND user_id=?',
+    [result.lastID, req.user.uid]
+  );
+  let tags = [];
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.HABIT, row.id, payload.tags);
+    if (synced !== null) tags = synced;
+  }
+  if (tags.length === 0) {
+    const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.HABIT, [row.id]);
+    tags = tagMap.get(row.id) || [];
+  }
+  res.json({ id: row.id, habit: mapHabitRow(row, tags) });
+});
+
+habitsRouter.put('/:id', async (req, res) => {
+  const db = await getDB();
+  const payload = req.body || {};
+  const updates = [];
+  const values = [];
+  if (payload.title !== undefined) { updates.push('title=?'); values.push(String(payload.title)); }
+  if (payload.target_per_week !== undefined) { updates.push('target_per_week=?'); values.push(Number(payload.target_per_week) || 0); }
+  if (payload.done_this_week !== undefined) { updates.push('done_this_week=?'); values.push(Number(payload.done_this_week) || 0); }
+  if (payload.tags !== undefined) {
+    const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.HABIT, req.params.id, payload.tags);
+    if (synced === null) {
+      return res.status(400).json({ error: 'bad_tags' });
+    }
+  }
+  if (updates.length) {
+    const setClause = updates.join(', ');
+    const result = await db.run('UPDATE habits SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
+    if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
+  }
+  const row = await db.get('SELECT id, title, target_per_week, done_this_week FROM habits WHERE id=? AND user_id=?', [
+    req.params.id,
+    req.user.uid
+  ]);
+  if (!row) return res.status(404).json({ error: 'not_found' });
+  const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.HABIT, [row.id]);
+  res.json({ habit: mapHabitRow(row, tagMap.get(row.id) || []) });
+});
+
+habitsRouter.delete('/:id', async (req, res) => {
+  const db = await getDB();
+  await db.run('DELETE FROM habits WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  await db.run('DELETE FROM tag_links WHERE entity_type=? AND entity_id=? AND user_id=?', [
+    TAG_ENTITY_TYPES.HABIT,
+    req.params.id,
+    req.user.uid
+  ]);
   res.json({ success: true });
 });
 
@@ -724,8 +1111,8 @@ router.use('/languages', languagesRouter);
 router.use('/courses', coursesRouter);
 router.use('/socials', crud('socials'));
 router.use('/journal', crud('journal'));
-router.use('/habits', crud('habits'));
-router.use('/travel', crud('travel_plans'));
+router.use('/habits', habitsRouter);
+router.use('/travel', travelRouter);
 
 router.get('/habits/checks', async (req, res) => {
   const db = await getDB();
