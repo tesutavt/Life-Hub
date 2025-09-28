@@ -124,6 +124,12 @@ type SiteSearchProps = {
 
 const DEFAULT_SECTIONS: SearchSection[] = ['pages', 'languages', 'courses', 'travel', 'loans', 'habits', 'calendar', 'goals'];
 const SEARCH_DELAY = 250;
+const LANGUAGE_BANNER_FALLBACKS = [
+  'from-rose-500/40 via-orange-500/30 to-amber-400/40',
+  'from-indigo-500/40 via-sky-500/30 to-emerald-400/40',
+  'from-purple-500/40 via-pink-500/30 to-red-400/40',
+  'from-sky-500/40 via-cyan-500/30 to-blue-500/40',
+];
 
 const hasQuery = (value: string) => value.trim().length > 0;
 
@@ -369,21 +375,42 @@ export default function SiteSearch({
                 {renderSectionTitle('Languages')}
                 {hasLanguages ? (
                   <div className="grid gap-2">
-                    {languages.map((item) => (
-                      <div key={item.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
-                        <div className="font-medium text-white">{item.name}</div>
-                        <div className="text-xs text-white/60">
-                          Level: {item.level || 'n/a'} • Today: {item.minutes_today ?? 0} min
-                        </div>
-                        {item.tags.length > 0 && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {item.tags.map((tag) => (
-                              <TagBadge key={tag.id} tag={tag} compact />
-                            ))}
+                    {languages.map((item) => {
+                      const fallback = LANGUAGE_BANNER_FALLBACKS[item.id % LANGUAGE_BANNER_FALLBACKS.length];
+                      return (
+                        <div
+                          key={item.id}
+                          className="relative overflow-hidden rounded-xl border border-white/10 text-sm"
+                        >
+                          <div className="relative h-20">
+                            {item.banner_url ? (
+                              <img
+                                src={item.banner_url}
+                                alt={item.name}
+                                className="absolute inset-0 h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className={`absolute inset-0 bg-gradient-to-r ${fallback}`} />
+                            )}
+                            <div className="absolute inset-0 bg-black/40" />
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          <div className="relative space-y-1 bg-black/40 px-3 py-2 backdrop-blur-sm">
+                            <div className="font-medium text-white">{item.name}</div>
+                            <div className="text-xs text-white/70">
+                              Level: {item.level || 'n/a'} • Today: {item.minutes_today ?? 0} min
+                            </div>
+                            {item.tags.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {item.tags.map((tag) => (
+                                  <TagBadge key={tag.id} tag={tag} compact />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">No languages found.</div>

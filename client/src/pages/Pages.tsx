@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Pin, PinOff, Tag as TagIcon, X } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api } from '../api';
 import TagManager from '../components/tags/TagManager';
@@ -25,7 +26,11 @@ type PageRow = {
   page_date?: string | null;
   pinned?: boolean;
   tags: Tag[];
+  bannerUrl?: string | null;
+  bannerGradient?: string | null;
 };
+
+const DEFAULT_PAGE_GRADIENT = 'linear-gradient(135deg, rgba(59, 130, 246, 0.65) 0%, rgba(236, 72, 153, 0.6) 100%)';
 
 const extractPreview = (blocksJson?: string | null) => {
   if (!blocksJson) return '';
@@ -58,6 +63,8 @@ export default function Pages() {
       created_at: row.created_at,
       page_date: row.page_date,
       pinned: !!row.pinned,
+      bannerUrl: row.banner_url ?? row.bannerUrl ?? null,
+      bannerGradient: row.banner_gradient ?? row.bannerGradient ?? null,
       tags: Array.isArray(row.tags)
         ? row.tags.map((tag: any) => ({
             id: tag.id,
@@ -191,6 +198,27 @@ export default function Pages() {
                   <div className="flex flex-col gap-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <Link to={`/pages/${item.id}`} className="flex-1 min-w-0">
+                        {(item.bannerUrl || item.bannerGradient) && (
+                          <div className="mb-3 h-20 w-full overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                            {item.bannerUrl ? (
+                              <img
+                                src={item.bannerUrl}
+                                alt="Предпросмотр баннера"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div
+                                className="h-full w-full"
+                                style={{
+                                  backgroundImage: item.bannerGradient || DEFAULT_PAGE_GRADIENT,
+                                  backgroundSize: 'cover',
+                                  backgroundPosition: 'center'
+                                }}
+                              />
+                            )}
+                          </div>
+                        )}
                         <div className="flex items-center gap-2 font-medium text-white">
                           <span>{item.title?.trim() || 'Untitled page'}</span>
                           {item.pinned && (
@@ -208,20 +236,32 @@ export default function Pages() {
                           </div>
                         )}
                       </Link>
-                      <div className="flex flex-col items-end gap-2 text-xs">
+                      <div className="flex items-center gap-2 ml-auto">
                         <button
                           type="button"
                           onClick={() => togglePin(item.id, !!item.pinned)}
-                          className={`px-3 py-1 rounded border border-white/15 ${item.pinned ? 'bg-amber-400/90 text-black hover:bg-amber-300' : 'bg-white/10 text-white/80 hover:bg-white/15'}`}
+                          className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                            item.pinned
+                              ? 'border-amber-400/60 bg-amber-300 text-black hover:bg-amber-200'
+                              : 'border-white/15 bg-white/10 text-white/80 hover:bg-white/15'
+                          }`}
+                          title={item.pinned ? 'Открепить страницу' : 'Закрепить страницу'}
+                          aria-label={item.pinned ? 'Открепить страницу' : 'Закрепить страницу'}
                         >
-                          {item.pinned ? 'Unpin' : 'Pin'}
+                          {item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
                         </button>
                         <button
                           type="button"
                           onClick={() => setTagSelectorFor((prev) => (prev === item.id ? null : item.id))}
-                          className="rounded bg-white/10 px-3 py-1 text-white/80 hover:bg-white/20"
+                          className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                            tagSelectorFor === item.id
+                              ? 'border-white/15 bg-white/20 text-white'
+                              : 'border-white/15 bg-white/10 text-white/80 hover:bg-white/15'
+                          }`}
+                          title={tagSelectorFor === item.id ? 'Скрыть управление тегами' : 'Управлять тегами'}
+                          aria-label={tagSelectorFor === item.id ? 'Скрыть управление тегами' : 'Управлять тегами'}
                         >
-                          {tagSelectorFor === item.id ? 'Hide tags' : 'Manage tags'}
+                          {tagSelectorFor === item.id ? <X className="h-4 w-4" /> : <TagIcon className="h-4 w-4" />}
                         </button>
                       </div>
                     </div>
