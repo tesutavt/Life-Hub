@@ -1,4 +1,4 @@
-﻿import sqlite3 from 'sqlite3';
+import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
@@ -45,6 +45,14 @@ export function levelFromXp(xp = 0) {
 }
 
 async function runMigrations(database) {
+  const usersInfo = await database.all('PRAGMA table_info(users)').catch(() => []);
+  if (usersInfo.length) {
+    const hasUserColumn = (name) => usersInfo.some((col) => col.name === name);
+    if (!hasUserColumn('bio')) {
+      await database.exec('ALTER TABLE users ADD COLUMN bio TEXT;');
+    }
+  }
+
   const pagesInfo = await database.all('PRAGMA table_info(journal_pages)').catch(() => []);
   if (pagesInfo.length) {
     if (!pagesInfo.some(col => col.name === 'blocks_json')) {
