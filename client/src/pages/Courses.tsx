@@ -160,6 +160,7 @@ export default function Courses() {
         {(items || []).map(c => {
           const languageLabel = c.language_id != null ? languageMap.get(c.language_id) : undefined;
           const gradient = COURSE_BANNER_GRADIENTS[c.id % COURSE_BANNER_GRADIENTS.length];
+
           const rawProgress = typeof c.progress === 'number' ? c.progress : null;
           const clampedProgress =
             rawProgress != null && Number.isFinite(rawProgress)
