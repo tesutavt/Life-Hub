@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Circle, CircleCheck, PencilLine, Trash2 } from "lucide-react";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { requestMenuCountersRefresh } from "../menuBus";
@@ -385,25 +386,35 @@ export default function Languages() {
                       {attachments.map((link) => (
                         <div
                           key={link.id}
-                          className="flex items-center gap-3 px-3 py-2 rounded border border-white/10 bg-white/5"
+                          className="flex items-center gap-3 rounded border border-white/10 bg-white/0 px-3 py-2 transition hover:bg-white/5"
                         >
                           <Link
                             to={`/pages/${link.page_id}`}
-                            className="flex-1 min-w-0 text-sm truncate"
+                            className="flex-1 min-w-0 truncate text-sm hover:underline"
                           >
                             {link.page_title}
                           </Link>
                           <button
+                            type="button"
                             onClick={() => toggleLinkDone(link)}
-                            className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-white/0 text-white/80 transition hover:bg-white/10"
+                            title={link.done ? "Снять отметку" : "Отметить пройденной"}
+                            aria-label={link.done ? "Снять отметку" : "Отметить пройденной"}
                           >
-                            {link.done ? "Снять отметку" : "Отметить пройденной"}
+                            {link.done ? (
+                              <CircleCheck className="h-4 w-4 text-emerald-300" />
+                            ) : (
+                              <Circle className="h-4 w-4" />
+                            )}
                           </button>
                           <button
+                            type="button"
                             onClick={() => removeLink(link)}
-                            className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
+                            className="flex h-8 w-8 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 text-red-200 transition hover:bg-red-500/20"
+                            title="Удалить"
+                            aria-label="Удалить"
                           >
-                            Удалить
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       ))}
@@ -423,21 +434,27 @@ export default function Languages() {
 
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
                   <Badge>Текущий стрик: {streak} дн.</Badge>
-                  <div className="flex items-center gap-2 ml-auto">
+                  <div className="ml-auto flex items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => {
                         setEditing(language);
                         setEditingTagIds(language.tags.map((tag) => tag.id));
                       }}
-                      className="px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/0 text-white/80 transition hover:bg-white/10"
+                      title="Редактировать"
+                      aria-label="Редактировать"
                     >
-                      Редактировать
+                      <PencilLine className="h-4 w-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => archiveLanguage(language.id)}
-                      className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 text-red-200 transition hover:bg-red-500/20"
+                      title="Удалить"
+                      aria-label="Удалить"
                     >
-                      Удалить
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
