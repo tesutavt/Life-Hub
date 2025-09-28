@@ -11,12 +11,13 @@ type ModalProps = {
   closeOnOverlayClick?: boolean;
 };
 
-type ModalPhase = "idle" | "entering" | "open" | "exiting";
 
+type ModalPhase = "idle" | "entering" | "open" | "exiting";
 const DEFAULT_OVERLAY = "bg-black/60 backdrop-blur-sm";
 const DEFAULT_CONTAINER = "items-center justify-center";
 const DEFAULT_CONTENT =
   "w-full max-w-lg rounded-2xl border border-white/10 bg-black/90 p-6 shadow-2xl";
+
 const ENTER_DURATION = 420;
 const EXIT_DURATION = 320;
 
@@ -60,6 +61,7 @@ export function Modal({
     return () => window.clearTimeout(timeout);
   }, [open, mounted]);
 
+
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent) => {
@@ -79,6 +81,7 @@ export function Modal({
     if (!closeOnOverlayClick) return;
     onClose();
   };
+
 
   const interactive = phase !== "exiting";
   const overlayAnimationClass =
@@ -102,6 +105,7 @@ export function Modal({
     >
       <div
         onClick={handleOverlayClick}
+
         className={`absolute inset-0 ${overlayAnimationClass} ${
           overlayClassName || DEFAULT_OVERLAY
         }`}
