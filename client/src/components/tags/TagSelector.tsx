@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import TagBadge from './TagBadge';
 
 type Tag = {
@@ -32,6 +32,13 @@ export default function TagSelector({
   className = '',
 }: TagSelectorProps) {
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const [isOpen, setIsOpen] = useState(() => selectedIds.length > 0);
+
+  useEffect(() => {
+    if (selectedIds.length > 0) {
+      setIsOpen(true);
+    }
+  }, [selectedIds.length]);
 
   const toggleTag = (tagId: number, checked: boolean) => {
     if (checked) {
@@ -44,12 +51,30 @@ export default function TagSelector({
   };
 
   const heading = label ?? 'Page tags';
+  const hasSelected = selectedIds.length > 0;
 
   return (
     <div className={`space-y-3 ${className}`.trim()}>
       {heading ? (
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-medium">{heading}</div>
+
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            className="flex items-center gap-2 text-left text-sm font-medium text-white/80 transition hover:text-white"
+            onClick={() => setIsOpen((value) => !value)}
+          >
+            <span
+              className={`inline-block text-xs transition-transform duration-150 ${
+                isOpen ? 'rotate-90' : ''
+              }`}
+            >
+              ▸
+            </span>
+            <span>{heading}</span>
+            {hasSelected ? (
+              <span className="text-xs font-normal text-white/60">({selectedIds.length})</span>
+            ) : null}
+          </button>
           {onManageTags && (
             <button
               type="button"
@@ -61,30 +86,42 @@ export default function TagSelector({
           )}
         </div>
       ) : null}
-      {tags.length === 0 ? (
-        <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
-          {emptyState ?? 'No tags yet. Create them in the manager.'}
+      {!isOpen && hasSelected ? (
+        <div className="flex flex-wrap gap-2">
+          {sortByProvidedOrder(selectedIds, tags)
+            .map((id) => tags.find((tag) => tag.id === id))
+            .filter(Boolean)
+            .map((tag) => (
+              <TagBadge key={tag!.id} tag={tag!} compact />
+            ))}
         </div>
-      ) : (
-        <div className="grid gap-2">
-          {tags.map((tag) => (
-            <label
-              key={tag.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10"
-            >
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={selectedSet.has(tag.id)}
-                  onChange={(event) => toggleTag(tag.id, event.target.checked)}
-                  className="accent-white h-4 w-4"
-                />
-                <TagBadge tag={tag} compact />
-              </div>
-            </label>
-          ))}
-        </div>
-      )}
+      ) : null}
+      {isOpen ? (
+        tags.length === 0 ? (
+          <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+            {emptyState ?? 'No tags yet. Create them in the manager.'}
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {tags.map((tag) => (
+              <label
+                key={tag.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10"
+              >
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(tag.id)}
+                    onChange={(event) => toggleTag(tag.id, event.target.checked)}
+                    className="accent-white h-4 w-4"
+                  />
+                  <TagBadge tag={tag} compact />
+                </div>
+              </label>
+            ))}
+          </div>
+        )
+      ) : null}
     </div>
   );
 }
