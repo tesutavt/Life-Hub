@@ -11,14 +11,15 @@ type ModalProps = {
   closeOnOverlayClick?: boolean;
 };
 
+
+type ModalPhase = "idle" | "entering" | "open" | "exiting";
 const DEFAULT_OVERLAY = "bg-black/60 backdrop-blur-sm";
 const DEFAULT_CONTAINER = "items-center justify-center";
 const DEFAULT_CONTENT =
   "w-full max-w-lg rounded-2xl border border-white/10 bg-black/90 p-6 shadow-2xl";
 
-const EXIT_TIMEOUT = 360;
-const EASE_CLASS = "ease-[cubic-bezier(0.22,1,0.36,1)]";
-
+const ENTER_DURATION = 420;
+const EXIT_DURATION = 320;
 
 export function Modal({
   open,
@@ -31,7 +32,7 @@ export function Modal({
 }: ModalProps) {
   const [portalElement, setPortalElement] = useState<HTMLElement | null>(null);
   const [mounted, setMounted] = useState(open);
-  const [visible, setVisible] = useState(false);
+  const [phase, setPhase] = useState<ModalPhase>(open ? "open" : "idle");
 
   useEffect(() => {
     if (typeof document !== "undefined") {
@@ -42,15 +43,24 @@ export function Modal({
   useEffect(() => {
     if (open) {
       setMounted(true);
-      const id = window.requestAnimationFrame(() => setVisible(true));
-      return () => window.cancelAnimationFrame(id);
+      setPhase("entering");
+      const timer = window.setTimeout(() => setPhase("open"), ENTER_DURATION);
+      return () => window.clearTimeout(timer);
     }
 
-    setVisible(false);
-    const timeout = window.setTimeout(() => setMounted(false), EXIT_TIMEOUT);
+    if (!mounted) {
+      setPhase("idle");
+      return;
+    }
 
+    setPhase("exiting");
+    const timeout = window.setTimeout(() => {
+      setMounted(false);
+      setPhase("idle");
+    }, EXIT_DURATION);
     return () => window.clearTimeout(timeout);
-  }, [open]);
+  }, [open, mounted]);
+
 
   useEffect(() => {
     if (!open) return;
@@ -72,18 +82,33 @@ export function Modal({
     onClose();
   };
 
+
+  const interactive = phase !== "exiting";
+  const overlayAnimationClass =
+    phase === "exiting"
+      ? "animate-overlay-out"
+      : phase === "open"
+      ? "modal-overlay-open"
+      : "animate-overlay-in";
+  const contentAnimationClass =
+    phase === "exiting"
+      ? "animate-modal-out"
+      : phase === "open"
+      ? "modal-content-open"
+      : "animate-modal-in";
+
   return createPortal(
     <div
       className={`fixed inset-0 z-50 px-4 py-6 sm:px-6 ${
-        visible ? "pointer-events-auto" : "pointer-events-none"
+        interactive ? "pointer-events-auto" : "pointer-events-none"
       }`}
     >
       <div
         onClick={handleOverlayClick}
 
-        className={`absolute inset-0 transition-opacity duration-300 ${EASE_CLASS} ${
+        className={`absolute inset-0 ${overlayAnimationClass} ${
           overlayClassName || DEFAULT_OVERLAY
-        } ${visible ? "opacity-100" : "opacity-0"}`}
+        }`}
       />
       <div className="relative flex h-full w-full">
         <div
@@ -92,12 +117,9 @@ export function Modal({
           }`}
         >
           <div
-
-            className={`relative will-change-[transform,opacity] transition-all duration-[360ms] ${EASE_CLASS} ${
-              visible
-                ? "translate-y-0 scale-100 opacity-100"
-                : "translate-y-8 scale-90 opacity-0"
-            } ${contentClassName || DEFAULT_CONTENT}`}
+            className={`relative will-change-[transform,opacity] ${contentAnimationClass} ${
+              contentClassName || DEFAULT_CONTENT
+            }`}
           >
             {children}
           </div>
