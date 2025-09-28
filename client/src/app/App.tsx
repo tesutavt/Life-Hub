@@ -203,8 +203,7 @@ function Sidebar() {
               <button
                 type="button"
                 onClick={() => setSearchOpen(false)}
-                className="rounded-full bg-white/10 px-4 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20"
-              >
+                className="rounded-full bg-white/10 px-4 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20">
                 Закрыть
               </button>
             </div>

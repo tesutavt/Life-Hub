@@ -302,6 +302,7 @@ export default function SiteSearch({
         <div className="mt-4 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">{error}</div>
       )}
 
+
       <div className="mt-4 flex-1 overflow-y-auto pr-1">
         <div className="space-y-4">
           {sectionOrder.map((section) => {
@@ -453,6 +454,7 @@ export default function SiteSearch({
                     ))}
                   </div>
                 ) : (
+
                   <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">No travel found.</div>
                 )}
               </section>
@@ -585,6 +587,7 @@ export default function SiteSearch({
           }
 
           return null;
+
           })}
         </div>
       </div>
