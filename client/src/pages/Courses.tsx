@@ -3,6 +3,10 @@ import Shell from '../components/Shell';
 import { api } from '../api';
 import { requestMenuCountersRefresh } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
+import TagBadge from '../components/tags/TagBadge';
+import TagSelector from '../components/tags/TagSelector';
+
+type TagOption = { id: number; label: string; color: string };
 
 type Course = {
   id: number;
@@ -12,6 +16,7 @@ type Course = {
   status?: string;
   course_type?: string | null;
   language_id?: number | null;
+  tags: TagOption[];
 };
 
 type Language = { id: number; name: string };
@@ -50,6 +55,9 @@ export default function Courses() {
   const [form, setForm] = useState<CourseForm>({ ...INITIAL_FORM });
   const [editing, setEditing] = useState<Course | null>(null);
   const [languages, setLanguages] = useState<Language[]>([]);
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
 
   const languageMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -57,20 +65,46 @@ export default function Courses() {
     return map;
   }, [languages]);
 
+  const mapCourse = (row: any): Course => ({
+    id: row.id,
+    title: row.title,
+    provider: row.provider,
+    progress: row.progress,
+    status: row.status,
+    course_type: row.course_type,
+    language_id: row.language_id,
+    tags: Array.isArray(row?.tags)
+      ? row.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
+      : [],
+  });
+
   const loadCourses = async () => {
     const res = await api.get('/api/life/courses');
-    setItems(res.items || []);
+    const active = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
+    setItems(active.map(mapCourse));
     requestMenuCountersRefresh();
   };
 
   const loadLanguages = async () => {
     const res = await api.get('/api/life/languages');
-    setLanguages(res.items || []);
+    const list = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : res.items || [];
+    setLanguages(list);
+  };
+
+  const loadTagOptions = async () => {
+    const res = await api.get('/api/life/pages/tags', { silentError: true });
+    const options = (res.items || []).map((tag: any) => ({
+      id: tag.id,
+      label: tag.label,
+      color: tag.color,
+    }));
+    setTagOptions(options);
   };
 
   useEffect(() => {
     loadCourses();
     loadLanguages();
+    loadTagOptions();
   }, []);
 
   const parseLanguageId = (value: string) => {
@@ -86,10 +120,12 @@ export default function Courses() {
     const payload = {
       ...form,
       language_id: form.language_id ?? null,
+      tags: formTagIds,
     };
     await api.post('/api/life/courses', payload);
     await api.post('/api/life/xp/add', { amount: 25 });
     resetForm();
+    setFormTagIds([]);
     await loadCourses();
   };
 
@@ -102,12 +138,14 @@ export default function Courses() {
       status: editing.status || 'in-progress',
       course_type: editing.course_type || COURSE_TYPES[0].value,
       language_id: editing.language_id ?? null,
+      tags: editingTagIds,
     };
     await api.put(`/api/life/courses/${editing.id}`, payload);
     if ((editing.progress || 0) >= 100) {
       await api.post('/api/life/xp/add', { amount: 50 });
     }
     setEditing(null);
+    setEditingTagIds([]);
     await loadCourses();
   };
 
@@ -180,6 +218,16 @@ export default function Courses() {
           />
           <button type="submit" className="px-4 py-2 rounded bg-white text-black whitespace-nowrap">Добавить</button>
         </div>
+        <div className="md:col-span-5">
+          <TagSelector
+            tags={tagOptions}
+            selectedIds={formTagIds}
+            onChange={setFormTagIds}
+            label="Теги курса"
+            emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+            onManageTags={() => window.open('/pages', '_blank')}
+          />
+        </div>
       </form>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -196,17 +244,27 @@ export default function Courses() {
                 <Pill>{courseTypeLabel(c.course_type)}</Pill>
                 {languageLabel && <Pill>{languageLabel}</Pill>}
               </div>
+              {c.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 text-xs">
+                  {c.tags.map((tag) => (
+                    <TagBadge key={tag.id} tag={tag} compact />
+                  ))}
+                </div>
+              )}
               <div className="w-full h-2 bg-white/10 rounded">
                 <div className="h-2 bg-white rounded" style={{ width: `${Math.min(100, c.progress || 0)}%` }} />
               </div>
               <div className="flex items-center gap-2 text-xs">
                 <button
                   onClick={() =>
-                    setEditing({
-                      ...c,
-                      course_type: c.course_type || COURSE_TYPES[0].value,
-                      language_id: c.language_id ?? null,
-                    })
+                    {
+                      setEditing({
+                        ...c,
+                        course_type: c.course_type || COURSE_TYPES[0].value,
+                        language_id: c.language_id ?? null,
+                      });
+                      setEditingTagIds((c.tags || []).map((tag) => tag.id));
+                    }
                   }
                   className="ml-auto px-2 py-1 rounded bg-white/10 hover:bg-white/20"
                 >Редактировать</button>
@@ -274,9 +332,20 @@ export default function Courses() {
               <option value="in-progress">В процессе</option>
               <option value="done">Завершено</option>
             </select>
+            <TagSelector
+              tags={tagOptions}
+              selectedIds={editingTagIds}
+              onChange={setEditingTagIds}
+              label="Теги курса"
+              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+              onManageTags={() => window.open('/pages', '_blank')}
+            />
             <div className="flex justify-between">
               <button
-                onClick={() => setEditing(null)}
+                onClick={() => {
+                  setEditing(null);
+                  setEditingTagIds([]);
+                }}
                 className="px-3 py-2 rounded bg-white/10 hover:bg-white/20"
               >Отмена</button>
               <button

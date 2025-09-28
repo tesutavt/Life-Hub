@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { api, resolveApiUrl } from '../api';
 import {
@@ -13,9 +13,11 @@ import {
   Plane,
   Share2,
   Settings as SettingsIcon,
-  UserCircle
+  UserCircle,
+  Search
 } from 'lucide-react';
 import { onMenuCountersRefresh, onMenuVisibilityChange } from '../menuBus';
+import SiteSearch from '../components/SiteSearch';
 
 type MenuCounters = {
   languages: number;
@@ -59,10 +61,25 @@ export default function App() {
 
 function Sidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setToken } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [counters, setCounters] = useState<MenuCounters>(EMPTY_COUNTERS);
   const [showCounters, setShowCounters] = useState(true);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    setSearchOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSearchOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [searchOpen]);
 
   useEffect(() => {
     (async () => {
@@ -145,6 +162,15 @@ function Sidebar() {
         </div>
       )}
 
+      <button
+        type="button"
+        onClick={() => setSearchOpen(true)}
+        className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white transition"
+      >
+        <Search size={16} className="opacity-80" />
+        <span className="truncate">Поиск по сайту…</span>
+      </button>
+
       <div>
         <div className="text-lg font-semibold mb-2">Life Hub</div>
         <nav className="space-y-1">
@@ -163,6 +189,36 @@ function Sidebar() {
       >
         ���
       </button>
+
+      {searchOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setSearchOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-3xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="absolute right-4 top-4 z-10">
+              <button
+                type="button"
+                onClick={() => setSearchOpen(false)}
+                className="rounded-full bg-white/10 px-3 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20"
+              >
+                Закрыть
+              </button>
+            </div>
+            <SiteSearch
+              className="bg-black/60 border-white/20 shadow-xl"
+              autoFocus
+              onSelectPage={(page) => {
+                navigate(`/pages/${page.id}`);
+                setSearchOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

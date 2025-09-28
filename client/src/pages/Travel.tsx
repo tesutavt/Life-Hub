@@ -1,29 +1,73 @@
 import React, { useEffect, useState } from 'react';
 import Shell from '../components/Shell';
 import { api } from '../api';
+import TagBadge from '../components/tags/TagBadge';
+import TagSelector from '../components/tags/TagSelector';
 
-type Travel = { id:number; title:string; location?:string; date_from?:string; date_to?:string; status?:string };
+type TagOption = { id: number; label: string; color: string };
+
+type Travel = {
+  id:number;
+  title:string;
+  location?:string;
+  date_from?:string;
+  date_to?:string;
+  status?:string;
+  tags: TagOption[];
+};
 
 export default function Travel(){
   const [items, setItems] = useState<Travel[]>([]);
   const [form, setForm] = useState({ title:'', location:'', date_from:'', date_to:'', status:'planned' });
   const [editing, setEditing] = useState<Travel|null>(null);
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
 
-  const load = async()=>{ const r = await api.get('/api/life/travel'); setItems(r.items||[]); };
-  useEffect(()=>{ load(); },[]);
+  const mapTravel = (row: any): Travel => ({
+    id: row.id,
+    title: row.title,
+    location: row.location,
+    date_from: row.date_from,
+    date_to: row.date_to,
+    status: row.status,
+    tags: Array.isArray(row?.tags)
+      ? row.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
+      : [],
+  });
+
+  const load = async()=>{
+    const r = await api.get('/api/life/travel');
+    const list = Array.isArray(r?.items) ? r.items : Array.isArray(r) ? r : [];
+    setItems(list.map(mapTravel));
+  };
+
+  const loadTagOptions = async () => {
+    const res = await api.get('/api/life/pages/tags', { silentError: true });
+    const options = (res.items || []).map((tag: any) => ({
+      id: tag.id,
+      label: tag.label,
+      color: tag.color,
+    }));
+    setTagOptions(options);
+  };
+
+  useEffect(()=>{ load(); loadTagOptions(); },[]);
 
   const add = async(e:React.FormEvent)=>{
     e.preventDefault();
-    await api.post('/api/life/travel', form);
+    await api.post('/api/life/travel', { ...form, tags: formTagIds });
     await api.post('/api/life/xp/add', { amount: 20 });
     setForm({ title:'', location:'', date_from:'', date_to:'', status:'planned' });
+    setFormTagIds([]);
     await load();
   };
 
   const save = async()=>{
     if(!editing) return;
-    await api.put('/api/life/travel/'+editing.id, editing);
+    await api.put('/api/life/travel/'+editing.id, { ...editing, tags: editingTagIds });
     setEditing(null);
+    setEditingTagIds([]);
     await load();
   };
 
@@ -39,9 +83,19 @@ export default function Travel(){
         <input placeholder="Название" value={form.title} onChange={e=>setForm({...form, title:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
         <input placeholder="Локация" value={form.location} onChange={e=>setForm({...form, location:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
         <input type="date" placeholder="c" value={form.date_from} onChange={e=>setForm({...form, date_from:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
-        <input type="date" placeholder="по" value={form.date_to} onChange={e=>setForm({...form, date_to:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
-        <button className="px-4 py-2 rounded bg-white text-black">Добавить</button>
-      </form>
+      <input type="date" placeholder="по" value={form.date_to} onChange={e=>setForm({...form, date_to:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
+      <button className="px-4 py-2 rounded bg-white text-black">Добавить</button>
+      <div className="md:col-span-5">
+        <TagSelector
+          tags={tagOptions}
+          selectedIds={formTagIds}
+          onChange={setFormTagIds}
+          label="Теги путешествия"
+          emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+          onManageTags={() => window.open('/pages', '_blank')}
+        />
+      </div>
+    </form>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {(items||[]).map(t => (
@@ -52,8 +106,21 @@ export default function Travel(){
             </div>
             <div className="text-sm opacity-80">{t.location}</div>
             <div className="text-xs opacity-70">{t.date_from} — {t.date_to}</div>
+            {t.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 text-xs">
+                {t.tags.map((tag) => (
+                  <TagBadge key={tag.id} tag={tag} compact />
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-2 text-xs">
-              <button onClick={()=>setEditing(t)} className="ml-auto px-2 py-1 rounded bg-white/10 hover:bg-white/20">✎</button>
+              <button
+                onClick={()=>{
+                  setEditing(t);
+                  setEditingTagIds(t.tags.map(tag => tag.id));
+                }}
+                className="ml-auto px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+              >✎</button>
               <button onClick={()=>del(t.id)} className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40">Удалить</button>
             </div>
           </div>
@@ -73,8 +140,16 @@ export default function Travel(){
               <option value="done">Совершено</option>
               <option value="cancelled">Отменено</option>
             </select>
+            <TagSelector
+              tags={tagOptions}
+              selectedIds={editingTagIds}
+              onChange={setEditingTagIds}
+              label="Теги путешествия"
+              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+              onManageTags={() => window.open('/pages', '_blank')}
+            />
             <div className="flex justify-between">
-              <button onClick={()=>setEditing(null)} className="px-3 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
+              <button onClick={()=>{ setEditing(null); setEditingTagIds([]); }} className="px-3 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
               <button onClick={save} className="px-3 py-2 rounded bg-green-600 hover:bg-green-700">Сохранить</button>
             </div>
           </div>

@@ -187,16 +187,17 @@ export default function ProfileFull() {
     if (avatarFile) fd.append('avatar', avatarFile);
     if (bannerFile) fd.append('banner', bannerFile);
 
-    try {
-      await api.post('/api/life/profile', fd, {
-        notifySuccess: { message: 'Профиль обновлён!', title: 'Сохранение профиля' },
-        notifyError: { message: 'Не удалось сохранить профиль', title: 'Сохранение профиля' }
-      });
-      await load();
-      setOpenEdit(false);
-    } catch (error) {
-      console.error('Failed to save profile', error);
-    }
+
+    const res = await fetch(resolveApiUrl('/api/life/profile'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd
+    });
+
+    if (!res.ok) { alert('Ошибка сохранения'); return; }
+    await load();
+    setOpenEdit(false);
+    alert('Профиль обновлён!');
   };
 
   return (
