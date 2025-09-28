@@ -161,6 +161,15 @@ async function runMigrations(database) {
     await database.exec("UPDATE courses SET status = COALESCE(status, 'in-progress');");
   }
 
+  const travelInfo = await database.all('PRAGMA table_info(travel_plans)').catch(() => []);
+  if (travelInfo.length) {
+    const hasTravel = (name) => travelInfo.some(col => col.name === name);
+    if (!hasTravel('status')) {
+      await database.exec("ALTER TABLE travel_plans ADD COLUMN status TEXT DEFAULT 'planned';");
+    }
+    await database.exec("UPDATE travel_plans SET status = COALESCE(status, 'planned');");
+  }
+
   await database.exec("CREATE TABLE IF NOT EXISTS language_pages (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, language_id INTEGER NOT NULL, page_id INTEGER NOT NULL, done INTEGER DEFAULT 0, done_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, language_id, page_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(language_id) REFERENCES languages(id) ON DELETE CASCADE, FOREIGN KEY(page_id) REFERENCES journal_pages(id) ON DELETE CASCADE)");
 
   await database.exec("CREATE TABLE IF NOT EXISTS yearly_goal_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, goal_id INTEGER NOT NULL, date TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, goal_id, date), FOREIGN KEY(goal_id) REFERENCES yearly_goals(id) ON DELETE CASCADE, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
