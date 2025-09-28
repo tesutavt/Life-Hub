@@ -192,19 +192,18 @@ function Sidebar() {
 
       {searchOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 backdrop-blur-sm p-6"
           onClick={() => setSearchOpen(false)}
         >
           <div
             className="relative w-full max-w-3xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="absolute right-4 top-4 z-10">
+            <div className="mb-4 flex justify-end">
               <button
                 type="button"
                 onClick={() => setSearchOpen(false)}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20"
-              >
+                className="rounded-full bg-white/10 px-4 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20">
                 Закрыть
               </button>
             </div>
