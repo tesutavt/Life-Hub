@@ -3,6 +3,7 @@ import Shell from '../components/Shell';
 import { api } from '../api';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
+import HabitMaster from '../components/master/HabitMaster';
 
 type TagOption = { id: number; label: string; color: string };
 type Habit = { id: number; title: string; target_per_week?: number; tags: TagOption[] };
@@ -39,11 +40,9 @@ function buildMap(rows: { habit_id: number; date: string }[]): WeekMap {
 
 export default function Habits() {
   const [items, setItems] = useState<Habit[]>([]);
-  const [form, setForm] = useState({ title: '', target_per_week: 3 });
   const [checkMap, setCheckMap] = useState<WeekMap>({});
   const [weekOffset, setWeekOffset] = useState(0);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
-  const [formTagIds, setFormTagIds] = useState<number[]>([]);
   const [tagEditorHabit, setTagEditorHabit] = useState<Habit | null>(null);
   const [tagEditorIds, setTagEditorIds] = useState<number[]>([]);
 
@@ -88,16 +87,6 @@ export default function Habits() {
     loadTagOptions();
   }, []);
   useEffect(() => { loadChecks(); }, [currentWeekDates[0]]);
-
-  const addHabit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    await api.post('/api/life/habits', { ...form, tags: formTagIds });
-    await api.post('/api/life/xp/add', { amount: 15, note: 'habit add' });
-    setForm({ title: '', target_per_week: 3 });
-    setFormTagIds([]);
-    await loadHabits();
-    await loadChecks();
-  };
 
   const removeHabit = async (id: number) => {
     if (!window.confirm('Удалить привычку?')) return;
@@ -147,45 +136,25 @@ export default function Habits() {
 
   return (
     <Shell>
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-2xl font-semibold">Привычки</div>
-        <div className="flex gap-2">
-          <button onClick={() => setWeekOffset(weekOffset - 1)} className="px-3 py-1 rounded bg-white/10">←</button>
-          <div className="text-sm opacity-80">
-            Неделя {currentWeekDates[0].slice(5)} — {currentWeekDates[6].slice(5)}
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
+        <div>
+          <div className="text-2xl font-semibold">Привычки</div>
+          <div className="mt-2 flex items-center gap-2 text-sm opacity-80">
+            <button onClick={() => setWeekOffset(weekOffset - 1)} className="px-3 py-1 rounded bg-white/10">←</button>
+            <div>
+              Неделя {currentWeekDates[0].slice(5)} — {currentWeekDates[6].slice(5)}
+            </div>
+            <button onClick={() => setWeekOffset(weekOffset + 1)} className="px-3 py-1 rounded bg-white/10">→</button>
           </div>
-          <button onClick={() => setWeekOffset(weekOffset + 1)} className="px-3 py-1 rounded bg-white/10">→</button>
         </div>
+        <HabitMaster
+          tagOptions={tagOptions}
+          onCreated={async () => {
+            await loadHabits();
+            await loadChecks();
+          }}
+        />
       </div>
-
-      <form onSubmit={addHabit} className="card grid md:grid-cols-3 gap-2 mb-6">
-        <input
-          placeholder="Название привычки"
-          value={form.title}
-          onChange={e => setForm({ ...form, title: e.target.value })}
-          className="px-3 py-2 rounded bg-white/10"
-        />
-        <input
-          type="number"
-          min={0}
-          placeholder="Цель / неделя"
-          value={form.target_per_week}
-          onChange={e => setForm({ ...form, target_per_week: +e.target.value || 0 })}
-          className="px-3 py-2 rounded bg-white/10"
-        />
-        <button className="px-4 py-2 rounded bg-white text-black">Добавить</button>
-        <div className="md:col-span-3">
-          <TagSelector
-            tags={tagOptions}
-            selectedIds={formTagIds}
-            onChange={setFormTagIds}
-            label="Теги привычки"
-            className="mt-1"
-            emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-            onManageTags={() => window.open('/pages', '_blank')}
-          />
-        </div>
-      </form>
 
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
