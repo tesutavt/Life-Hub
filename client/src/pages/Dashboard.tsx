@@ -4,6 +4,7 @@ import { api } from '../api';
 import { HeartPulse, Footprints, Banknote, Plus } from 'lucide-react';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
+import { Modal } from '../components/ui/Modal';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, BarChart, Bar, CartesianGrid
@@ -234,63 +235,99 @@ export default function Dashboard() {
       </div>
 
       {/* --- Модальные окна --- */}
-      {editing && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-xl w-80 border border-white/20 space-y-3">
-            <div className="text-lg font-medium mb-2">Редактировать кредит</div>
-            <input placeholder="Банк" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.bank}
-              onChange={e => setForm({ ...form, bank: e.target.value })} />
-            <input placeholder="Ежемесячный платёж" type="number" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.payment_monthly}
-              onChange={e => setForm({ ...form, payment_monthly: +e.target.value })} />
-            <input placeholder="Остаток" type="number" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.remaining}
-              onChange={e => setForm({ ...form, remaining: +e.target.value })} />
-            <input placeholder="День платежа" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.due_day}
-              onChange={e => setForm({ ...form, due_day: e.target.value })} />
-            <TagSelector
-              tags={tagOptions}
-              selectedIds={editingTagIds}
-              onChange={setEditingTagIds}
-              label="Теги кредита"
-              className="mt-2"
-              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-              onManageTags={() => window.open('/pages', '_blank')}
-            />
-            <div className="flex justify-between mt-4">
-              <button onClick={() => setEditing(null)} className="px-4 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
-              <button onClick={saveEdit} className="px-4 py-2 rounded bg-green-600 hover:bg-green-700">Сохранить</button>
-            </div>
-          </div>
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        contentClassName="w-full max-w-sm space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        <div className="text-lg font-medium mb-2">Редактировать кредит</div>
+        <input
+          placeholder="Банк"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.bank}
+          onChange={e => setForm({ ...form, bank: e.target.value })}
+        />
+        <input
+          placeholder="Ежемесячный платёж"
+          type="number"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.payment_monthly}
+          onChange={e => setForm({ ...form, payment_monthly: +e.target.value })}
+        />
+        <input
+          placeholder="Остаток"
+          type="number"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.remaining}
+          onChange={e => setForm({ ...form, remaining: +e.target.value })}
+        />
+        <input
+          placeholder="День платежа"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.due_day}
+          onChange={e => setForm({ ...form, due_day: e.target.value })}
+        />
+        <TagSelector
+          tags={tagOptions}
+          selectedIds={editingTagIds}
+          onChange={setEditingTagIds}
+          label="Теги кредита"
+          className="mt-2"
+          emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+          onManageTags={() => window.open('/pages', '_blank')}
+        />
+        <div className="flex justify-between mt-4">
+          <button onClick={() => setEditing(null)} className="px-4 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
+          <button onClick={saveEdit} className="px-4 py-2 rounded bg-green-600 hover:bg-green-700">Сохранить</button>
         </div>
-      )}
+      </Modal>
 
-      {adding && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-xl w-80 border border-white/20 space-y-3">
-            <div className="text-lg font-medium mb-2">Добавить кредит</div>
-            <input placeholder="Банк" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.bank}
-              onChange={e => setForm({ ...form, bank: e.target.value })} />
-            <input placeholder="Ежемесячный платёж" type="number" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.payment_monthly}
-              onChange={e => setForm({ ...form, payment_monthly: +e.target.value })} />
-            <input placeholder="Остаток" type="number" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.remaining}
-              onChange={e => setForm({ ...form, remaining: +e.target.value })} />
-            <input placeholder="День платежа" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.due_day}
-              onChange={e => setForm({ ...form, due_day: e.target.value })} />
-            <TagSelector
-              tags={tagOptions}
-              selectedIds={formTagIds}
-              onChange={setFormTagIds}
-              label="Теги кредита"
-              className="mt-2"
-              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-              onManageTags={() => window.open('/pages', '_blank')}
-            />
-            <div className="flex justify-between mt-4">
-              <button onClick={() => setAdding(false)} className="px-4 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
-              <button onClick={saveAdd} className="px-4 py-2 rounded bg-green-600 hover:bg-green-700">Добавить</button>
-            </div>
-          </div>
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        contentClassName="w-full max-w-sm space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        <div className="text-lg font-medium mb-2">Добавить кредит</div>
+        <input
+          placeholder="Банк"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.bank}
+          onChange={e => setForm({ ...form, bank: e.target.value })}
+        />
+        <input
+          placeholder="Ежемесячный платёж"
+          type="number"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.payment_monthly}
+          onChange={e => setForm({ ...form, payment_monthly: +e.target.value })}
+        />
+        <input
+          placeholder="Остаток"
+          type="number"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.remaining}
+          onChange={e => setForm({ ...form, remaining: +e.target.value })}
+        />
+        <input
+          placeholder="День платежа"
+          className="w-full px-3 py-2 rounded bg-white/10 mb-2"
+          value={form.due_day}
+          onChange={e => setForm({ ...form, due_day: e.target.value })}
+        />
+        <TagSelector
+          tags={tagOptions}
+          selectedIds={formTagIds}
+          onChange={setFormTagIds}
+          label="Теги кредита"
+          className="mt-2"
+          emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+          onManageTags={() => window.open('/pages', '_blank')}
+        />
+        <div className="flex justify-between mt-4">
+          <button onClick={() => setAdding(false)} className="px-4 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
+          <button onClick={saveAdd} className="px-4 py-2 rounded bg-green-600 hover:bg-green-700">Добавить</button>
         </div>
-      )}
+      </Modal>
     </Shell>
   );
 }

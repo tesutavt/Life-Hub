@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { onMenuCountersRefresh, onMenuVisibilityChange } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
+import { Modal } from '../components/ui/Modal';
 
 type MenuCounters = {
   languages: number;
@@ -71,15 +72,6 @@ function Sidebar() {
   useEffect(() => {
     setSearchOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (!searchOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSearchOpen(false);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [searchOpen]);
 
   useEffect(() => {
     (async () => {
@@ -190,34 +182,31 @@ function Sidebar() {
         ���
       </button>
 
-      {searchOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 backdrop-blur-sm p-6"
-          onClick={() => setSearchOpen(false)}
-        >
-          <div
-            className="relative w-full max-w-3xl"
-            onClick={(event) => event.stopPropagation()}
+      <Modal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        overlayClassName="bg-black/70 backdrop-blur-sm"
+        containerClassName="items-start justify-center overflow-y-auto pt-10 sm:pt-20"
+        contentClassName="relative w-full max-w-3xl"
+      >
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setSearchOpen(false)}
+            className="rounded-full bg-white/10 px-4 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20"
           >
-            <div className="mb-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSearchOpen(false)}
-                className="rounded-full bg-white/10 px-4 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20">
-                Закрыть
-              </button>
-            </div>
-            <SiteSearch
-              className="bg-black/60 border-white/20 shadow-xl"
-              autoFocus
-              onSelectPage={(page) => {
-                navigate(`/pages/${page.id}`);
-                setSearchOpen(false);
-              }}
-            />
-          </div>
+            Закрыть
+          </button>
         </div>
-      )}
+        <SiteSearch
+          className="bg-black/60 border-white/20 shadow-xl"
+          autoFocus
+          onSelectPage={(page) => {
+            navigate(`/pages/${page.id}`);
+            setSearchOpen(false);
+          }}
+        />
+      </Modal>
     </aside>
   );
 }

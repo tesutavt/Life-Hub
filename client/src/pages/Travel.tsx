@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Shell from '../components/Shell';
 import { api } from '../api';
 import TagBadge from '../components/tags/TagBadge';
+import { Modal } from '../components/ui/Modal';
 import TagSelector from '../components/tags/TagSelector';
 import TravelMaster from '../components/master/TravelMaster';
 
@@ -100,15 +101,41 @@ export default function Travel(){
         ))}
       </div>
 
-      {editing && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-xl w-96 border border-white/20 space-y-3">
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => { setEditing(null); setEditingTagIds([]); }}
+        contentClassName="w-full max-w-md space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        {editing && (
+          <>
             <div className="text-lg font-medium">Редактировать</div>
-            <input className="px-3 py-2 rounded bg-white/10 w-full" value={editing.title} onChange={e=>setEditing({...editing, title:e.target.value})}/>
-            <input className="px-3 py-2 rounded bg-white/10 w-full" value={editing.location||''} onChange={e=>setEditing({...editing, location:e.target.value})}/>
-            <input type="date" className="px-3 py-2 rounded bg-white/10 w-full" value={editing.date_from||''} onChange={e=>setEditing({...editing, date_from:e.target.value})}/>
-            <input type="date" className="px-3 py-2 rounded bg-white/10 w-full" value={editing.date_to||''} onChange={e=>setEditing({...editing, date_to:e.target.value})}/>
-            <select className="px-3 py-2 rounded bg-white/10 w-full" value={editing.status||'planned'} onChange={e=>setEditing({...editing, status:e.target.value})}>
+            <input
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              value={editing.title}
+              onChange={e => setEditing({ ...editing, title:e.target.value })}
+            />
+            <input
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              value={editing.location||''}
+              onChange={e => setEditing({ ...editing, location:e.target.value })}
+            />
+            <input
+              type="date"
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              value={editing.date_from||''}
+              onChange={e => setEditing({ ...editing, date_from:e.target.value })}
+            />
+            <input
+              type="date"
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              value={editing.date_to||''}
+              onChange={e => setEditing({ ...editing, date_to:e.target.value })}
+            />
+            <select
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              value={editing.status||'planned'}
+              onChange={e => setEditing({ ...editing, status:e.target.value })}
+            >
               <option value="planned">Планируется</option>
               <option value="done">Совершено</option>
               <option value="cancelled">Отменено</option>
@@ -122,12 +149,15 @@ export default function Travel(){
               onManageTags={() => window.open('/pages', '_blank')}
             />
             <div className="flex justify-between">
-              <button onClick={()=>{ setEditing(null); setEditingTagIds([]); }} className="px-3 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
+              <button
+                onClick={() => { setEditing(null); setEditingTagIds([]); }}
+                className="px-3 py-2 rounded bg-white/10 hover:bg-white/20"
+              >Отмена</button>
               <button onClick={save} className="px-3 py-2 rounded bg-green-600 hover:bg-green-700">Сохранить</button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </Shell>
   );
 }
