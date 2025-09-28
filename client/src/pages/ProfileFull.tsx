@@ -187,7 +187,6 @@ export default function ProfileFull() {
     if (avatarFile) fd.append('avatar', avatarFile);
     if (bannerFile) fd.append('banner', bannerFile);
 
-
     const res = await fetch(resolveApiUrl('/api/life/profile'), {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },

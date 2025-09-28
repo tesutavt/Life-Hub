@@ -173,7 +173,6 @@ export default function SiteSearch({
           selected_tag: response?.selected_tag || null,
           tag_matches: hasTextQuery ? response?.tag_matches || [] : [],
           pages: showPageResults ? response?.pages || [] : [],
-
           languages: allowSecondary ? response?.languages || [] : [],
           courses: allowSecondary ? response?.courses || [] : [],
           travel: allowSecondary ? response?.travel || [] : [],
@@ -371,6 +370,7 @@ export default function SiteSearch({
                           Level: {item.level || 'n/a'} • Today: {item.minutes_today ?? 0} min
                         </div>
                         {item.tags.length > 0 && (
+
                           <div className="mt-1 flex flex-wrap gap-1">
                             {item.tags.map((tag) => (
                               <TagBadge key={tag.id} tag={tag} compact />
@@ -413,6 +413,7 @@ export default function SiteSearch({
                     ))}
                   </div>
                 ) : (
+
                   <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">No courses found.</div>
                 )}
               </section>

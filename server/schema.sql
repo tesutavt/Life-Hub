@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS travel_plans(
   location TEXT,
   date_from TEXT,
   date_to TEXT,
+  status TEXT DEFAULT 'planned',
   notes TEXT
 );
 
