@@ -4,6 +4,8 @@ import Shell from "../components/Shell";
 import { api } from "../api";
 import { requestMenuCountersRefresh } from "../menuBus";
 import SiteSearch from "../components/SiteSearch";
+import TagBadge from "../components/tags/TagBadge";
+import TagSelector from "../components/tags/TagSelector";
 import {
   LineChart,
   Line,
@@ -14,11 +16,14 @@ import {
   CartesianGrid,
 } from "recharts";
 
+type TagOption = { id: number; label: string; color: string };
+
 type Lang = {
   id: number;
   name: string;
   level?: string;
   minutes_today?: number;
+  tags: TagOption[];
 };
 
 type LanguagePage = {
@@ -43,17 +48,36 @@ export default function Languages() {
   const [archivedLanguages, setArchivedLanguages] = useState<Lang[]>([]);
   const [form, setForm] = useState({ name: "", level: "A1", minutes_today: 0 });
   const [editing, setEditing] = useState<Lang | null>(null);
+  const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [history, setHistory] = useState<Record<string, number[]>>({});
   const [pages, setPages] = useState<PageOption[]>([]);
   const [languagePages, setLanguagePages] = useState<LanguagePage[]>([]);
   const [pickerLanguageId, setPickerLanguageId] = useState<number | null>(null);
 
+  const mapLanguage = (entry: any): Lang => ({
+    id: entry.id,
+    name: entry.name,
+    level: entry.level,
+    minutes_today: entry.minutes_today,
+    tags: Array.isArray(entry?.tags)
+      ? entry.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
+      : [],
+  });
+
   const loadLanguages = async () => {
     const res = await api.get("/api/life/languages");
-    const active = Array.isArray(res) ? res : res.items || res.active || [];
-    const archived = Array.isArray(res) ? [] : res.archived || [];
-    setItems(active);
-    setArchivedLanguages(archived);
+    const activeSource = Array.isArray(res?.items)
+      ? res.items
+      : Array.isArray(res?.active)
+      ? res.active
+      : Array.isArray(res)
+      ? res
+      : [];
+    const archivedSource = Array.isArray(res?.archived) ? res.archived : [];
+    setItems(activeSource.map(mapLanguage));
+    setArchivedLanguages(archivedSource.map(mapLanguage));
     requestMenuCountersRefresh();
   };
 
@@ -79,10 +103,21 @@ export default function Languages() {
     setPages(normalized);
   };
 
+  const loadTagOptions = async () => {
+    const res = await api.get("/api/life/pages/tags", { silentError: true });
+    const options = (res.items || []).map((tag: any) => ({
+      id: tag.id,
+      label: tag.label,
+      color: tag.color,
+    }));
+    setTagOptions(options);
+  };
+
   useEffect(() => {
     loadLanguages();
     loadLanguagePages();
     loadPages();
+    loadTagOptions();
   }, []);
 
   const totalMinutes = useMemo(
@@ -108,9 +143,10 @@ export default function Languages() {
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.post("/api/life/languages", form);
+    await api.post("/api/life/languages", { ...form, tags: formTagIds });
     await api.post("/api/life/xp/add", { amount: 15 });
     setForm({ name: "", level: "A1", minutes_today: 0 });
+    setFormTagIds([]);
     await loadLanguages();
   };
 
@@ -120,8 +156,10 @@ export default function Languages() {
       name: editing.name,
       level: editing.level,
       minutes_today: editing.minutes_today || 0,
+      tags: editingTagIds,
     });
     setEditing(null);
+    setEditingTagIds([]);
     await loadLanguages();
   };
 
@@ -248,12 +286,22 @@ export default function Languages() {
           onChange={(e) =>
             setForm({ ...form, minutes_today: +e.target.value || 0 })
           }
-          className="px-3 py-2 rounded bg-white/10"
-        />
-        <button type="submit" className="px-4 py-2 rounded bg-white text-black">
-          Добавить язык
-        </button>
-      </form>
+      className="px-3 py-2 rounded bg-white/10"
+    />
+    <button type="submit" className="px-4 py-2 rounded bg-white text-black">
+      Добавить язык
+    </button>
+    <div className="md:col-span-4">
+      <TagSelector
+        tags={tagOptions}
+        selectedIds={formTagIds}
+        onChange={setFormTagIds}
+        label="Теги языка"
+        emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+        onManageTags={() => window.open('/pages', '_blank')}
+      />
+    </div>
+  </form>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {(items || []).map((language) => {
@@ -272,6 +320,14 @@ export default function Languages() {
               <div className="text-sm opacity-80">
                 Минут сегодня: <b>{language.minutes_today || 0} мин</b>
               </div>
+
+              {language.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 text-xs">
+                  {language.tags.map((tag) => (
+                    <TagBadge key={tag.id} tag={tag} compact />
+                  ))}
+                </div>
+              )}
 
               <div className="h-16">
                 <ResponsiveContainer width="100%" height="100%">
@@ -350,7 +406,10 @@ export default function Languages() {
               <div className="flex items-center gap-2 text-xs">
                 <Badge>Текущий стрик: {streak} дн.</Badge>
                 <button
-                  onClick={() => setEditing(language)}
+                  onClick={() => {
+                    setEditing(language);
+                    setEditingTagIds(language.tags.map((tag) => tag.id));
+                  }}
                   className="ml-auto px-2 py-1 rounded bg-white/10 hover:bg-white/20"
                 >
                   Редактировать
@@ -388,6 +447,13 @@ export default function Languages() {
                   <div className="text-xs opacity-70">
                     Уровень: {language.level || "A1"}
                   </div>
+                  {language.tags.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                      {language.tags.map((tag) => (
+                        <TagBadge key={tag.id} tag={tag} compact />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => restoreLanguage(language.id)}
@@ -435,9 +501,20 @@ export default function Languages() {
                 })
               }
             />
+            <TagSelector
+              tags={tagOptions}
+              selectedIds={editingTagIds}
+              onChange={setEditingTagIds}
+              label="Теги языка"
+              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+              onManageTags={() => window.open('/pages', '_blank')}
+            />
             <div className="flex justify-between">
               <button
-                onClick={() => setEditing(null)}
+                onClick={() => {
+                  setEditing(null);
+                  setEditingTagIds([]);
+                }}
                 className="px-3 py-2 rounded bg-white/10 hover:bg-white/20"
               >
                 Отмена

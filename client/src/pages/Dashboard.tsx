@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Shell from '../components/Shell';
 import { api } from '../api';
 import { HeartPulse, Footprints, Banknote, Plus } from 'lucide-react';
+import TagBadge from '../components/tags/TagBadge';
+import TagSelector from '../components/tags/TagSelector';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, BarChart, Bar, CartesianGrid
@@ -20,6 +22,8 @@ function fmt(d: Date) {
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
 }
 
+type TagOption = { id: number; label: string; color: string };
+
 export default function Dashboard() {
   const { token } = useAuth();
   const [loans, setLoans] = useState<any[]>([]);
@@ -31,16 +35,36 @@ export default function Dashboard() {
   const [adding, setAdding] = useState(false);
 
   const [form, setForm] = useState({ bank: '', payment_monthly: 0, remaining: 0, due_day: '' });
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
 
   async function loadLoans() {
     const l = await api.get('/api/loans/summary');
-    setLoans(l.items || []);
+    const normalized = (l.items || []).map((item: any) => ({
+      ...item,
+      tags: Array.isArray(item?.tags)
+        ? item.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
+        : [],
+    }));
+    setLoans(normalized);
     setMonthly(l.monthlyTotal || 0);
+  }
+
+  async function loadTagOptions() {
+    const res = await api.get('/api/life/pages/tags', { silentError: true });
+    const options = (res.items || []).map((tag: any) => ({
+      id: tag.id,
+      label: tag.label,
+      color: tag.color,
+    }));
+    setTagOptions(options);
   }
 
   useEffect(() => {
     (async () => {
       try { await loadLoans(); } catch { }
+      try { await loadTagOptions(); } catch { }
 
       // fitness
       try {
@@ -88,22 +112,26 @@ export default function Dashboard() {
       remaining: loan.remaining || 0,
       due_day: loan.due_day || ''
     });
+    setEditingTagIds((loan.tags || []).map((tag: any) => tag.id));
   };
 
   const saveEdit = async () => {
-    await api.put(`/api/loans/${editing.id}`, form);
+    await api.put(`/api/loans/${editing.id}`, { ...form, tags: editingTagIds });
     setEditing(null);
+    setEditingTagIds([]);
     await loadLoans();
   };
 
   const startAdd = () => {
     setForm({ bank: '', payment_monthly: 0, remaining: 0, due_day: '' });
+    setFormTagIds([]);
     setAdding(true);
   };
 
   const saveAdd = async () => {
-    await api.post('/api/loans', form);
+    await api.post('/api/loans', { ...form, tags: formTagIds });
     setAdding(false);
+    setFormTagIds([]);
     await loadLoans();
   };
 
@@ -139,6 +167,13 @@ export default function Dashboard() {
                 </div>
                 <div className="text-2xl font-semibold mt-1">{(l.payment_monthly || 0).toLocaleString('ru-RU')} ₽</div>
                 <div className="text-xs opacity-70 mt-1">осталось: {(l.remaining || 0).toLocaleString('ru-RU')} ₽</div>
+                {Array.isArray(l.tags) && l.tags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+                    {l.tags.map((tag: any) => (
+                      <TagBadge key={tag.id} tag={tag} compact />
+                    ))}
+                  </div>
+                )}
                 <div className="flex gap-2 mt-2 text-xs">
                   <button onClick={() => startEdit(l)} className="px-2 py-1 rounded bg-white/10 hover:bg-white/20">✎</button>
                   <button onClick={() => removeLoan(l.id)} className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40">Удалить</button>
@@ -211,6 +246,15 @@ export default function Dashboard() {
               onChange={e => setForm({ ...form, remaining: +e.target.value })} />
             <input placeholder="День платежа" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.due_day}
               onChange={e => setForm({ ...form, due_day: e.target.value })} />
+            <TagSelector
+              tags={tagOptions}
+              selectedIds={editingTagIds}
+              onChange={setEditingTagIds}
+              label="Теги кредита"
+              className="mt-2"
+              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+              onManageTags={() => window.open('/pages', '_blank')}
+            />
             <div className="flex justify-between mt-4">
               <button onClick={() => setEditing(null)} className="px-4 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
               <button onClick={saveEdit} className="px-4 py-2 rounded bg-green-600 hover:bg-green-700">Сохранить</button>
@@ -231,6 +275,15 @@ export default function Dashboard() {
               onChange={e => setForm({ ...form, remaining: +e.target.value })} />
             <input placeholder="День платежа" className="w-full px-3 py-2 rounded bg-white/10 mb-2" value={form.due_day}
               onChange={e => setForm({ ...form, due_day: e.target.value })} />
+            <TagSelector
+              tags={tagOptions}
+              selectedIds={formTagIds}
+              onChange={setFormTagIds}
+              label="Теги кредита"
+              className="mt-2"
+              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+              onManageTags={() => window.open('/pages', '_blank')}
+            />
             <div className="flex justify-between mt-4">
               <button onClick={() => setAdding(false)} className="px-4 py-2 rounded bg-white/10 hover:bg-white/20">Отмена</button>
               <button onClick={saveAdd} className="px-4 py-2 rounded bg-green-600 hover:bg-green-700">Добавить</button>

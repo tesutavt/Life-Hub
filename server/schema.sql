@@ -195,6 +195,7 @@ CREATE TABLE IF NOT EXISTS travel_plans(
   location TEXT,
   date_from TEXT,
   date_to TEXT,
+  status TEXT DEFAULT 'planned',
   notes TEXT
 );
 
@@ -219,6 +220,20 @@ CREATE TABLE IF NOT EXISTS page_tags(
   FOREIGN KEY(page_id) REFERENCES journal_pages(id) ON DELETE CASCADE,
   FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS tag_links(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  tag_id INTEGER NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id INTEGER NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, tag_id, entity_type, entity_id),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tag_links_user_type ON tag_links(user_id, entity_type, entity_id);
 
 CREATE TABLE IF NOT EXISTS journal_pages(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
