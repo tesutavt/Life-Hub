@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Shell from '../components/Shell';
+import { Modal } from '../components/ui/Modal';
 import { api, resolveApiUrl } from '../api';
 import { useAuth } from '../AuthContext';
 import { useNotifications } from '../notifications/NotificationProvider';
@@ -344,53 +345,54 @@ export default function ProfileFull() {
       </div>
 
       {/* ---------- Модалка редактирования ---------- */}
-      {openEdit && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-2xl border border-white/20 w-96 space-y-3">
-            <div className="text-lg font-semibold mb-2">Редактировать профиль</div>
+      <Modal
+        open={openEdit}
+        onClose={() => setOpenEdit(false)}
+        overlayClassName="bg-black/70 backdrop-blur-sm"
+        contentClassName="w-full max-w-md space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        <div className="text-lg font-semibold mb-2">Редактировать профиль</div>
 
-            <input
-              placeholder="Имя"
-              value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-white/10"
-            />
-            <textarea
-              placeholder="О себе"
-              value={bio}
-              onChange={e => setBio(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-white/10"
-            />
-            <label className="text-sm opacity-70">Аватар</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={e => setAvatarFile(e.target.files?.[0] || null)}
-            />
-            <label className="text-sm opacity-70">Баннер</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={e => setBannerFile(e.target.files?.[0] || null)}
-            />
+        <input
+          placeholder="Имя"
+          value={displayName}
+          onChange={e => setDisplayName(e.target.value)}
+          className="w-full px-3 py-2 rounded bg-white/10"
+        />
+        <textarea
+          placeholder="О себе"
+          value={bio}
+          onChange={e => setBio(e.target.value)}
+          className="w-full px-3 py-2 rounded bg-white/10"
+        />
+        <label className="text-sm opacity-70">Аватар</label>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={e => setAvatarFile(e.target.files?.[0] || null)}
+        />
+        <label className="text-sm opacity-70">Баннер</label>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={e => setBannerFile(e.target.files?.[0] || null)}
+        />
 
-            <div className="flex justify-between mt-4">
-              <button
-                onClick={() => setOpenEdit(false)}
-                className="px-4 py-2 rounded bg-white/10 hover:bg-white/20"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={save}
-                className="px-4 py-2 rounded bg-green-600 hover:bg-green-700"
-              >
-                Сохранить
-              </button>
-            </div>
-          </div>
+        <div className="flex justify-between mt-4">
+          <button
+            onClick={() => setOpenEdit(false)}
+            className="px-4 py-2 rounded bg-white/10 hover:bg-white/20"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={save}
+            className="px-4 py-2 rounded bg-green-600 hover:bg-green-700"
+          >
+            Сохранить
+          </button>
         </div>
-      )}
+      </Modal>
     </Shell>
   );
 }
