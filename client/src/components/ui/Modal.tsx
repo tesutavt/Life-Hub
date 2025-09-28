@@ -15,8 +15,10 @@ const DEFAULT_OVERLAY = "bg-black/60 backdrop-blur-sm";
 const DEFAULT_CONTAINER = "items-center justify-center";
 const DEFAULT_CONTENT =
   "w-full max-w-lg rounded-2xl border border-white/10 bg-black/90 p-6 shadow-2xl";
+
 const EXIT_TIMEOUT = 360;
 const EASE_CLASS = "ease-[cubic-bezier(0.22,1,0.36,1)]";
+
 
 export function Modal({
   open,
@@ -46,6 +48,7 @@ export function Modal({
 
     setVisible(false);
     const timeout = window.setTimeout(() => setMounted(false), EXIT_TIMEOUT);
+
     return () => window.clearTimeout(timeout);
   }, [open]);
 
@@ -77,6 +80,7 @@ export function Modal({
     >
       <div
         onClick={handleOverlayClick}
+
         className={`absolute inset-0 transition-opacity duration-300 ${EASE_CLASS} ${
           overlayClassName || DEFAULT_OVERLAY
         } ${visible ? "opacity-100" : "opacity-0"}`}
@@ -88,6 +92,7 @@ export function Modal({
           }`}
         >
           <div
+
             className={`relative will-change-[transform,opacity] transition-all duration-[360ms] ${EASE_CLASS} ${
               visible
                 ? "translate-y-0 scale-100 opacity-100"
