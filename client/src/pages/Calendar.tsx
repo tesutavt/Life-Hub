@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Shell from '../components/Shell';
 import { api } from '../api';
+import TagSelector from '../components/tags/TagSelector';
 
 const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
 const emojiByMood = ['😢', '😕', '😐', '🙂', '😄'];
+
+type CalendarTag = { id: number; label: string; color: string };
 
 type CalendarEvent = {
   id: string | number;
@@ -16,6 +19,7 @@ type CalendarEvent = {
   mood?: number | null;
   page_id?: number;
   url?: string | null;
+  tags?: CalendarTag[];
 };
 
 const typeIcon = (type: string) => {
@@ -65,6 +69,8 @@ export default function CalendarPage() {
   const [items, setItems] = useState<CalendarEvent[]>([]);
   const navigate = useNavigate();
   const [form, setForm] = useState({ date: '', title: '', type: 'note', mood: 3 });
+  const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [tagOptions, setTagOptions] = useState<CalendarTag[]>([]);
   const [pattern, setPattern] = useState('2/2');
   const [autoStart, setAutoStart] = useState('');
 
@@ -74,16 +80,32 @@ export default function CalendarPage() {
     const year = current.getFullYear();
     const month = current.getMonth() + 1;
     const response = await api.get(`/api/life/calendar?y=${year}&m=${month}`);
-    setItems((response.items || []) as CalendarEvent[]);
+    const normalized = (response.items || []).map((item: any) => ({
+      ...item,
+      tags: Array.isArray(item?.tags)
+        ? item.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
+        : [],
+    }));
+    setItems(normalized);
   };
 
-  useEffect(() => { load(); }, [current]);
+  const loadTagOptions = async () => {
+    const res = await api.get('/api/life/pages/tags', { silentError: true });
+    const options = (res.items || []).map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }));
+    setTagOptions(options);
+  };
+
+  useEffect(() => {
+    load();
+    loadTagOptions();
+  }, [current]);
 
   const add = async (event: React.FormEvent) => {
     event.preventDefault();
-    await api.post('/api/life/calendar', form);
+    await api.post('/api/life/calendar', { ...form, tags: formTagIds });
     await api.post('/api/life/xp/add', { amount: 20, note: 'calendar add' });
     setForm({ date: '', title: '', type: 'note', mood: 3 });
+    setFormTagIds([]);
     await load();
   };
 
@@ -151,21 +173,49 @@ export default function CalendarPage() {
                     .filter(Boolean)
                     .join(' ');
                   const label = `${typeIcon(event.type)} ${event.title}`;
+                  const tagDots = Array.isArray(event.tags) ? event.tags.slice(0, 4) : [];
                   if (hasLink) {
                     return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => handleEventClick(event)}
-                        className={`${baseClass} text-left w-full`}
-                      >
-                        {label}
-                      </button>
+                      <div key={key} className="space-y-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handleEventClick(event)}
+                          className={`${baseClass} text-left w-full`}
+                        >
+                          {label}
+                        </button>
+                        {tagDots.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {tagDots.map((tag) => (
+                              <span
+                                key={`tag-${tag.id}`}
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: tag.color || '#ffffff' }}
+                                title={tag.label}
+                                aria-label={tag.label}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     );
                   }
                   return (
-                    <div key={key} className={baseClass}>
-                      {label}
+                    <div key={key} className="space-y-0.5">
+                      <div className={baseClass}>{label}</div>
+                      {tagDots.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {tagDots.map((tag) => (
+                            <span
+                              key={`tag-${tag.id}`}
+                              className="h-1.5 w-1.5 rounded-full"
+                              style={{ backgroundColor: tag.color || '#ffffff' }}
+                              title={tag.label}
+                              aria-label={tag.label}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -187,6 +237,14 @@ export default function CalendarPage() {
           </select>
           <label className="text-xs opacity-70">Настроение (1-5)</label>
           <input type="number" min={1} max={5} value={form.mood} onChange={e => setForm({ ...form, mood: +e.target.value })} className="w-full px-3 py-2 rounded bg-white/10" />
+          <TagSelector
+            tags={tagOptions}
+            selectedIds={formTagIds}
+            onChange={setFormTagIds}
+            label="Теги события"
+            emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+            onManageTags={() => window.open('/pages', '_blank')}
+          />
           <button className="px-4 py-2 rounded bg-white text-black">Сохранить</button>
         </form>
 

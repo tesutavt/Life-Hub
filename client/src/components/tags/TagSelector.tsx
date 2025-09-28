@@ -13,6 +13,8 @@ type TagSelectorProps = {
   onChange: (next: number[]) => void;
   onManageTags?: () => void;
   emptyState?: React.ReactNode;
+  label?: React.ReactNode;
+  className?: string;
 };
 
 const sortByProvidedOrder = (ids: number[], order: Tag[]) => {
@@ -20,7 +22,15 @@ const sortByProvidedOrder = (ids: number[], order: Tag[]) => {
   return [...ids].sort((a, b) => (indexMap.get(a) ?? 0) - (indexMap.get(b) ?? 0));
 };
 
-export default function TagSelector({ tags, selectedIds, onChange, onManageTags, emptyState }: TagSelectorProps) {
+export default function TagSelector({
+  tags,
+  selectedIds,
+  onChange,
+  onManageTags,
+  emptyState,
+  label,
+  className = '',
+}: TagSelectorProps) {
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const toggleTag = (tagId: number, checked: boolean) => {
@@ -33,20 +43,24 @@ export default function TagSelector({ tags, selectedIds, onChange, onManageTags,
     }
   };
 
+  const heading = label ?? 'Page tags';
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">Page tags</div>
-        {onManageTags && (
-          <button
-            type="button"
-            className="text-xs text-white/70 hover:text-white"
-            onClick={onManageTags}
-          >
-            Manage tags
-          </button>
-        )}
-      </div>
+    <div className={`space-y-3 ${className}`.trim()}>
+      {heading ? (
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium">{heading}</div>
+          {onManageTags && (
+            <button
+              type="button"
+              className="text-xs text-white/70 hover:text-white"
+              onClick={onManageTags}
+            >
+              Manage tags
+            </button>
+          )}
+        </div>
+      ) : null}
       {tags.length === 0 ? (
         <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
           {emptyState ?? 'No tags yet. Create them in the manager.'}

@@ -1,8 +1,11 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import Shell from '../components/Shell';
 import { api } from '../api';
+import TagBadge from '../components/tags/TagBadge';
+import TagSelector from '../components/tags/TagSelector';
 
-type Habit = { id: number; title: string; target_per_week?: number };
+type TagOption = { id: number; label: string; color: string };
+type Habit = { id: number; title: string; target_per_week?: number; tags: TagOption[] };
 type ChecksMap = Record<number, boolean>;
 type WeekMap = Record<string, ChecksMap>;
 
@@ -39,6 +42,10 @@ export default function Habits() {
   const [form, setForm] = useState({ title: '', target_per_week: 3 });
   const [checkMap, setCheckMap] = useState<WeekMap>({});
   const [weekOffset, setWeekOffset] = useState(0);
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const [formTagIds, setFormTagIds] = useState<number[]>([]);
+  const [tagEditorHabit, setTagEditorHabit] = useState<Habit | null>(null);
+  const [tagEditorIds, setTagEditorIds] = useState<number[]>([]);
 
   const currentWeekDates = useMemo(() => {
     const base = new Date();
@@ -48,7 +55,15 @@ export default function Habits() {
 
   const loadHabits = async () => {
     const response = await api.get('/api/life/habits');
-    setItems(response.items || []);
+    const normalized = (response.items || []).map((habit: any) => ({
+      id: habit.id,
+      title: habit.title,
+      target_per_week: habit.target_per_week,
+      tags: Array.isArray(habit?.tags)
+        ? habit.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
+        : [],
+    }));
+    setItems(normalized);
   };
 
   const loadChecks = async () => {
@@ -58,14 +73,28 @@ export default function Habits() {
     setCheckMap(buildMap(response.items || []));
   };
 
-  useEffect(() => { loadHabits(); }, []);
+  const loadTagOptions = async () => {
+    const res = await api.get('/api/life/pages/tags', { silentError: true });
+    const options = (res.items || []).map((tag: any) => ({
+      id: tag.id,
+      label: tag.label,
+      color: tag.color,
+    }));
+    setTagOptions(options);
+  };
+
+  useEffect(() => {
+    loadHabits();
+    loadTagOptions();
+  }, []);
   useEffect(() => { loadChecks(); }, [currentWeekDates[0]]);
 
   const addHabit = async (event: React.FormEvent) => {
     event.preventDefault();
-    await api.post('/api/life/habits', form);
+    await api.post('/api/life/habits', { ...form, tags: formTagIds });
     await api.post('/api/life/xp/add', { amount: 15, note: 'habit add' });
     setForm({ title: '', target_per_week: 3 });
+    setFormTagIds([]);
     await loadHabits();
     await loadChecks();
   };
@@ -75,6 +104,10 @@ export default function Habits() {
     await api.del(`/api/life/habits/${id}`);
     await loadHabits();
     await loadChecks();
+    if (tagEditorHabit?.id === id) {
+      setTagEditorHabit(null);
+      setTagEditorIds([]);
+    }
   };
 
   const toggle = async (date: string, habitId: number) => {
@@ -93,6 +126,23 @@ export default function Habits() {
     const target = habit.target_per_week || 0;
     const pct = target ? Math.min(100, Math.round((doneCount * 100) / target)) : 0;
     return { done: doneCount, target, pct };
+  };
+
+  const openTagEditor = (habit: Habit) => {
+    setTagEditorHabit(habit);
+    setTagEditorIds((habit.tags || []).map((tag) => tag.id));
+  };
+
+  const closeTagEditor = () => {
+    setTagEditorHabit(null);
+    setTagEditorIds([]);
+  };
+
+  const saveHabitTags = async () => {
+    if (!tagEditorHabit) return;
+    await api.put(`/api/life/habits/${tagEditorHabit.id}`, { tags: tagEditorIds });
+    closeTagEditor();
+    await loadHabits();
   };
 
   return (
@@ -124,6 +174,17 @@ export default function Habits() {
           className="px-3 py-2 rounded bg-white/10"
         />
         <button className="px-4 py-2 rounded bg-white text-black">Добавить</button>
+        <div className="md:col-span-3">
+          <TagSelector
+            tags={tagOptions}
+            selectedIds={formTagIds}
+            onChange={setFormTagIds}
+            label="Теги привычки"
+            className="mt-1"
+            emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+            onManageTags={() => window.open('/pages', '_blank')}
+          />
+        </div>
       </form>
 
       <div className="overflow-x-auto">
@@ -142,8 +203,26 @@ export default function Habits() {
             {items.map(habit => {
               const { done, target, pct } = progress(habit);
               return (
-                <tr key={habit.id} className="border-t border-white/10">
-                  <td className="p-2 font-medium">{habit.title}</td>
+                <tr key={habit.id} className="border-t border-white/10 align-top">
+                  <td className="p-2 align-top">
+                    <div className="flex flex-col gap-1">
+                      <div className="font-medium">{habit.title}</div>
+                      {habit.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 text-[10px]">
+                          {habit.tags.map((tag) => (
+                            <TagBadge key={tag.id} tag={tag} compact />
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openTagEditor(habit)}
+                        className="text-[10px] uppercase tracking-wide text-white/60 hover:text-white"
+                      >
+                        Теги
+                      </button>
+                    </div>
+                  </td>
                   {currentWeekDates.map(date => {
                     const active = !!checkMap[date]?.[habit.id];
                     return (
@@ -175,6 +254,47 @@ export default function Habits() {
       </div>
 
       <p className="text-xs opacity-70 mt-3">Клик по ячейке фиксирует выполнение привычки за выбранную дату. Данные автоматически сохраняются.</p>
+
+      {tagEditorHabit && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-black p-6 rounded-xl w-96 border border-white/20 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Теги привычки</div>
+                <div className="text-sm opacity-70 truncate">{tagEditorHabit.title}</div>
+              </div>
+              <button
+                onClick={closeTagEditor}
+                className="px-3 py-1 rounded bg-white/10 hover:bg-white/20 text-xs"
+              >
+                Закрыть
+              </button>
+            </div>
+            <TagSelector
+              tags={tagOptions}
+              selectedIds={tagEditorIds}
+              onChange={setTagEditorIds}
+              label=""
+              emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+              onManageTags={() => window.open('/pages', '_blank')}
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={closeTagEditor}
+                className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-sm"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={saveHabitTags}
+                className="px-3 py-2 rounded bg-green-600 hover:bg-green-700 text-sm"
+              >
+                Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
