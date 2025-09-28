@@ -390,7 +390,7 @@ router.get('/search', async (req, res) => {
 
   let languages = [];
   if (shouldSearchOther) {
-    let languageSql = 'SELECT id, name, level, minutes_today FROM languages WHERE user_id=?';
+    let languageSql = 'SELECT id, name, level, minutes_today, image_url, banner_url FROM languages WHERE user_id=?';
     const languageParams = [req.user.uid];
     if (hasTextQuery) {
       languageSql += ' AND LOWER(name) LIKE ?';
@@ -411,6 +411,8 @@ router.get('/search', async (req, res) => {
       name: row.name,
       level: row.level,
       minutes_today: row.minutes_today,
+      image_url: row.image_url || null,
+      banner_url: row.banner_url || null,
       tags: languageTagMap.get(row.id) || []
     }));
   }
@@ -973,12 +975,20 @@ function crud(table) {
   return routerCrud;
 }
 
+const normalizeNullableText = (value) => {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+};
+
 const mapLanguageRow = (row, tags = []) => ({
   id: row.id,
   name: row.name,
   level: row.level,
   streak: row.streak ?? 0,
   minutes_today: row.minutes_today ?? 0,
+  image_url: row.image_url || null,
+  banner_url: row.banner_url || null,
   status: row.status || 'active',
   archived_at: row.archived_at,
   tags
@@ -988,7 +998,7 @@ const languagesRouter = express.Router();
 
 languagesRouter.get('/', async (req, res) => {
   const db = await getDB();
-  const rows = await db.all('SELECT id,name,level,streak,minutes_today,status,archived_at FROM languages WHERE user_id=? ORDER BY name COLLATE NOCASE', [req.user.uid]);
+  const rows = await db.all('SELECT id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at FROM languages WHERE user_id=? ORDER BY name COLLATE NOCASE', [req.user.uid]);
   const ids = rows.map((row) => row.id);
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, ids);
   const active = [];
@@ -1008,8 +1018,10 @@ languagesRouter.post('/', async (req, res) => {
   const streak = Number.isFinite(Number(payload.streak)) ? Number(payload.streak) : 0;
   const minutes = Number.isFinite(Number(payload.minutes_today)) ? Number(payload.minutes_today) : 0;
   const status = typeof payload.status === 'string' && payload.status === 'archived' ? 'archived' : 'active';
-  const result = await db.run('INSERT INTO languages(user_id,name,level,streak,minutes_today,status,archived_at) VALUES(?,?,?,?,?,?,NULL)', [req.user.uid, name, level, streak, minutes, status]);
-  const row = await db.get('SELECT id,name,level,streak,minutes_today,status,archived_at FROM languages WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
+  const imageUrl = normalizeNullableText(payload.image_url);
+  const bannerUrl = normalizeNullableText(payload.banner_url);
+  const result = await db.run('INSERT INTO languages(user_id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at) VALUES(?,?,?,?,?,?,?,?,NULL)', [req.user.uid, name, level, streak, minutes, status, imageUrl, bannerUrl]);
+  const row = await db.get('SELECT id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at FROM languages WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
   let tags = [];
   if (payload.tags !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, row.id, payload.tags);
@@ -1033,6 +1045,8 @@ languagesRouter.put('/:id', async (req, res) => {
   if (payload.level !== undefined) { updates.push('level=?'); values.push(String(payload.level)); }
   if (payload.streak !== undefined) { updates.push('streak=?'); values.push(Number(payload.streak) || 0); }
   if (payload.minutes_today !== undefined) { updates.push('minutes_today=?'); values.push(Number(payload.minutes_today) || 0); }
+  if (payload.image_url !== undefined) { updates.push('image_url=?'); values.push(normalizeNullableText(payload.image_url)); }
+  if (payload.banner_url !== undefined) { updates.push('banner_url=?'); values.push(normalizeNullableText(payload.banner_url)); }
   const tagsPayload = payload.tags;
   if (tagsPayload !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, req.params.id, tagsPayload);
@@ -1045,7 +1059,7 @@ languagesRouter.put('/:id', async (req, res) => {
     const result = await db.run('UPDATE languages SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
     if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
   }
-  const row = await db.get('SELECT id,name,level,streak,minutes_today,status,archived_at FROM languages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  const row = await db.get('SELECT id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at FROM languages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   if (!row) return res.status(404).json({ error: 'not_found' });
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, [row.id]);
   res.json({ language: mapLanguageRow(row, tagMap.get(row.id) || []) });

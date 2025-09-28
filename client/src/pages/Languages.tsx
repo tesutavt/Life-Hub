@@ -25,6 +25,8 @@ type Lang = {
   name: string;
   level?: string;
   minutes_today?: number;
+  imageUrl?: string | null;
+  bannerUrl?: string | null;
   tags: TagOption[];
 };
 
@@ -45,6 +47,31 @@ const Badge = ({ children }: { children: React.ReactNode }) => (
   </span>
 );
 
+const sanitizeUrl = (value: string | null | undefined) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const getInitials = (value: string) => {
+  if (!value) return "";
+  const parts = value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (parts.length === 0) return value.slice(0, 1).toUpperCase();
+  return parts
+    .map((part) => part.slice(0, 1).toUpperCase())
+    .join("");
+};
+
+const BANNER_FALLBACKS = [
+  "from-rose-500/40 via-orange-500/30 to-amber-400/40",
+  "from-indigo-500/40 via-sky-500/30 to-emerald-400/40",
+  "from-purple-500/40 via-pink-500/30 to-red-400/40",
+  "from-sky-500/40 via-cyan-500/30 to-blue-500/40",
+];
+
 export default function Languages() {
   const [items, setItems] = useState<Lang[]>([]);
   const [archivedLanguages, setArchivedLanguages] = useState<Lang[]>([]);
@@ -61,6 +88,8 @@ export default function Languages() {
     name: entry.name,
     level: entry.level,
     minutes_today: entry.minutes_today,
+    imageUrl: entry.image_url ?? entry.imageUrl ?? null,
+    bannerUrl: entry.banner_url ?? entry.bannerUrl ?? null,
     tags: Array.isArray(entry?.tags)
       ? entry.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
       : [],
@@ -148,6 +177,8 @@ export default function Languages() {
       level: editing.level,
       minutes_today: editing.minutes_today || 0,
       tags: editingTagIds,
+      image_url: sanitizeUrl(editing.imageUrl),
+      banner_url: sanitizeUrl(editing.bannerUrl),
     });
     setEditing(null);
     setEditingTagIds([]);
@@ -261,116 +292,155 @@ export default function Languages() {
           return (
             <div
               key={language.id}
-              className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-3"
+              className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden flex flex-col"
             >
-              <div className="flex items-center justify-between">
-                <div className="text-lg font-semibold">{language.name}</div>
-                <Badge>{language.level || "A1"}</Badge>
-              </div>
-
-              <div className="text-sm opacity-80">
-                Минут сегодня: <b>{language.minutes_today || 0} мин</b>
-              </div>
-
-              {language.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 text-xs">
-                  {language.tags.map((tag) => (
-                    <TagBadge key={tag.id} tag={tag} compact />
-                  ))}
-                </div>
-              )}
-
-              <div className="h-16">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart
-                    data={(
-                      history[language.name] || [
-                        5,
-                        10,
-                        7,
-                        16,
-                        12,
-                        18,
-                        language.minutes_today || 0,
-                      ]
-                    ).map((v, i) => ({ i, v }))}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                    <XAxis dataKey="i" hide />
-                    <YAxis hide />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="v" stroke="#ffffff" dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-wide opacity-70">
-                  Учебные страницы
-                </div>
-
-                {attachments.length === 0 ? (
-                  <div className="text-xs opacity-60">
-                    Учебные страницы ещё не добавлены.
-                  </div>
+              <div className="relative h-28 overflow-hidden">
+                {language.bannerUrl ? (
+                  <img
+                    src={language.bannerUrl}
+                    alt={`Баннер ${language.name}`}
+                    className="absolute inset-0 h-full w-full object-cover"
+                    loading="lazy"
+                  />
                 ) : (
-                  <div className="space-y-2">
-                    {attachments.map((link) => (
-                      <div
-                        key={link.id}
-                        className={`flex items-center gap-3 px-3 py-2 rounded border border-white/10 bg-white/5`}
-                      >
-                        <Link
-                          to={`/pages/${link.page_id}`}
-                          className={`flex-1 min-w-0 text-sm truncate`}
-                        >
-                          {link.page_title}
-                        </Link>
-                        <button
-                          onClick={() => toggleLinkDone(link)}
-                          className={`text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20`}
-                        >
-                          {link.done ? "Снять отметку" : "Отметить пройденной"}
-                        </button>
-                        <button
-                          onClick={() => removeLink(link)}
-                          className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
-                        >
-                          Удалить
-                        </button>
+                  <div
+                    className={`absolute inset-0 bg-gradient-to-r ${
+                      BANNER_FALLBACKS[language.id % BANNER_FALLBACKS.length]
+                    }`}
+                  />
+                )}
+                <div className="absolute inset-0 bg-black/30" />
+              </div>
+
+              <div className="p-4 pt-0 flex flex-col flex-1">
+                <div className="relative -mt-10 flex items-start gap-3">
+                  <div className="shrink-0 w-16 h-16 rounded-xl border-2 border-black/60 overflow-hidden bg-black/60 flex items-center justify-center text-lg font-semibold text-white">
+                    {language.imageUrl ? (
+                      <img
+                        src={language.imageUrl}
+                        alt={`Изображение ${language.name}`}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span>{getInitials(language.name)}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 pt-2">
+                    <div className="flex items-center gap-2">
+                      <div className="text-lg font-semibold truncate">
+                        {language.name}
                       </div>
+                      <Badge>{language.level || "A1"}</Badge>
+                    </div>
+                    <div className="mt-1 text-sm opacity-80">
+                      Минут сегодня: <b>{language.minutes_today || 0} мин</b>
+                    </div>
+                  </div>
+                </div>
+
+                {language.tags.length > 0 && (
+                  <div className="mt-4 flex flex-wrap gap-1 text-xs">
+                    {language.tags.map((tag) => (
+                      <TagBadge key={tag.id} tag={tag} compact />
                     ))}
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPickerLanguageId(language.id);
-                  }}
-                  className="w-full px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-sm"
-                >
-                  Добавить учебную страницу
-                </button>
-              </div>
+                <div className="mt-4 h-16">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={(
+                        history[language.name] || [
+                          5,
+                          10,
+                          7,
+                          16,
+                          12,
+                          18,
+                          language.minutes_today || 0,
+                        ]
+                      ).map((v, i) => ({ i, v }))}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                      <XAxis dataKey="i" hide />
+                      <YAxis hide />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="v" stroke="#ffffff" dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
 
-              <div className="flex items-center gap-2 text-xs">
-                <Badge>Текущий стрик: {streak} дн.</Badge>
-                <button
-                  onClick={() => {
-                    setEditing(language);
-                    setEditingTagIds(language.tags.map((tag) => tag.id));
-                  }}
-                  className="ml-auto px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-                >
-                  Редактировать
-                </button>
-                <button
-                  onClick={() => archiveLanguage(language.id)}
-                  className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
-                >
-                  Удалить
-                </button>
+                <div className="mt-4 space-y-2">
+                  <div className="text-xs uppercase tracking-wide opacity-70">
+                    Учебные страницы
+                  </div>
+
+                  {attachments.length === 0 ? (
+                    <div className="text-xs opacity-60">
+                      Учебные страницы ещё не добавлены.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {attachments.map((link) => (
+                        <div
+                          key={link.id}
+                          className="flex items-center gap-3 px-3 py-2 rounded border border-white/10 bg-white/5"
+                        >
+                          <Link
+                            to={`/pages/${link.page_id}`}
+                            className="flex-1 min-w-0 text-sm truncate"
+                          >
+                            {link.page_title}
+                          </Link>
+                          <button
+                            onClick={() => toggleLinkDone(link)}
+                            className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                          >
+                            {link.done ? "Снять отметку" : "Отметить пройденной"}
+                          </button>
+                          <button
+                            onClick={() => removeLink(link)}
+                            className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPickerLanguageId(language.id);
+                    }}
+                    className="w-full px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-sm"
+                  >
+                    Добавить учебную страницу
+                  </button>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                  <Badge>Текущий стрик: {streak} дн.</Badge>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <button
+                      onClick={() => {
+                        setEditing(language);
+                        setEditingTagIds(language.tags.map((tag) => tag.id));
+                      }}
+                      className="px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      onClick={() => archiveLanguage(language.id)}
+                      className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           );
@@ -454,6 +524,28 @@ export default function Languages() {
                 setEditing({
                   ...editing,
                   minutes_today: Number(e.target.value) || 0,
+                })
+              }
+            />
+            <input
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              placeholder="Ссылка на изображение (опционально)"
+              value={editing.imageUrl || ""}
+              onChange={(e) =>
+                setEditing({
+                  ...editing,
+                  imageUrl: e.target.value,
+                })
+              }
+            />
+            <input
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              placeholder="Ссылка на баннер (опционально)"
+              value={editing.bannerUrl || ""}
+              onChange={(e) =>
+                setEditing({
+                  ...editing,
+                  bannerUrl: e.target.value,
                 })
               }
             />
