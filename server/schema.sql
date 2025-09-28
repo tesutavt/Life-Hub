@@ -243,6 +243,8 @@ CREATE TABLE IF NOT EXISTS journal_pages(
   title TEXT,
   blocks_json TEXT,
   page_date TEXT,
+  banner_url TEXT,
+  banner_gradient TEXT,
   pinned INTEGER DEFAULT 0,
   created_at TEXT,
   updated_at TEXT,
