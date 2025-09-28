@@ -173,6 +173,7 @@ export default function SiteSearch({
           selected_tag: response?.selected_tag || null,
           tag_matches: hasTextQuery ? response?.tag_matches || [] : [],
           pages: showPageResults ? response?.pages || [] : [],
+
           languages: allowSecondary ? response?.languages || [] : [],
           courses: allowSecondary ? response?.courses || [] : [],
           travel: allowSecondary ? response?.travel || [] : [],

@@ -75,13 +75,14 @@ export default function Settings() {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.post("/api/socials/settings", socialForm);
+      await api.post("/api/socials/settings", socialForm, {
+        notifySuccess: "Настройки сохранены",
+      });
       await api.post("/api/life/feed/add", {
         type: "settings",
         text: "Обновлены настройки соцсетей",
         meta: { section: "socials" },
-      });
-      alert("Настройки сохранены");
+      }, { silentSuccess: true });
     } finally {
       setSaving(false);
     }
@@ -91,8 +92,9 @@ export default function Settings() {
     e.preventDefault();
     setSavingGoogle(true);
     try {
-      await api.post("/api/life/settings/google", { refresh_token: google.refresh_token });
-      alert("Google API token сохранён");
+      await api.post("/api/life/settings/google", { refresh_token: google.refresh_token }, {
+        notifySuccess: "Google API token сохранён",
+      });
     } finally {
       setSavingGoogle(false);
     }
