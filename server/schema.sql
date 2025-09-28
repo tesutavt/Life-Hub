@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS languages(
   level TEXT,
   streak INTEGER DEFAULT 0,
   minutes_today INTEGER DEFAULT 0,
+  image_url TEXT,
+  banner_url TEXT,
   status TEXT DEFAULT 'active',
   archived_at TEXT
 );

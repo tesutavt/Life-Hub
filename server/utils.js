@@ -129,15 +129,27 @@ async function runMigrations(database) {
     await database.exec("UPDATE yearly_goals SET status = 'archived', archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP) WHERE status <> 'archived' AND target > 0 AND completed >= target;");
   }
 
-  const languagesInfo = await database.all('PRAGMA table_info(languages)').catch(() => []);
+  let languagesInfo = await database.all('PRAGMA table_info(languages)').catch(() => []);
   if (languagesInfo.length) {
-    const hasLanguage = (name) => languagesInfo.some(col => col.name === name);
-    if (!hasLanguage('status')) {
-      await database.exec("ALTER TABLE languages ADD COLUMN status TEXT DEFAULT 'active';");
-    }
-    if (!hasLanguage('archived_at')) {
-      await database.exec('ALTER TABLE languages ADD COLUMN archived_at TEXT;');
-    }
+    const hasLanguage = (name) => languagesInfo.some((col) => col.name === name);
+    const ensureLanguageColumn = async (column, statement) => {
+      if (hasLanguage(column)) return;
+      try {
+        await database.exec(statement);
+      } catch (error) {
+        const message = String(error?.message || '').toLowerCase();
+        if (!message.includes('duplicate column name')) {
+          throw error;
+        }
+      }
+      languagesInfo = await database.all('PRAGMA table_info(languages)').catch(() => languagesInfo);
+    };
+
+    await ensureLanguageColumn('status', "ALTER TABLE languages ADD COLUMN status TEXT DEFAULT 'active';");
+    await ensureLanguageColumn('archived_at', 'ALTER TABLE languages ADD COLUMN archived_at TEXT;');
+    await ensureLanguageColumn('image_url', 'ALTER TABLE languages ADD COLUMN image_url TEXT;');
+    await ensureLanguageColumn('banner_url', 'ALTER TABLE languages ADD COLUMN banner_url TEXT;');
+
     await database.exec("UPDATE languages SET status = COALESCE(status, 'active');");
     await database.exec("UPDATE languages SET status = 'archived' WHERE status <> 'archived' AND archived_at IS NOT NULL;");
   }
