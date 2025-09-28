@@ -519,6 +519,7 @@ export default function PageEditor(){
             </div>
           </div>
         </div>
+
         {showBannerSettings && (
           <div className="space-y-4 rounded-3xl border border-white/10 bg-black/30 p-4">
             <div className="grid gap-3 md:grid-cols-2">

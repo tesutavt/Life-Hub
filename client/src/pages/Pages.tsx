@@ -196,6 +196,7 @@ export default function Pages() {
               {formatted.map((item) => (
                 <div key={item.id} className="px-4 py-4">
                   <div className="flex flex-col gap-3">
+
                     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/30">
                       {item.bannerUrl ? (
                         <img
@@ -280,6 +281,7 @@ export default function Pages() {
                             </div>
                           )}
                         </Link>
+
                       </div>
                     </div>
                     {tagSelectorFor === item.id && (
