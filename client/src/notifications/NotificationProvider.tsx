@@ -42,6 +42,10 @@ const variantStyles: Record<NotificationVariant, string> = {
   error: 'border-rose-400/40 bg-rose-500/15 text-rose-50',
 };
 
+
+const NOTIFICATION_EXIT_TIMEOUT = 360;
+const NOTIFICATION_EASE = "ease-[cubic-bezier(0.16,1,0.3,1)]";
+
 const createKey = (notification: NotificationItem) =>
   `${notification.variant}::${notification.title ?? ''}::${notification.message}`;
 
@@ -77,7 +81,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         clearTimer(baseIdToRemove);
         window.setTimeout(() => {
           setItems(prev => prev.filter(entry => entry.ids[0] !== baseIdToRemove));
-        }, 220);
+
+        }, NOTIFICATION_EXIT_TIMEOUT);
       }
     },
     [clearTimer],
@@ -191,8 +196,9 @@ function NotificationCard({
 
   return (
     <div
-      className={`pointer-events-auto flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur transition-all duration-300 ${
-        visible ? 'translate-x-0 opacity-100 scale-100' : 'translate-x-4 opacity-0 scale-95'
+
+      className={`pointer-events-auto flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur transition-all duration-[360ms] ${NOTIFICATION_EASE} will-change-[transform,opacity] ${
+        visible ? 'translate-x-0 opacity-100 scale-100' : 'translate-x-6 opacity-0 scale-95'
       } ${variantClass}`}
     >
       <div className="flex-1 space-y-1">
