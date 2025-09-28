@@ -5,6 +5,7 @@ import { requestMenuCountersRefresh } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
+import CourseMaster, { COURSE_TYPES } from '../components/master/CourseMaster';
 
 type TagOption = { id: number; label: string; color: string };
 
@@ -36,27 +37,11 @@ const StatusPill = ({ status }: { status?: string }) => {
   const code = status ?? 'in-progress';
   return <Pill>{STATUS_LABELS[code] || code}</Pill>;
 };
-const COURSE_TYPES = [
-  { value: 'study', label: 'Учёба' },
-  { value: 'other', label: 'Другое' },
-] as const;
-
-const INITIAL_FORM: CourseForm = {
-  title: '',
-  provider: '',
-  progress: 0,
-  status: 'in-progress',
-  course_type: COURSE_TYPES[0].value,
-  language_id: null,
-};
-
 export default function Courses() {
   const [items, setItems] = useState<Course[]>([]);
-  const [form, setForm] = useState<CourseForm>({ ...INITIAL_FORM });
   const [editing, setEditing] = useState<Course | null>(null);
   const [languages, setLanguages] = useState<Language[]>([]);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
-  const [formTagIds, setFormTagIds] = useState<number[]>([]);
   const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
 
   const languageMap = useMemo(() => {
@@ -113,22 +98,6 @@ export default function Courses() {
     return Number.isNaN(parsed) ? null : parsed;
   };
 
-  const resetForm = () => setForm({ ...INITIAL_FORM });
-
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload = {
-      ...form,
-      language_id: form.language_id ?? null,
-      tags: formTagIds,
-    };
-    await api.post('/api/life/courses', payload);
-    await api.post('/api/life/xp/add', { amount: 25 });
-    resetForm();
-    setFormTagIds([]);
-    await loadCourses();
-  };
-
   const save = async () => {
     if (!editing) return;
     const payload = {
@@ -160,8 +129,13 @@ export default function Courses() {
 
   return (
     <Shell>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div className="text-2xl font-semibold">Курсы</div>
+        <CourseMaster
+          languages={languages}
+          tagOptions={tagOptions}
+          onCreated={loadCourses}
+        />
       </div>
 
       <SiteSearch
@@ -169,66 +143,6 @@ export default function Courses() {
         className="mb-6 bg-black/30 border-white/15"
         placeholder="Поиск по курсам или страницам..."
       />
-
-      <form onSubmit={add} className="card grid md:grid-cols-5 gap-2 mb-6">
-        <input
-          placeholder="Название курса"
-          value={form.title}
-          onChange={e => setForm({ ...form, title: e.target.value })}
-          className="px-3 py-2 rounded bg-white/10"
-        />
-        <input
-          placeholder="Платформа"
-          value={form.provider}
-          onChange={e => setForm({ ...form, provider: e.target.value })}
-          className="px-3 py-2 rounded bg-white/10"
-        />
-        <select
-          value={form.course_type}
-          onChange={e => setForm({ ...form, course_type: e.target.value as CourseType })}
-          className="px-3 py-2 rounded bg-white/10"
-        >
-          {COURSE_TYPES.map(option => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={form.language_id !== null ? String(form.language_id) : ''}
-          onChange={e => setForm({ ...form, language_id: parseLanguageId(e.target.value) })}
-          className="px-3 py-2 rounded bg-white/10"
-        >
-          <option value="">Без языка</option>
-          {languages.map(lang => (
-            <option key={lang.id} value={lang.id}>
-              {lang.name}
-            </option>
-          ))}
-        </select>
-        <div className="flex gap-2">
-          <input
-            type="number"
-            min={0}
-            max={100}
-            placeholder="Прогресс, %"
-            value={form.progress}
-            onChange={e => setForm({ ...form, progress: Number(e.target.value) || 0 })}
-            className="px-3 py-2 rounded bg-white/10 w-full"
-          />
-          <button type="submit" className="px-4 py-2 rounded bg-white text-black whitespace-nowrap">Добавить</button>
-        </div>
-        <div className="md:col-span-5">
-          <TagSelector
-            tags={tagOptions}
-            selectedIds={formTagIds}
-            onChange={setFormTagIds}
-            label="Теги курса"
-            emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-            onManageTags={() => window.open('/pages', '_blank')}
-          />
-        </div>
-      </form>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {(items || []).map(c => {

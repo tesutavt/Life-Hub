@@ -6,6 +6,7 @@ import { requestMenuCountersRefresh } from "../menuBus";
 import SiteSearch from "../components/SiteSearch";
 import TagBadge from "../components/tags/TagBadge";
 import TagSelector from "../components/tags/TagSelector";
+import LanguageMaster from "../components/master/LanguageMaster";
 import {
   LineChart,
   Line,
@@ -46,9 +47,7 @@ const Badge = ({ children }: { children: React.ReactNode }) => (
 export default function Languages() {
   const [items, setItems] = useState<Lang[]>([]);
   const [archivedLanguages, setArchivedLanguages] = useState<Lang[]>([]);
-  const [form, setForm] = useState({ name: "", level: "A1", minutes_today: 0 });
   const [editing, setEditing] = useState<Lang | null>(null);
-  const [formTagIds, setFormTagIds] = useState<number[]>([]);
   const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [history, setHistory] = useState<Record<string, number[]>>({});
@@ -140,15 +139,6 @@ export default function Languages() {
     }
     return map;
   }, [languagePages]);
-
-  const add = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await api.post("/api/life/languages", { ...form, tags: formTagIds });
-    await api.post("/api/life/xp/add", { amount: 15 });
-    setForm({ name: "", level: "A1", minutes_today: 0 });
-    setFormTagIds([]);
-    await loadLanguages();
-  };
 
   const saveEdit = async () => {
     if (!editing) return;
@@ -253,55 +243,15 @@ export default function Languages() {
 
   return (
     <Shell>
-      <div className="flex items-center justify-between mb-4">
-        <div className="text-2xl font-semibold">Языки</div>
-        <div className="text-sm opacity-80">
-          Минут сегодня: <b>{totalMinutes}</b>
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
+        <div>
+          <div className="text-2xl font-semibold">Языки</div>
+          <div className="text-sm opacity-80">
+            Минут сегодня: <b>{totalMinutes}</b>
+          </div>
         </div>
+        <LanguageMaster tagOptions={tagOptions} onCreated={loadLanguages} />
       </div>
-
-      <form onSubmit={add} className="card grid md:grid-cols-4 gap-2 mb-6">
-        <input
-          placeholder="Название языка (например, Japanese)"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="px-3 py-2 rounded bg-white/10"
-        />
-        <select
-          value={form.level}
-          onChange={(e) => setForm({ ...form, level: e.target.value })}
-          className="px-3 py-2 rounded bg-white/10"
-        >
-          {["A1", "A2", "B1", "B2", "C1", "C2"].map((level) => (
-            <option key={level} value={level}>
-              {level}
-            </option>
-          ))}
-        </select>
-        <input
-          type="number"
-          min={0}
-          placeholder="Минут сегодня"
-          value={form.minutes_today}
-          onChange={(e) =>
-            setForm({ ...form, minutes_today: +e.target.value || 0 })
-          }
-      className="px-3 py-2 rounded bg-white/10"
-    />
-    <button type="submit" className="px-4 py-2 rounded bg-white text-black">
-      Добавить язык
-    </button>
-    <div className="md:col-span-4">
-      <TagSelector
-        tags={tagOptions}
-        selectedIds={formTagIds}
-        onChange={setFormTagIds}
-        label="Теги языка"
-        emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-        onManageTags={() => window.open('/pages', '_blank')}
-      />
-    </div>
-  </form>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {(items || []).map((language) => {

@@ -3,6 +3,7 @@ import Shell from '../components/Shell';
 import { api } from '../api';
 import { requestMenuCountersRefresh } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
+import YearGoalMaster from '../components/master/YearGoalMaster';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -38,7 +39,6 @@ function streakLabel(goal: Goal) {
 
 export default function YearGoals() {
   const [goals, setGoals] = useState<GoalsResponse>({ active: [], archived: [] });
-  const [form, setForm] = useState({ title: '', target: 30 });
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -48,19 +48,6 @@ export default function YearGoals() {
   };
 
   useEffect(() => { load(); }, []);
-
-  const addGoal = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!form.title.trim()) return;
-    setLoading(true);
-    try {
-      await api.post('/api/life/yearly-goals', form);
-      setForm({ title: '', target: 30 });
-      await load();
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const markToday = async (goal: Goal, checked: boolean) => {
     setLoading(true);
@@ -109,25 +96,7 @@ export default function YearGoals() {
           <div className="text-2xl font-semibold">Годовые цели</div>
           <p className="text-xs opacity-70">Отмечайте прогресс каждый день. При достижении 100% цель автоматически архивируется.</p>
         </div>
-        <form onSubmit={addGoal} className="card flex flex-wrap items-center gap-2">
-          <input
-            placeholder="Новая цель"
-            value={form.title}
-            onChange={e => setForm({ ...form, title: e.target.value })}
-            className="px-3 py-2 rounded bg-white/10"
-          />
-          <input
-            type="number"
-            min={1}
-            placeholder="Целевой прогресс"
-            value={form.target}
-            onChange={e => setForm({ ...form, target: Math.max(1, +e.target.value || 1) })}
-            className="px-3 py-2 rounded bg-white/10 w-32"
-          />
-          <button disabled={loading} className="px-4 py-2 rounded bg-white text-black">
-            {loading ? 'Сохранение…' : 'Добавить'}
-          </button>
-        </form>
+        <YearGoalMaster onCreated={load} />
       </div>
 
       <SiteSearch

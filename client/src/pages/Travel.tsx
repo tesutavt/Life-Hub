@@ -3,6 +3,7 @@ import Shell from '../components/Shell';
 import { api } from '../api';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
+import TravelMaster from '../components/master/TravelMaster';
 
 type TagOption = { id: number; label: string; color: string };
 
@@ -18,10 +19,8 @@ type Travel = {
 
 export default function Travel(){
   const [items, setItems] = useState<Travel[]>([]);
-  const [form, setForm] = useState({ title:'', location:'', date_from:'', date_to:'', status:'planned' });
   const [editing, setEditing] = useState<Travel|null>(null);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
-  const [formTagIds, setFormTagIds] = useState<number[]>([]);
   const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
 
   const mapTravel = (row: any): Travel => ({
@@ -54,15 +53,6 @@ export default function Travel(){
 
   useEffect(()=>{ load(); loadTagOptions(); },[]);
 
-  const add = async(e:React.FormEvent)=>{
-    e.preventDefault();
-    await api.post('/api/life/travel', { ...form, tags: formTagIds });
-    await api.post('/api/life/xp/add', { amount: 20 });
-    setForm({ title:'', location:'', date_from:'', date_to:'', status:'planned' });
-    setFormTagIds([]);
-    await load();
-  };
-
   const save = async()=>{
     if(!editing) return;
     await api.put('/api/life/travel/'+editing.id, { ...editing, tags: editingTagIds });
@@ -75,27 +65,10 @@ export default function Travel(){
 
   return (
     <Shell>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div className="text-2xl font-semibold">Путешествия</div>
+        <TravelMaster tagOptions={tagOptions} onCreated={load} />
       </div>
-
-      <form onSubmit={add} className="card grid md:grid-cols-5 gap-2 mb-6">
-        <input placeholder="Название" value={form.title} onChange={e=>setForm({...form, title:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
-        <input placeholder="Локация" value={form.location} onChange={e=>setForm({...form, location:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
-        <input type="date" placeholder="c" value={form.date_from} onChange={e=>setForm({...form, date_from:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
-      <input type="date" placeholder="по" value={form.date_to} onChange={e=>setForm({...form, date_to:e.target.value})} className="px-3 py-2 rounded bg-white/10" />
-      <button className="px-4 py-2 rounded bg-white text-black">Добавить</button>
-      <div className="md:col-span-5">
-        <TagSelector
-          tags={tagOptions}
-          selectedIds={formTagIds}
-          onChange={setFormTagIds}
-          label="Теги путешествия"
-          emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-          onManageTags={() => window.open('/pages', '_blank')}
-        />
-      </div>
-    </form>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {(items||[]).map(t => (
