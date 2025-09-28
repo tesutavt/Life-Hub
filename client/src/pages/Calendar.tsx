@@ -73,6 +73,8 @@ export default function CalendarPage() {
   const [tagOptions, setTagOptions] = useState<CalendarTag[]>([]);
   const [pattern, setPattern] = useState('2/2');
   const [autoStart, setAutoStart] = useState('');
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [clearingShifts, setClearingShifts] = useState(false);
 
   const weeks = useMemo(() => monthMatrix(current), [current]);
 
@@ -131,6 +133,36 @@ export default function CalendarPage() {
     }
   };
 
+  const handleDeleteEvent = async (eventId: number) => {
+    if (deletingId !== null) return;
+    const confirmed = window.confirm('Удалить это событие?');
+    if (!confirmed) return;
+    try {
+      setDeletingId(eventId);
+      await api.del(`/api/life/calendar/${eventId}`);
+      await load();
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleClearShifts = async () => {
+    if (clearingShifts) return;
+    const confirmed = window.confirm('Удалить все рабочие смены и выходные?');
+    if (!confirmed) return;
+    try {
+      setClearingShifts(true);
+      await api.post(
+        '/api/life/calendar/clear-shifts',
+        { types: ['work', 'off'] },
+        { notifySuccess: 'Смены удалены' }
+      );
+      await load();
+    } finally {
+      setClearingShifts(false);
+    }
+  };
+
   const goPrevMonth = () => setCurrent(new Date(current.getFullYear(), current.getMonth() - 1, 1));
   const goNextMonth = () => setCurrent(new Date(current.getFullYear(), current.getMonth() + 1, 1));
 
@@ -174,16 +206,31 @@ export default function CalendarPage() {
                     .join(' ');
                   const label = `${typeIcon(event.type)} ${event.title}`;
                   const tagDots = Array.isArray(event.tags) ? event.tags.slice(0, 4) : [];
+                  const numericId = typeof event.id === 'number' ? event.id : Number.isFinite(Number(event.id)) ? Number(event.id) : null;
+                  const isDeletable = numericId !== null && !Number.isNaN(numericId);
+                  const isDeleting = isDeletable && deletingId === numericId;
                   if (hasLink) {
                     return (
                       <div key={key} className="space-y-0.5">
-                        <button
-                          type="button"
-                          onClick={() => handleEventClick(event)}
-                          className={`${baseClass} text-left w-full`}
-                        >
-                          {label}
-                        </button>
+                        <div className="flex items-start gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleEventClick(event)}
+                            className={`${baseClass} text-left w-full min-w-0`}
+                          >
+                            {label}
+                          </button>
+                          {isDeletable ? (
+                            <button
+                              type="button"
+                              onClick={() => numericId !== null && handleDeleteEvent(numericId)}
+                              className={`text-xs text-white/40 hover:text-red-400 transition ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
+                              aria-label="Удалить событие"
+                            >
+                              ×
+                            </button>
+                          ) : null}
+                        </div>
                         {tagDots.length > 0 && (
                           <div className="flex flex-wrap gap-1.5">
                             {tagDots.map((tag) => (
@@ -202,7 +249,19 @@ export default function CalendarPage() {
                   }
                   return (
                     <div key={key} className="space-y-0.5">
-                      <div className={baseClass}>{label}</div>
+                      <div className="flex items-start gap-1.5">
+                        <div className={`${baseClass} min-w-0`}>{label}</div>
+                        {isDeletable ? (
+                          <button
+                            type="button"
+                            onClick={() => numericId !== null && handleDeleteEvent(numericId)}
+                            className={`text-xs text-white/40 hover:text-red-400 transition ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
+                            aria-label="Удалить событие"
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </div>
                       {tagDots.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
                           {tagDots.map((tag) => (
@@ -260,6 +319,13 @@ export default function CalendarPage() {
             <span>(необязательно)</span>
           </div>
           <p className="text-xs opacity-70">Смена будет чередоваться по заданному паттерну начиная с указанной даты.</p>
+          <button
+            onClick={handleClearShifts}
+            className={`px-4 py-2 rounded border border-white/20 hover:bg-white/10 transition ${clearingShifts ? 'opacity-50 pointer-events-none' : ''}`}
+            type="button"
+          >
+            {clearingShifts ? 'Удаление…' : 'Удалить все смены'}
+          </button>
         </div>
       </div>
     </Shell>

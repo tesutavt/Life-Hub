@@ -824,6 +824,52 @@ router.delete('/calendar/:id', async (req, res) => {
   res.json({ success: true });
 });
 
+router.post('/calendar/clear-shifts', async (req, res) => {
+  const { types, startDate = null, endDate = null } = req.body || {};
+  const allowedTypes = ['work', 'off'];
+  const targetTypes = Array.isArray(types) && types.length
+    ? types.filter((value) => allowedTypes.includes(value))
+    : allowedTypes;
+
+  if (targetTypes.length === 0) {
+    return res.status(400).json({ error: 'invalid_types' });
+  }
+
+  const db = await getDB();
+  const conditions = ['user_id=?', `type IN (${targetTypes.map(() => '?').join(',')})`];
+  const params = [req.user.uid, ...targetTypes];
+
+  if (startDate) {
+    conditions.push('date>=?');
+    params.push(startDate);
+  }
+
+  if (endDate) {
+    conditions.push('date<=?');
+    params.push(endDate);
+  }
+
+  const whereClause = conditions.join(' AND ');
+  const selectSql = `SELECT id FROM calendar_events WHERE ${whereClause}`;
+  const rows = await db.all(selectSql, params);
+
+  if (!rows.length) {
+    return res.json({ deleted: 0 });
+  }
+
+  const ids = rows.map((row) => row.id);
+  const deleteSql = `DELETE FROM calendar_events WHERE ${whereClause}`;
+  const result = await db.run(deleteSql, params);
+
+  const idPlaceholders = ids.map(() => '?').join(',');
+  await db.run(
+    `DELETE FROM tag_links WHERE entity_type=? AND user_id=? AND entity_id IN (${idPlaceholders})`,
+    [TAG_ENTITY_TYPES.CALENDAR_EVENT, req.user.uid, ...ids]
+  );
+
+  res.json({ deleted: result?.changes ?? ids.length });
+});
+
 router.post('/calendar/auto-shifts', async (req, res) => {
   const { startDate, pattern = '2/2', days = 120 } = req.body;
   const [work, off] = pattern.split('/').map((n) => parseInt(n || '0', 10));
