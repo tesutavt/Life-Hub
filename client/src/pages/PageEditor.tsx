@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import Shell from '../components/Shell';
 import { api } from '../api';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CalendarDays, Pin, X } from 'lucide-react';
+import { CalendarDays, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
 
 const uuid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
@@ -162,6 +162,7 @@ export default function PageEditor(){
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showBannerSettings, setShowBannerSettings] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const trimmedBannerUrl = bannerUrl.trim();
@@ -335,6 +336,7 @@ export default function PageEditor(){
       setPinned(!!response.page?.pinned);
       setBannerUrl(response.page?.banner_url ?? response.page?.bannerUrl ?? '');
       setBannerGradient(response.page?.banner_gradient ?? response.page?.bannerGradient ?? '');
+      setShowBannerSettings(false);
       const incoming = response.page?.blocks ?? response.page?.content ?? [];
       const normalised = normaliseBlocks(incoming);
       setBlocks(normalised.length ? normalised : [createBlock('text')]);
@@ -435,14 +437,33 @@ export default function PageEditor(){
           <button
             type="button"
             onClick={togglePinned}
-            className={`px-3 py-2 rounded border border-white/20 ${pinned ? 'bg-amber-400 text-black hover:bg-amber-300' : 'bg-white/10 text-white/80 hover:bg-white/15'}`}
+            className={`flex h-10 w-10 items-center justify-center rounded-full border transition ${
+              pinned
+                ? 'border-amber-400/60 bg-amber-300 text-black hover:bg-amber-200'
+                : 'border-white/15 bg-white/10 text-white/80 hover:bg-white/15'
+            }`}
+            title={pinned ? 'Открепить страницу' : 'Закрепить страницу'}
+            aria-label={pinned ? 'Открепить страницу' : 'Закрепить страницу'}
           >
-            {pinned ? 'Unpin' : 'Pin'}
+            {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
           </button>
-          <button onClick={handleSave} disabled={saving} className="px-3 py-2 rounded bg-white text-black">
-            {saving ? 'Saving:' : 'Save'}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white/80 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+            title="Сохранить страницу"
+            aria-label="Сохранить страницу"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           </button>
-          <button onClick={handleDelete} className="px-3 py-2 rounded bg-red-500/40 hover:bg-red-500/60">Удалить</button>
+          <button
+            onClick={handleDelete}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-red-400/40 bg-red-500/40 text-red-100 transition hover:bg-red-500/60"
+            title="Удалить страницу"
+            aria-label="Удалить страницу"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -473,6 +494,15 @@ export default function PageEditor(){
         <div className="relative h-48 overflow-hidden rounded-3xl border border-white/10 bg-black/40">
           <div className="absolute inset-0" style={bannerPreviewStyle} />
           <div className="absolute inset-0 bg-black/40" />
+          <button
+            type="button"
+            onClick={() => setShowBannerSettings(prev => !prev)}
+            className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white transition hover:bg-black/60"
+            title={showBannerSettings ? 'Скрыть настройки баннера' : 'Настроить баннер'}
+            aria-label={showBannerSettings ? 'Скрыть настройки баннера' : 'Настроить баннер'}
+          >
+            {showBannerSettings ? <X className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
+          </button>
           <div className="absolute inset-0 flex flex-col justify-end p-6 text-white">
             <div className="text-3xl font-semibold drop-shadow">{formatTitle(title)}</div>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/80">
@@ -490,81 +520,85 @@ export default function PageEditor(){
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="flex flex-col gap-2 text-sm text-white/80">
-            <span className="text-xs uppercase tracking-wide text-white/60">Ссылка на изображение</span>
-            <div className="flex gap-2">
-              <input
-                value={bannerUrl}
-                onChange={event => setBannerUrl(event.target.value)}
-                placeholder="https://..."
-                className="flex-1 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-white/30 focus:outline-none"
-              />
-              {bannerUrl && (
-                <button
-                  type="button"
-                  onClick={() => setBannerUrl('')}
-                  className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white/80 transition hover:bg-white/20"
-                  title="Убрать изображение"
-                  aria-label="Убрать изображение"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
+        {showBannerSettings && (
+          <div className="space-y-4 rounded-3xl border border-white/10 bg-black/30 p-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex flex-col gap-2 text-sm text-white/80">
+                <span className="text-xs uppercase tracking-wide text-white/60">Ссылка на изображение</span>
+                <div className="flex gap-2">
+                  <input
+                    value={bannerUrl}
+                    onChange={event => setBannerUrl(event.target.value)}
+                    placeholder="https://..."
+                    className="flex-1 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-white/30 focus:outline-none"
+                  />
+                  {bannerUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setBannerUrl('')}
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white/80 transition hover:bg-white/20"
+                      title="Убрать изображение"
+                      aria-label="Убрать изображение"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                <span className="text-xs text-white/50">Если указано изображение, оно перекроет градиент.</span>
+              </label>
+
+              <label className="flex flex-col gap-2 text-sm text-white/80">
+                <span className="text-xs uppercase tracking-wide text-white/60">CSS-градиент</span>
+                <textarea
+                  rows={2}
+                  value={bannerGradient}
+                  onChange={event => setBannerGradient(event.target.value)}
+                  placeholder="linear-gradient(...)"
+                  className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-white/30 focus:outline-none"
+                />
+                <span className="text-xs text-white/50">Введите CSS-значение или выберите вариант ниже.</span>
+              </label>
             </div>
-            <span className="text-xs text-white/50">Если указано изображение, оно перекроет градиент.</span>
-          </label>
 
-          <label className="flex flex-col gap-2 text-sm text-white/80">
-            <span className="text-xs uppercase tracking-wide text-white/60">CSS-градиент</span>
-            <textarea
-              rows={2}
-              value={bannerGradient}
-              onChange={event => setBannerGradient(event.target.value)}
-              placeholder="linear-gradient(...)"
-              className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-white/30 focus:outline-none"
-            />
-            <span className="text-xs text-white/50">Введите CSS-значение или выберите вариант ниже.</span>
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs uppercase tracking-wide text-white/60">Пресеты:</span>
-          {BANNER_GRADIENT_PRESETS.map(preset => {
-            const isActive = trimmedBannerGradient === preset.value;
-            return (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs uppercase tracking-wide text-white/60">Пресеты:</span>
+              {BANNER_GRADIENT_PRESETS.map(preset => {
+                const isActive = trimmedBannerGradient === preset.value;
+                return (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => setBannerGradient(preset.value)}
+                    className={`h-12 w-20 rounded-xl border transition ${
+                      isActive ? 'border-white/70 ring-2 ring-white/60' : 'border-white/10 hover:border-white/40'
+                    }`}
+                    style={{
+                      backgroundImage: preset.value,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center'
+                    }}
+                    title={preset.label}
+                    aria-label={`Установить градиент: ${preset.label}`}
+                  />
+                );
+              })}
               <button
-                key={preset.value}
                 type="button"
-                onClick={() => setBannerGradient(preset.value)}
-                className={`h-12 w-20 rounded-xl border transition ${
-                  isActive ? 'border-white/70 ring-2 ring-white/60' : 'border-white/10 hover:border-white/40'
-                }`}
-                style={{
-                  backgroundImage: preset.value,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center'
-                }}
-                title={preset.label}
-                aria-label={`Установить градиент: ${preset.label}`}
-              />
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setBannerGradient(DEFAULT_BANNER_GRADIENT)}
-            className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10"
-          >
-            По умолчанию
-          </button>
-          <button
-            type="button"
-            onClick={() => setBannerGradient('')}
-            className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10"
-          >
-            Очистить
-          </button>
-        </div>
+                onClick={() => setBannerGradient(DEFAULT_BANNER_GRADIENT)}
+                className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10"
+              >
+                По умолчанию
+              </button>
+              <button
+                type="button"
+                onClick={() => setBannerGradient('')}
+                className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10"
+              >
+                Очистить
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card p-4 space-y-4">

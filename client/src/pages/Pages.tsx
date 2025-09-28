@@ -196,77 +196,96 @@ export default function Pages() {
               {formatted.map((item) => (
                 <div key={item.id} className="px-4 py-4">
                   <div className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <Link to={`/pages/${item.id}`} className="flex-1 min-w-0">
-                        {(item.bannerUrl || item.bannerGradient) && (
-                          <div className="mb-3 h-20 w-full overflow-hidden rounded-xl border border-white/10 bg-black/20">
-                            {item.bannerUrl ? (
-                              <img
-                                src={item.bannerUrl}
-                                alt="Предпросмотр баннера"
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div
-                                className="h-full w-full"
-                                style={{
-                                  backgroundImage: item.bannerGradient || DEFAULT_PAGE_GRADIENT,
-                                  backgroundSize: 'cover',
-                                  backgroundPosition: 'center'
-                                }}
-                              />
+
+                    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+                      {item.bannerUrl ? (
+                        <img
+                          src={item.bannerUrl}
+                          alt="Предпросмотр баннера"
+                          className="absolute inset-0 h-full w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            backgroundImage: item.bannerGradient || DEFAULT_PAGE_GRADIENT,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                          }}
+                        />
+                      )}
+                      <div className="absolute inset-0 z-20 bg-gradient-to-br from-black/70 via-black/40 to-black/70" />
+                      <div className="relative z-30 flex h-full flex-col justify-between p-4 text-white">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-xs font-medium text-white/80">
+                            Обновлено: {item.updatedLabel}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                togglePin(item.id, !!item.pinned);
+                              }}
+                              className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                                item.pinned
+                                  ? 'border-amber-400/60 bg-amber-300 text-black hover:bg-amber-200'
+                                  : 'border-white/15 bg-black/30 text-white/80 hover:bg-white/20'
+                              }`}
+                              title={item.pinned ? 'Открепить страницу' : 'Закрепить страницу'}
+                              aria-label={item.pinned ? 'Открепить страницу' : 'Закрепить страницу'}
+                            >
+                              {item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setTagSelectorFor((prev) => (prev === item.id ? null : item.id));
+                              }}
+                              className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                                tagSelectorFor === item.id
+                                  ? 'border-white/20 bg-white/20 text-white'
+                                  : 'border-white/15 bg-black/30 text-white/80 hover:bg-white/20'
+                              }`}
+                              title={tagSelectorFor === item.id ? 'Скрыть управление тегами' : 'Управлять тегами'}
+                              aria-label={tagSelectorFor === item.id ? 'Скрыть управление тегами' : 'Управлять тегами'}
+                            >
+                              {tagSelectorFor === item.id ? <X className="h-4 w-4" /> : <TagIcon className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                        <Link
+                          to={`/pages/${item.id}`}
+                          className="mt-auto block space-y-2"
+                          aria-label={`Открыть страницу ${item.title?.trim() || 'без названия'}`}
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-lg font-semibold leading-tight line-clamp-2">
+                              {item.title?.trim() || 'Untitled page'}
+                            </div>
+                            {item.pinned && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-300/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-black">
+                                Pinned
+                              </span>
                             )}
                           </div>
-                        )}
-                        <div className="flex items-center gap-2 font-medium text-white">
-                          <span>{item.title?.trim() || 'Untitled page'}</span>
-                          {item.pinned && (
-                            <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-200 border border-amber-400/30">
-                              Pinned
-                            </span>
+                          {item.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 text-xs text-white/80">
+                              {item.tags.map((tag) => (
+                                <TagBadge key={tag.id} tag={tag} compact />
+                              ))}
+                            </div>
                           )}
-                        </div>
-                        <div className="mt-1 text-xs text-white/60">Updated: {item.updatedLabel}</div>
-                        {item.tags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {item.tags.map((tag) => (
-                              <TagBadge key={tag.id} tag={tag} compact />
-                            ))}
-                          </div>
-                        )}
-                      </Link>
-                      <div className="flex items-center gap-2 ml-auto">
-                        <button
-                          type="button"
-                          onClick={() => togglePin(item.id, !!item.pinned)}
-                          className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
-                            item.pinned
-                              ? 'border-amber-400/60 bg-amber-300 text-black hover:bg-amber-200'
-                              : 'border-white/15 bg-white/10 text-white/80 hover:bg-white/15'
-                          }`}
-                          title={item.pinned ? 'Открепить страницу' : 'Закрепить страницу'}
-                          aria-label={item.pinned ? 'Открепить страницу' : 'Закрепить страницу'}
-                        >
-                          {item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTagSelectorFor((prev) => (prev === item.id ? null : item.id))}
-                          className={`flex h-8 w-8 items-center justify-center rounded-full border transition ${
-                            tagSelectorFor === item.id
-                              ? 'border-white/15 bg-white/20 text-white'
-                              : 'border-white/15 bg-white/10 text-white/80 hover:bg-white/15'
-                          }`}
-                          title={tagSelectorFor === item.id ? 'Скрыть управление тегами' : 'Управлять тегами'}
-                          aria-label={tagSelectorFor === item.id ? 'Скрыть управление тегами' : 'Управлять тегами'}
-                        >
-                          {tagSelectorFor === item.id ? <X className="h-4 w-4" /> : <TagIcon className="h-4 w-4" />}
-                        </button>
+                        </Link>
+
                       </div>
                     </div>
                     {tagSelectorFor === item.id && (
-                      <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="rounded-xl border border-white/10 bg-black/40 p-3">
                         <TagSelector
                           tags={tags}
                           selectedIds={item.tags.map((tag) => tag.id)}
