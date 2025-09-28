@@ -149,7 +149,6 @@ async function runMigrations(database) {
     await ensureLanguageColumn('archived_at', 'ALTER TABLE languages ADD COLUMN archived_at TEXT;');
     await ensureLanguageColumn('image_url', 'ALTER TABLE languages ADD COLUMN image_url TEXT;');
     await ensureLanguageColumn('banner_url', 'ALTER TABLE languages ADD COLUMN banner_url TEXT;');
-
     await database.exec("UPDATE languages SET status = COALESCE(status, 'active');");
     await database.exec("UPDATE languages SET status = 'archived' WHERE status <> 'archived' AND archived_at IS NOT NULL;");
   }
