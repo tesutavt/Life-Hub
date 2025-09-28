@@ -3,6 +3,7 @@ import Shell from '../components/Shell';
 import { api } from '../api';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
+import { Modal } from '../components/ui/Modal';
 import HabitMaster from '../components/master/HabitMaster';
 
 type TagOption = { id: number; label: string; color: string };
@@ -224,9 +225,13 @@ export default function Habits() {
 
       <p className="text-xs opacity-70 mt-3">Клик по ячейке фиксирует выполнение привычки за выбранную дату. Данные автоматически сохраняются.</p>
 
-      {tagEditorHabit && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-xl w-96 border border-white/20 space-y-4">
+      <Modal
+        open={Boolean(tagEditorHabit)}
+        onClose={closeTagEditor}
+        contentClassName="w-full max-w-lg space-y-4 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        {tagEditorHabit && (
+          <>
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-lg font-semibold">Теги привычки</div>
@@ -261,9 +266,9 @@ export default function Habits() {
                 Сохранить
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </Shell>
   );
 }

@@ -3,6 +3,7 @@ import Shell from '../components/Shell';
 import { api } from '../api';
 import { requestMenuCountersRefresh } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
+import { Modal } from '../components/ui/Modal';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
 import CourseMaster, { COURSE_TYPES } from '../components/master/CourseMaster';
@@ -192,10 +193,17 @@ export default function Courses() {
         })}
       </div>
 
-      {editing && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-xl w-96 border border-white/20 space-y-3">
-            <div className="text-lg font-medium">Редактирование курса</div>
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => {
+          setEditing(null);
+          setEditingTagIds([]);
+        }}
+        contentClassName="w-full max-w-md space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        <div className="text-lg font-medium">Редактирование курса</div>
+        {editing && (
+          <>
             <input
               className="px-3 py-2 rounded bg-white/10 w-full"
               value={editing.title}
@@ -267,9 +275,9 @@ export default function Courses() {
                 className="px-3 py-2 rounded bg-green-600 hover:bg-green-700"
               >Сохранить</button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </Shell>
   );
 }

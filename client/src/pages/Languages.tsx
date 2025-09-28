@@ -6,6 +6,7 @@ import { requestMenuCountersRefresh } from "../menuBus";
 import SiteSearch from "../components/SiteSearch";
 import TagBadge from "../components/tags/TagBadge";
 import TagSelector from "../components/tags/TagSelector";
+import { Modal } from "../components/ui/Modal";
 import LanguageMaster from "../components/master/LanguageMaster";
 import {
   LineChart,
@@ -417,12 +418,17 @@ export default function Languages() {
         )}
       </div>
 
-      {editing && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-xl w-96 border border-white/20 space-y-3">
-            <div className="text-lg font-medium">
-              Редактирование языка: {editing.name}
-            </div>
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => {
+          setEditing(null);
+          setEditingTagIds([]);
+        }}
+        contentClassName="w-full max-w-lg space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        {editing && (
+          <>
+            <div className="text-lg font-medium">Редактирование языка: {editing.name}</div>
             <input
               className="px-3 py-2 rounded bg-white/10 w-full"
               value={editing.name}
@@ -476,13 +482,19 @@ export default function Languages() {
                 Сохранить
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
 
-      {pickerLanguage && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-black p-6 rounded-xl w-[32rem] max-w-full border border-white/20 space-y-4 max-h-[80vh] overflow-hidden">
+      <Modal
+        open={Boolean(pickerLanguage)}
+        onClose={() => {
+          setPickerLanguageId(null);
+        }}
+        contentClassName="w-full max-w-3xl space-y-4 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl max-h-[80vh] overflow-hidden"
+      >
+        {pickerLanguage && (
+          <>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold">Учебные страницы</div>
@@ -538,9 +550,9 @@ export default function Languages() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </Shell>
   );
 }
