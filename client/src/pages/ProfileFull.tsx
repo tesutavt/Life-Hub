@@ -537,6 +537,7 @@ const resolvePageVisual = (entry: any): PageVisual | null => {
         bannerUrl: bannerUrl ? resolveMediaUrl(bannerUrl) : null,
         bannerGradient
       };
+
     }
   }
 
