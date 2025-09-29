@@ -216,7 +216,6 @@ export const useReorderableList = <T,>(
       setOverId(null);
     },
   }), [clearActive, setOverId]);
-
   const resetOrder = useCallback(() => {
     const next = [...knownIds];
     persistOrder(next);

@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import Shell from '../components/Shell';
@@ -762,7 +763,6 @@ export default function ProfileFull() {
     overviewBlocks,
     (block) => block.id,
   );
-
   const load = async () => {
     const d = await api.get('/api/life/profile');
     setData(d);
