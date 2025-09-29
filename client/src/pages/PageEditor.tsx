@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Shell from '../components/Shell';
-import { api } from '../api';
+import { api, resolveApiUrl } from '../api';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CalendarDays, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
+import { CalendarDays, Circle, CircleCheck, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
 
 const uuid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
@@ -17,6 +17,7 @@ type BlockType =
   | 'quote'
   | 'code'
   | 'image'
+  | 'pdf'
   | 'divider';
 
 type Block = {
@@ -26,6 +27,19 @@ type Block = {
   checked?: boolean;
   url?: string | null;
   relation?: string | null;
+  meta?: any;
+};
+
+type PdfMarker = {
+  id: string;
+  title: string;
+  page: number | null;
+  done: boolean;
+};
+
+type PdfMeta = {
+  markers: PdfMarker[];
+  originalName?: string | null;
 };
 
 type MenuState = { blockId: string; x: number; y: number };
@@ -41,10 +55,12 @@ const BLOCK_LABELS: Record<BlockType, string> = {
   quote: 'Цитата',
   code: 'Код',
   image: 'Изображение',
+  pdf: 'PDF документ',
   divider: 'Разделитель'
 };
 
-const EDITABLE_TYPES: BlockType[] = ['text', 'heading1', 'heading2', 'heading3', 'bulleted', 'numbered', 'quote', 'code'];
+const EDITABLE_TYPES: BlockType[] = ['text', 'heading1', 'heading2', 'heading3', 'bulleted', 'numbered', 'quote', 'code', 'todo'];
+const RICH_TEXT_TYPES: BlockType[] = ['text', 'heading1', 'heading2', 'heading3', 'bulleted', 'numbered', 'quote', 'todo'];
 const BASE_EDITABLE_CLASS = 'min-h-[24px] w-full whitespace-pre-wrap leading-relaxed focus:outline-none';
 const LTR_STYLE: React.CSSProperties = { direction: 'ltr', unicodeBidi: 'plaintext', textAlign: 'left' };
 
@@ -57,25 +73,86 @@ const BANNER_GRADIENT_PRESETS = [
   { label: 'Полночь', value: 'linear-gradient(135deg, rgba(79, 70, 229, 0.75) 0%, rgba(129, 140, 248, 0.65) 100%)' }
 ];
 
+const FORMAT_COLORS = ['#f97316', '#14b8a6', '#0ea5e9', '#6366f1', '#ec4899', '#facc15', '#e11d48', '#22c55e', '#ffffff'];
+const FONT_FAMILIES = [
+  { label: 'Системный', value: 'inherit' },
+  { label: 'Serif', value: 'Georgia, Times, serif' },
+  { label: 'Sans-serif', value: 'Inter, Arial, sans-serif' },
+  { label: 'Mono', value: '"Fira Code", "Courier New", monospace' }
+];
+const FONT_SIZES = [
+  { label: 'Мелкий', value: 2 },
+  { label: 'Обычный', value: 3 },
+  { label: 'Крупный', value: 4 },
+  { label: 'Очень крупный', value: 5 }
+];
+const EMOJI_OPTIONS = ['😀', '😁', '😂', '😊', '😍', '🤩', '🤔', '😎', '😭', '🙌', '🔥', '🚀', '🌟', '✅', '❤️'];
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const ensurePdfMeta = (meta: any): PdfMeta => {
+  if (meta && typeof meta === 'object') {
+    const markers = Array.isArray(meta.markers)
+      ? meta.markers
+          .map((marker: any) => ({
+            id: marker.id || uuid(),
+            title: typeof marker.title === 'string' ? marker.title : 'Страница',
+            page:
+              marker.page == null || Number.isNaN(Number(marker.page))
+                ? null
+                : Number.parseInt(marker.page, 10),
+            done: !!marker.done
+          }))
+      : [];
+    return { markers, originalName: typeof meta.originalName === 'string' ? meta.originalName : null };
+  }
+  return { markers: [], originalName: null };
+};
+
+const getBlockHtml = (block: Block) => {
+  if (RICH_TEXT_TYPES.includes(block.type)) {
+    const html = block.meta?.html;
+    if (typeof html === 'string') return { __html: html };
+  }
+  const text = block.text ?? '';
+  return { __html: escapeHtml(text) };
+};
+
 const createBlock = (type: BlockType = 'text'): Block => {
   if (type === 'divider') return { id: uuid(), type };
-  if (type === 'todo') return { id: uuid(), type, text: '', checked: false };
+  if (type === 'todo') return { id: uuid(), type, text: '', checked: false, meta: { html: '' } };
   if (type === 'image') return { id: uuid(), type, text: '', url: '' };
-  return { id: uuid(), type, text: '' };
+  if (type === 'pdf') return { id: uuid(), type, text: '', url: '', meta: { markers: [] } };
+  return { id: uuid(), type, text: '', meta: { html: '' } };
 };
 
 function normaliseBlocks(input: any): Block[] {
   if (!input) return [createBlock('text')];
 
   if (Array.isArray(input)) {
-    return input.map((raw: any) => ({
-      id: raw.id || uuid(),
-      type: (raw.type as BlockType) || 'text',
-      text: raw.text ?? '',
-      checked: raw.checked ?? false,
-      url: raw.url ?? null,
-      relation: raw.relation ?? null
-    }));
+    return input.map((raw: any) => {
+      const type = (raw.type as BlockType) || 'text';
+      const block: Block = {
+        id: raw.id || uuid(),
+        type,
+        text: raw.text ?? '',
+        checked: raw.checked ?? false,
+        url: raw.url ?? null,
+        relation: raw.relation ?? null
+      };
+      if (type === 'pdf') {
+        block.meta = ensurePdfMeta(raw.meta);
+      } else if (raw.meta && typeof raw.meta === 'object') {
+        block.meta = raw.meta;
+      }
+      return block;
+    });
   }
 
   if (input.blocks) {
@@ -160,10 +237,20 @@ export default function PageEditor(){
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [formatMenu, setFormatMenu] = useState<MenuState | null>(null);
+  const [emojiMenu, setEmojiMenu] = useState<MenuState | null>(null);
+  const [pdfMarkerDrafts, setPdfMarkerDrafts] = useState<Record<string, { title: string; page: string }>>({});
+  const [uploadingPdfBlockId, setUploadingPdfBlockId] = useState<string | null>(null);
+  const [pdfErrors, setPdfErrors] = useState<Record<string, string | null>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showBannerSettings, setShowBannerSettings] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const formatMenuRef = useRef<HTMLDivElement | null>(null);
+  const emojiMenuRef = useRef<HTMLDivElement | null>(null);
+  const blockRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const selectionRef = useRef<Range | null>(null);
+  const lastSelectionRef = useRef<Range | null>(null);
 
   const trimmedBannerUrl = bannerUrl.trim();
   const trimmedBannerGradient = bannerGradient.trim();
@@ -218,6 +305,8 @@ export default function PageEditor(){
       const target = event.target as Node | null;
       if (menuRef.current && target && menuRef.current.contains(target)) return;
       setMenu(null);
+      setFormatMenu(null);
+      setEmojiMenu(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setMenu(null);
@@ -248,6 +337,105 @@ export default function PageEditor(){
       setMenu(prev => (prev ? { ...prev, x: nextX, y: nextY } : prev));
     }
   }, [menu]);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      try {
+        const range = selection.getRangeAt(0);
+        lastSelectionRef.current = range.cloneRange();
+      } catch {
+        // ignore
+      }
+    };
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!formatMenu) return;
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (formatMenuRef.current && target && formatMenuRef.current.contains(target)) return;
+      setFormatMenu(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFormatMenu(null);
+    };
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [formatMenu]);
+
+  useEffect(() => {
+    if (!emojiMenu) return;
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (emojiMenuRef.current && target && emojiMenuRef.current.contains(target)) return;
+      setEmojiMenu(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEmojiMenu(null);
+    };
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [emojiMenu]);
+
+  useLayoutEffect(() => {
+    if (!formatMenu) return;
+    const node = formatMenuRef.current;
+    if (!node) return;
+    const padding = 12;
+    const rect = node.getBoundingClientRect();
+    let nextX = formatMenu.x;
+    let nextY = formatMenu.y;
+    const maxX = window.innerWidth - rect.width - padding;
+    const maxY = window.innerHeight - rect.height - padding;
+    if (nextX > maxX) nextX = Math.max(padding, maxX);
+    if (nextY > maxY) nextY = Math.max(padding, maxY);
+    if (nextX < padding) nextX = padding;
+    if (nextY < padding) nextY = padding;
+    if (nextX !== formatMenu.x || nextY !== formatMenu.y) {
+      setFormatMenu(prev => (prev ? { ...prev, x: nextX, y: nextY } : prev));
+    }
+  }, [formatMenu]);
+
+  useLayoutEffect(() => {
+    if (!emojiMenu) return;
+    const node = emojiMenuRef.current;
+    if (!node) return;
+    const padding = 12;
+    const rect = node.getBoundingClientRect();
+    let nextX = emojiMenu.x;
+    let nextY = emojiMenu.y;
+    const maxX = window.innerWidth - rect.width - padding;
+    const maxY = window.innerHeight - rect.height - padding;
+    if (nextX > maxX) nextX = Math.max(padding, maxX);
+    if (nextY > maxY) nextY = Math.max(padding, maxY);
+    if (nextX < padding) nextX = padding;
+    if (nextY < padding) nextY = padding;
+    if (nextX !== emojiMenu.x || nextY !== emojiMenu.y) {
+      setEmojiMenu(prev => (prev ? { ...prev, x: nextX, y: nextY } : prev));
+    }
+  }, [emojiMenu]);
+
+  const registerBlockRef = useCallback((blockId: string, element: HTMLElement | null) => {
+    if (!element) {
+      blockRefs.current.delete(blockId);
+      return;
+    }
+    blockRefs.current.set(blockId, element);
+  }, []);
 
   const updateBlock = useCallback((blockId: string, patch: Partial<Block> | ((prev: Block) => Block)) => {
     setBlocks(prev => prev.map(block => {
@@ -301,10 +489,18 @@ export default function PageEditor(){
     updateBlock(blockId, current => {
       const base: Block = { id: current.id, type, relation: current.relation ?? null };
       if (type === 'divider') return base;
-      if (type === 'todo') return { ...base, text: current.text || '', checked: current.checked ?? false };
+      if (type === 'pdf') {
+        const meta = ensurePdfMeta(current.meta);
+        return { ...base, text: current.text || '', url: current.url || '', meta };
+      }
+      if (type === 'todo') {
+        const html = typeof current.meta?.html === 'string' ? current.meta.html : current.text || '';
+        return { ...base, text: current.text || '', checked: current.checked ?? false, meta: { html } };
+      }
       if (type === 'image') return { ...base, text: current.text || '', url: current.url || '' };
       if (type === 'code') return { ...base, text: current.text || '' };
-      return { ...base, text: current.text || '', url: null, checked: undefined };
+      const html = typeof current.meta?.html === 'string' ? current.meta.html : current.text || '';
+      return { ...base, text: current.text || '', url: null, checked: undefined, meta: { html } };
     });
   }, [updateBlock]);
 
@@ -322,6 +518,8 @@ export default function PageEditor(){
   }, [updateBlock]);
 
   const openMenu = useCallback((blockId: string, x: number, y: number) => {
+    setFormatMenu(null);
+    setEmojiMenu(null);
     setMenu({ blockId, x, y });
   }, []);
 
@@ -379,7 +577,8 @@ export default function PageEditor(){
           text: block.text ?? '',
           checked: block.checked ?? false,
           url: block.url ?? null,
-          relation: block.relation ?? null
+          relation: block.relation ?? null,
+          meta: block.meta ?? null
         }))
       });
     } catch (err: any) {
@@ -396,9 +595,211 @@ export default function PageEditor(){
     nav('/pages');
   };
 
-  const handleBlockInput = (blockId: string, value: string) => {
-    updateBlock(blockId, { text: value });
+  const handleBlockInput = (blockId: string, value: string, html?: string) => {
+    updateBlock(blockId, current => {
+      const next: Block = { ...current, text: value };
+      if (html !== undefined && RICH_TEXT_TYPES.includes(current.type)) {
+        const meta = typeof current.meta === 'object' && current.meta !== null ? { ...current.meta } : {};
+        next.meta = { ...meta, html };
+      }
+      return next;
+    });
     setFocusId(blockId);
+  };
+
+  const commitRichText = useCallback((blockId: string) => {
+    const element = blockRefs.current.get(blockId);
+    if (!element) return;
+    const text = element.innerText;
+    const html = element.innerHTML;
+    updateBlock(blockId, current => {
+      if (!RICH_TEXT_TYPES.includes(current.type)) {
+        return { ...current, text };
+      }
+      const meta = typeof current.meta === 'object' && current.meta !== null ? { ...current.meta } : {};
+      return { ...current, text, meta: { ...meta, html } };
+    });
+  }, [updateBlock]);
+
+  const applyFormatting = useCallback(
+    (command: string, value?: string) => {
+      if (!formatMenu) return;
+      const selection = window.getSelection();
+      if (selectionRef.current) {
+        selection?.removeAllRanges();
+        selection?.addRange(selectionRef.current);
+      }
+      try {
+        document.execCommand(command, false, value);
+      } catch (err) {
+        console.error(err);
+      }
+      commitRichText(formatMenu.blockId);
+      selectionRef.current = null;
+      setFormatMenu(null);
+    },
+    [commitRichText, formatMenu]
+  );
+
+  const insertEmoji = useCallback(
+    (blockId: string, emoji: string) => {
+      const element = blockRefs.current.get(blockId);
+      if (!element) return;
+      element.focus();
+      const selection = window.getSelection();
+      if (lastSelectionRef.current) {
+        selection?.removeAllRanges();
+        selection?.addRange(lastSelectionRef.current);
+      } else {
+        selection?.selectAllChildren(element);
+        selection?.collapseToEnd();
+      }
+      try {
+        document.execCommand('insertText', false, emoji);
+      } catch (err) {
+        console.error(err);
+      }
+      commitRichText(blockId);
+      setEmojiMenu(null);
+    },
+    [commitRichText]
+  );
+
+  const updatePdfMeta = useCallback(
+    (blockId: string, mutate: (meta: PdfMeta) => PdfMeta) => {
+      updateBlock(blockId, current => {
+        const meta = ensurePdfMeta(current.meta);
+        const nextMeta = mutate(meta);
+        return { ...current, meta: nextMeta };
+      });
+    },
+    [updateBlock]
+  );
+
+  const addPdfMarker = useCallback(
+    (blockId: string, marker: PdfMarker) => {
+      updatePdfMeta(blockId, meta => ({ ...meta, markers: [...meta.markers, marker] }));
+    },
+    [updatePdfMeta]
+  );
+
+  const togglePdfMarker = useCallback(
+    (blockId: string, markerId: string) => {
+      updatePdfMeta(blockId, meta => ({
+        ...meta,
+        markers: meta.markers.map(marker =>
+          marker.id === markerId ? { ...marker, done: !marker.done } : marker
+        )
+      }));
+    },
+    [updatePdfMeta]
+  );
+
+  const removePdfMarker = useCallback(
+    (blockId: string, markerId: string) => {
+      updatePdfMeta(blockId, meta => ({
+        ...meta,
+        markers: meta.markers.filter(marker => marker.id !== markerId)
+      }));
+    },
+    [updatePdfMeta]
+  );
+
+  const handlePdfFileChange = useCallback(
+    async (blockId: string, file: File | null) => {
+      if (!file) return;
+      setUploadingPdfBlockId(blockId);
+      setPdfErrors(prev => ({ ...prev, [blockId]: null }));
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await api.post('/api/life/uploads/pdf', formData, { silentSuccess: true });
+        if (response?.url) {
+          updateBlock(blockId, current => {
+            const meta = ensurePdfMeta(current.meta);
+            const fallbackTitle = file.name.replace(/\.pdf$/i, '');
+            return {
+              ...current,
+              text: current.text && current.text.trim().length > 0 ? current.text : fallbackTitle,
+              url: response.url,
+              meta: { ...meta, originalName: file.name }
+            };
+          });
+        }
+      } catch (err: any) {
+        setPdfErrors(prev => ({ ...prev, [blockId]: err?.message || 'Не удалось загрузить файл' }));
+      } finally {
+        setUploadingPdfBlockId(null);
+      }
+    },
+    [updateBlock]
+  );
+
+  const setPdfUrl = useCallback(
+    (blockId: string) => {
+      const value = window.prompt('Ссылка на PDF документ');
+      if (value === null) return;
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      setPdfErrors(prev => ({ ...prev, [blockId]: null }));
+      updateBlock(blockId, current => ({
+        ...current,
+        url: trimmed,
+        meta: ensurePdfMeta(current.meta)
+      }));
+    },
+    [updateBlock]
+  );
+
+  const handleAddPdfMarker = useCallback(
+    (block: Block) => {
+      if (block.type !== 'pdf') return;
+      const draft = pdfMarkerDrafts[block.id] ?? { title: '', page: '' };
+      const pageValue = draft.page.trim();
+      let pageNumber: number | null = null;
+      if (pageValue) {
+        const parsed = Number.parseInt(pageValue, 10);
+        if (Number.isNaN(parsed) || parsed <= 0) {
+          setPdfErrors(prev => ({ ...prev, [block.id]: 'Неверный номер страницы' }));
+          return;
+        }
+        pageNumber = parsed;
+      }
+      const title = draft.title.trim() || (pageNumber ? `Страница ${pageNumber}` : 'Фрагмент');
+      addPdfMarker(block.id, { id: uuid(), title, page: pageNumber, done: false });
+      setPdfMarkerDrafts(prev => ({ ...prev, [block.id]: { title: '', page: '' } }));
+      setPdfErrors(prev => ({ ...prev, [block.id]: null }));
+    },
+    [addPdfMarker, pdfMarkerDrafts]
+  );
+
+  const handleBlockContextMenu = (event: React.MouseEvent, block: Block) => {
+    if (RICH_TEXT_TYPES.includes(block.type)) {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+        try {
+          const range = selection.getRangeAt(0);
+          const container = blockRefs.current.get(block.id);
+          if (container && container.contains(range.commonAncestorContainer)) {
+            if (selection.toString().trim().length > 0) {
+              event.preventDefault();
+              selectionRef.current = range.cloneRange();
+              setFormatMenu({ blockId: block.id, x: event.clientX, y: event.clientY });
+              setMenu(null);
+              setEmojiMenu(null);
+              return;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    event.preventDefault();
+    selectionRef.current = null;
+    setFormatMenu(null);
+    setEmojiMenu(null);
+    openMenu(block.id, event.clientX, event.clientY);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent, block: Block) => {
@@ -414,6 +815,27 @@ export default function PageEditor(){
         removeBlock(block.id);
       }
     }
+  };
+
+  const openEmojiMenuForBlock = (block: Block, event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!RICH_TEXT_TYPES.includes(block.type)) {
+      focusBlock(block.id);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      try {
+        lastSelectionRef.current = selection.getRangeAt(0).cloneRange();
+      } catch {
+        lastSelectionRef.current = null;
+      }
+    }
+    setEmojiMenu({ blockId: block.id, x: rect.left, y: rect.bottom + 6 });
+    setMenu(null);
+    setFormatMenu(null);
   };
 
   if (loading) {
@@ -602,133 +1024,322 @@ export default function PageEditor(){
       </div>
 
       <div className="card p-4 space-y-4">
-        {blocks.map((block, index) => (
-          <div
-            key={block.id}
-            className="group relative flex items-start gap-3 rounded-xl p-2 transition-colors hover:bg-white/5"
-            onContextMenu={event => {
-              event.preventDefault();
-              openMenu(block.id, event.clientX, event.clientY);
-            }}
-          >
-            <div className="w-32 shrink-0 text-xs uppercase tracking-wide text-white/40">{BLOCK_LABELS[block.type]}</div>
+        {blocks.map((block, index) => {
+          const isPdf = block.type === 'pdf';
+          const pdfMeta = isPdf ? ensurePdfMeta(block.meta) : null;
+          const pdfDraft = pdfMarkerDrafts[block.id] ?? { title: '', page: '' };
+          const pdfError = pdfErrors[block.id] || null;
+          const sortedMarkers = pdfMeta
+            ? [...pdfMeta.markers].sort((a, b) => {
+                if (a.done !== b.done) return a.done ? 1 : -1;
+                if (a.page != null && b.page != null && a.page !== b.page) return a.page - b.page;
+                if (a.page != null) return -1;
+                if (b.page != null) return 1;
+                return a.title.localeCompare(b.title, 'ru');
+              })
+            : [];
+          const pdfSrc = block.url ? resolveApiUrl(block.url) : '';
 
-            {block.type === 'divider' ? (
-              <div className="flex-1 pt-3" style={LTR_STYLE}>
-                <div className="h-px bg-white/20" />
-              </div>
-            ) : block.type === 'image' ? (
-              <div className="flex-1 space-y-2" style={LTR_STYLE}>
-                {block.url ? (
-                  <img src={block.url} alt="page block" className="max-h-96 rounded-xl border border-white/10 object-contain" />
-                ) : (
-                  <button type="button" className="px-3 py-2 text-sm rounded bg-white/10" onClick={() => setImageUrl(block.id)}>
-                    Set image URL
-                  </button>
-                )}
-                <input
-                  value={block.text || ''}
-                  onChange={event => handleBlockInput(block.id, event.target.value)}
-                  placeholder="Caption (optional)"
-                  className="w-full px-3 py-2 rounded bg-white/10 text-sm"
-                />
-              </div>
-            ) : block.type === 'todo' ? (
-              <label className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
-                <input
-                  type="checkbox"
-                  checked={!!block.checked}
-                  onChange={event => updateBlock(block.id, { checked: event.target.checked })}
-                  className="mt-1"
-                />
-                <div
-                  className={BASE_EDITABLE_CLASS}
-                  contentEditable
-                  suppressContentEditableWarning
-                  data-block-id={block.id}
-                  onInput={event => handleBlockInput(block.id, (event.target as HTMLElement).textContent || '')}
-                  onKeyDown={event => handleKeyDown(event, block)}
-                  style={LTR_STYLE}
-                >
-                  {block.text}
-                </div>
-              </label>
-            ) : block.type === 'bulleted' ? (
-              <div className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
-                <span className="mt-1 text-white/70">•</span>
-                <div
-                  className={BASE_EDITABLE_CLASS}
-                  contentEditable
-                  suppressContentEditableWarning
-                  data-block-id={block.id}
-                  onInput={event => handleBlockInput(block.id, (event.target as HTMLElement).textContent || '')}
-                  onKeyDown={event => handleKeyDown(event, block)}
-                  style={LTR_STYLE}
-                >
-                  {block.text}
-                </div>
-              </div>
-            ) : block.type === 'numbered' ? (
-              <div className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
-                <span className="mt-1 text-white/70">{index + 1}.</span>
-                <div
-                  className={BASE_EDITABLE_CLASS}
-                  contentEditable
-                  suppressContentEditableWarning
-                  data-block-id={block.id}
-                  onInput={event => handleBlockInput(block.id, (event.target as HTMLElement).textContent || '')}
-                  onKeyDown={event => handleKeyDown(event, block)}
-                  style={LTR_STYLE}
-                >
-                  {block.text}
-                </div>
-              </div>
-            ) : (
-              <div className="flex-1">
-                <div
-                  className={[
-                    BASE_EDITABLE_CLASS,
-                    block.type === 'heading1' ? 'text-4xl font-semibold' : '',
-                    block.type === 'heading2' ? 'text-3xl font-semibold' : '',
-                    block.type === 'heading3' ? 'text-2xl font-semibold' : '',
-                    block.type === 'quote' ? 'border-l-4 border-white/30 pl-4 italic text-white/70' : '',
-                    block.type === 'code' ? 'font-mono bg-black/40 border border-white/10 rounded-lg px-3 py-2' : ''
-                  ].filter(Boolean).join(' ')}
-                  contentEditable
-                  suppressContentEditableWarning
-                  data-block-id={block.id}
-                  onInput={event => handleBlockInput(block.id, (event.target as HTMLElement).textContent || '')}
-                  onKeyDown={event => handleKeyDown(event, block)}
-                  style={LTR_STYLE}
-                >
-                  {block.text}
-                </div>
-              </div>
-            )}
+          return (
+            <div
+              key={block.id}
+              className="group relative flex items-start gap-3 rounded-xl p-2 transition-colors hover:bg-white/5"
+              onContextMenu={event => handleBlockContextMenu(event, block)}
+            >
+              <div className="w-32 shrink-0 text-xs uppercase tracking-wide text-white/40">{BLOCK_LABELS[block.type]}</div>
 
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-              <button
-                type="button"
-                className="px-2 py-1 text-xs rounded bg-white/10"
-                onClick={event => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  openMenu(block.id, rect.left, rect.bottom + 4);
-                }}
-              >Тип</button>
-              <button type="button" className="px-2 py-1 text-xs rounded bg-white/10" onClick={() => insertBlockAfter(block.id)}>
-                +
-              </button>
-              <button type="button" className="px-2 py-1 text-xs rounded bg-white/10" onClick={() => duplicateBlock(block.id)}>Копировать</button>
-              <button type="button" className="px-2 py-1 text-xs rounded bg-red-500/40" onClick={() => removeBlock(block.id)}>Удалить</button>
+              {block.type === 'divider' ? (
+                <div className="flex-1 pt-3" style={LTR_STYLE}>
+                  <div className="h-px bg-white/20" />
+                </div>
+              ) : block.type === 'image' ? (
+                <div className="flex-1 space-y-2" style={LTR_STYLE}>
+                  {block.url ? (
+                    <img
+                      src={block.url}
+                      alt="page block"
+                      className="max-h-96 rounded-xl border border-white/10 object-contain"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="px-3 py-2 text-sm rounded bg-white/10"
+                      onClick={() => setImageUrl(block.id)}
+                    >
+                      Указать ссылку
+                    </button>
+                  )}
+                  <input
+                    value={block.text || ''}
+                    onChange={event => handleBlockInput(block.id, event.target.value)}
+                    placeholder="Подпись (опционально)"
+                    className="w-full px-3 py-2 rounded bg-white/10 text-sm"
+                  />
+                </div>
+              ) : block.type === 'pdf' ? (
+                <div className="flex-1 space-y-3" style={LTR_STYLE}>
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                    <input
+                      value={block.text || ''}
+                      onChange={event => handleBlockInput(block.id, event.target.value)}
+                      placeholder="Название документа"
+                      className="flex-1 px-3 py-2 rounded bg-white/10 text-sm"
+                    />
+                    <div className="flex gap-2 flex-wrap">
+                      <label className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded bg-white/10 cursor-pointer">
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          className="hidden"
+                          onChange={event => handlePdfFileChange(block.id, event.target.files?.[0] || null)}
+                          disabled={uploadingPdfBlockId === block.id}
+                        />
+                        {uploadingPdfBlockId === block.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Загрузить PDF</span>}
+                      </label>
+                      <button
+                        type="button"
+                        className="px-3 py-2 text-xs rounded bg-white/10 hover:bg-white/20"
+                        onClick={() => setPdfUrl(block.id)}
+                      >
+                        Указать ссылку
+                      </button>
+                      {block.url && (
+                        <a
+                          href={pdfSrc}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-2 text-xs rounded bg-white/10 hover:bg-white/20"
+                        >
+                          Открыть PDF
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  {pdfMeta?.originalName && (
+                    <div className="text-xs opacity-70">Исходный файл: {pdfMeta.originalName}</div>
+                  )}
+                  {pdfError && (
+                    <div className="text-xs text-red-300">{pdfError}</div>
+                  )}
+                  {block.url ? (
+                    <div className="overflow-hidden rounded-xl border border-white/10">
+                      <iframe
+                        src={pdfSrc}
+                        title={block.text || 'PDF document'}
+                        className="w-full h-72 bg-black/40"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-xs opacity-60">Загрузите файл или укажите ссылку, чтобы просмотреть PDF.</div>
+                  )}
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-wide opacity-60">Закладки</div>
+                    {sortedMarkers.length === 0 ? (
+                      <div className="text-xs opacity-60">Пока нет отмеченных страниц.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {sortedMarkers.map(marker => (
+                          <div
+                            key={marker.id}
+                            className="flex items-center gap-3 rounded border border-white/10 bg-white/0 px-3 py-2 text-sm"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => togglePdfMarker(block.id, marker.id)}
+                              className={`h-6 w-6 rounded-full border flex items-center justify-center ${
+                                marker.done
+                                  ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
+                                  : 'border-white/20 bg-white/5 text-white/80'
+                              }`}
+                              title={marker.done ? 'Снять отметку' : 'Отметить пройденной'}
+                            >
+                              {marker.done ? <CircleCheck className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate">{marker.title}</div>
+                              {marker.page != null && (
+                                <div className="text-xs opacity-70">Страница {marker.page}</div>
+                              )}
+                            </div>
+                            {block.url && (
+                              <a
+                                href={`${pdfSrc}${marker.page ? `#page=${marker.page}` : ''}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                              >
+                                Открыть
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => removePdfMarker(block.id, marker.id)}
+                              className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/30 p-3">
+                      <div className="text-xs uppercase tracking-wide opacity-70">Добавить закладку</div>
+                      <input
+                        value={pdfDraft.title}
+                        onChange={event =>
+                          setPdfMarkerDrafts(prev => ({
+                            ...prev,
+                            [block.id]: { ...pdfDraft, title: event.target.value }
+                          }))
+                        }
+                        placeholder="Название"
+                        className="px-3 py-2 rounded bg-white/10 text-sm"
+                      />
+                      <input
+                        value={pdfDraft.page}
+                        onChange={event =>
+                          setPdfMarkerDrafts(prev => ({
+                            ...prev,
+                            [block.id]: { ...pdfDraft, page: event.target.value }
+                          }))
+                        }
+                        placeholder="Номер страницы"
+                        className="px-3 py-2 rounded bg-white/10 text-sm"
+                      />
+                      <button
+                        type="button"
+                        className="self-start px-3 py-2 text-xs rounded bg-emerald-500/20 hover:bg-emerald-500/30"
+                        onClick={() => handleAddPdfMarker(block)}
+                      >
+                        Добавить
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : block.type === 'todo' ? (
+                <label className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
+                  <input
+                    type="checkbox"
+                    checked={!!block.checked}
+                    onChange={event => updateBlock(block.id, { checked: event.target.checked })}
+                    className="mt-1"
+                  />
+                  <div
+                    className={BASE_EDITABLE_CLASS}
+                    contentEditable
+                    suppressContentEditableWarning
+                    data-block-id={block.id}
+                    ref={element => registerBlockRef(block.id, element)}
+                    onInput={event => {
+                      const target = event.currentTarget as HTMLElement;
+                      handleBlockInput(block.id, target.innerText, target.innerHTML);
+                    }}
+                    onKeyDown={event => handleKeyDown(event, block)}
+                    style={LTR_STYLE}
+                    dangerouslySetInnerHTML={getBlockHtml(block)}
+                  />
+                </label>
+              ) : block.type === 'bulleted' ? (
+                <div className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
+                  <span className="mt-1 text-white/70">•</span>
+                  <div
+                    className={BASE_EDITABLE_CLASS}
+                    contentEditable
+                    suppressContentEditableWarning
+                    data-block-id={block.id}
+                    ref={element => registerBlockRef(block.id, element)}
+                    onInput={event => {
+                      const target = event.currentTarget as HTMLElement;
+                      handleBlockInput(block.id, target.innerText, target.innerHTML);
+                    }}
+                    onKeyDown={event => handleKeyDown(event, block)}
+                    style={LTR_STYLE}
+                    dangerouslySetInnerHTML={getBlockHtml(block)}
+                  />
+                </div>
+              ) : block.type === 'numbered' ? (
+                <div className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
+                  <span className="mt-1 text-white/70">{index + 1}.</span>
+                  <div
+                    className={BASE_EDITABLE_CLASS}
+                    contentEditable
+                    suppressContentEditableWarning
+                    data-block-id={block.id}
+                    ref={element => registerBlockRef(block.id, element)}
+                    onInput={event => {
+                      const target = event.currentTarget as HTMLElement;
+                      handleBlockInput(block.id, target.innerText, target.innerHTML);
+                    }}
+                    onKeyDown={event => handleKeyDown(event, block)}
+                    style={LTR_STYLE}
+                    dangerouslySetInnerHTML={getBlockHtml(block)}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1">
+                  <div
+                    className={[
+                      BASE_EDITABLE_CLASS,
+                      block.type === 'heading1' ? 'text-4xl font-semibold' : '',
+                      block.type === 'heading2' ? 'text-3xl font-semibold' : '',
+                      block.type === 'heading3' ? 'text-2xl font-semibold' : '',
+                      block.type === 'quote' ? 'border-l-4 border-white/30 pl-4 italic text-white/70' : '',
+                      block.type === 'code' ? 'font-mono bg-black/40 border border-white/10 rounded-lg px-3 py-2' : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    contentEditable
+                    suppressContentEditableWarning
+                    data-block-id={block.id}
+                    ref={element => registerBlockRef(block.id, element)}
+                    onInput={event => {
+                      const target = event.currentTarget as HTMLElement;
+                      handleBlockInput(block.id, target.innerText, target.innerHTML);
+                    }}
+                    onKeyDown={event => handleKeyDown(event, block)}
+                    style={LTR_STYLE}
+                    dangerouslySetInnerHTML={getBlockHtml(block)}
+                  />
+                </div>
+              )}
+
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                <button
+                  type="button"
+                  className="px-2 py-1 text-xs rounded bg-white/10"
+                  onClick={event => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    openMenu(block.id, rect.left, rect.bottom + 4);
+                  }}
+                >
+                  Тип
+                </button>
+                <button type="button" className="px-2 py-1 text-xs rounded bg-white/10" onClick={() => insertBlockAfter(block.id)}>
+                  +
+                </button>
+                <button
+                  type="button"
+                  className="px-2 py-1 text-xs rounded bg-white/10"
+                  onClick={event => openEmojiMenuForBlock(block, event)}
+                >
+                  😊
+                </button>
+                <button type="button" className="px-2 py-1 text-xs rounded bg-white/10" onClick={() => duplicateBlock(block.id)}>
+                  Копировать
+                </button>
+                <button type="button" className="px-2 py-1 text-xs rounded bg-red-500/40" onClick={() => removeBlock(block.id)}>
+                  Удалить
+                </button>
+              </div>
+
+              {block.relation && (
+                <div className="absolute -bottom-2 right-3 rounded-full bg-white/10 px-3 py-1 text-[10px] uppercase tracking-wide text-white/60">
+                  Связь: {block.relation}
+                </div>
+              )}
             </div>
-
-            {block.relation && (
-              <div className="absolute -bottom-2 right-3 rounded-full bg-white/10 px-3 py-1 text-[10px] uppercase tracking-wide text-white/60">
-                Связь: {block.relation}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
 
         <button
           type="button"
@@ -798,6 +1409,99 @@ export default function PageEditor(){
           >
             Удалить блок
           </button>
+        </div>
+      )}
+
+      {formatMenu && (
+        <div
+          ref={formatMenuRef}
+          className="fixed z-50 w-72 rounded-xl border border-white/10 bg-neutral-900/95 shadow-2xl p-3 space-y-3"
+          style={{ left: formatMenu.x, top: formatMenu.y }}
+        >
+          <div className="text-xs uppercase tracking-wide text-white/50">Форматирование текста</div>
+          <div className="flex flex-wrap gap-2">
+            {FORMAT_COLORS.map(color => (
+              <button
+                key={color}
+                type="button"
+                className="h-6 w-6 rounded-full border border-white/20"
+                style={{ backgroundColor: color }}
+                onClick={() => applyFormatting('foreColor', color)}
+                title={`Цвет ${color}`}
+              />
+            ))}
+          </div>
+          <div className="space-y-2">
+            <select
+              className="w-full px-2 py-1 rounded bg-white/10 text-sm"
+              onChange={event => {
+                const value = event.target.value;
+                if (value === 'inherit') {
+                  applyFormatting('removeFormat');
+                } else {
+                  applyFormatting('fontName', value);
+                }
+              }}
+              defaultValue="inherit"
+            >
+              {FONT_FAMILIES.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-2">
+              {FONT_SIZES.map(size => (
+                <button
+                  key={size.value}
+                  type="button"
+                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20"
+                  onClick={() => applyFormatting('fontSize', String(size.value))}
+                >
+                  {size.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 text-sm">
+            <button
+              type="button"
+              className="px-3 py-2 rounded bg-white/10 hover:bg-white/20"
+              onClick={() => {
+                const url = window.prompt('Введите ссылку');
+                if (!url) return;
+                applyFormatting('createLink', url);
+              }}
+            >
+              Сделать ссылкой
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 rounded bg-white/10 hover:bg-white/20"
+              onClick={() => applyFormatting('removeFormat')}
+            >
+              Очистить форматирование
+            </button>
+          </div>
+        </div>
+      )}
+
+      {emojiMenu && (
+        <div
+          ref={emojiMenuRef}
+          className="fixed z-50 w-56 rounded-xl border border-white/10 bg-neutral-900/95 shadow-2xl p-2 flex flex-wrap gap-1"
+          style={{ left: emojiMenu.x, top: emojiMenu.y }}
+        >
+          {EMOJI_OPTIONS.map(emoji => (
+            <button
+              key={emoji}
+              type="button"
+              className="h-8 w-8 rounded bg-white/10 text-lg hover:bg-white/20"
+              onClick={() => insertEmoji(emojiMenu.blockId, emoji)}
+            >
+              {emoji}
+            </button>
+          ))}
         </div>
       )}
     </Shell>
