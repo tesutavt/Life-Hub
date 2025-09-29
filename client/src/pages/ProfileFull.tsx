@@ -135,17 +135,65 @@ const getLanguageBannerStyle = (language: ProfileLanguage, index: number): React
 };
 
 const PAGE_PREVIEW_MASK_STYLE: React.CSSProperties = {
-  maskImage: 'radial-gradient(140% 120% at 120% 50%, rgba(0, 0, 0, 1) 60%, rgba(0, 0, 0, 0) 100%)',
-  WebkitMaskImage: 'radial-gradient(140% 120% at 120% 50%, rgba(0, 0, 0, 1) 60%, rgba(0, 0, 0, 0) 100%)'
+  maskImage: 'radial-gradient(140% 120% at 110% 50%, rgba(0, 0, 0, 1) 55%, rgba(0, 0, 0, 0) 85%)',
+  WebkitMaskImage: 'radial-gradient(140% 120% at 110% 50%, rgba(0, 0, 0, 1) 55%, rgba(0, 0, 0, 0) 85%)'
+};
+
+const PAGE_META_KEYS = [
+  'page',
+  'page_info',
+  'pageInfo',
+  'page_data',
+  'pageData',
+  'page_meta',
+  'pageMeta'
+];
+
+const resolvePageLikeMeta = (entry: any): Record<string, any> | null => {
+  if (!entry || typeof entry !== 'object') return null;
+
+  const directCandidate = entry.page ?? entry.page_info ?? entry.pageInfo;
+  if (directCandidate && typeof directCandidate === 'object') {
+    return directCandidate;
+  }
+
+  const meta = entry.meta;
+  if (meta && typeof meta === 'object') {
+    for (const key of PAGE_META_KEYS) {
+      const candidate = (meta as any)[key];
+      if (candidate && typeof candidate === 'object') {
+        return candidate;
+      }
+    }
+
+    const hasDirectBanner = meta.banner_url ?? meta.bannerUrl ?? meta.banner ?? null;
+    if (hasDirectBanner || meta.banner_gradient || meta.bannerGradient || meta.gradient) {
+      return meta as Record<string, any>;
+    }
+  }
+
+  return null;
 };
 
 const getPagePreviewStyle = (entry: any): React.CSSProperties | null => {
-  if (entry?.type !== 'page') return null;
-  const meta = entry?.meta ?? {};
-  const page = meta?.page ?? meta?.page_info ?? meta?.pageInfo ?? {};
-  const bannerUrl = page.banner_url ?? page.bannerUrl ?? meta.banner_url ?? meta.bannerUrl ?? null;
+  const pageMeta = resolvePageLikeMeta(entry);
+  if (!pageMeta) return null;
+
+  const bannerUrl =
+    pageMeta.banner_url ??
+    pageMeta.bannerUrl ??
+    pageMeta.banner ??
+    pageMeta.cover_url ??
+    pageMeta.coverUrl ??
+    null;
+
   const bannerGradient =
-    page.banner_gradient ?? page.bannerGradient ?? meta.banner_gradient ?? meta.bannerGradient ?? null;
+    pageMeta.banner_gradient ??
+    pageMeta.bannerGradient ??
+    pageMeta.gradient ??
+    pageMeta.cover_gradient ??
+    pageMeta.coverGradient ??
+    null;
 
   const resolvedBannerUrl = resolveMediaUrl(bannerUrl);
   if (resolvedBannerUrl) {
