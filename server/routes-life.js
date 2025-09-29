@@ -925,10 +925,120 @@ router.post('/settings/google', async (req, res) => {
   res.json({ ok: true });
 });
 
+const isLikelyJson = (value) => {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  );
+};
+
+const safeJsonParse = (value) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const collectPageIdsFromMeta = (meta) => {
+  const ids = new Set();
+
+  const visit = (value, depth = 0, force = false) => {
+    if (value == null || depth > 8) return;
+
+    if (typeof value === 'number') {
+      if (force && Number.isInteger(value) && value > 0) ids.add(value);
+      return;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+
+      if (force && /^\d+$/.test(trimmed)) {
+        const parsed = Number.parseInt(trimmed, 10);
+        if (parsed > 0) ids.add(parsed);
+        return;
+      }
+
+      if (isLikelyJson(trimmed)) {
+        const parsed = safeJsonParse(trimmed);
+        if (parsed !== null) visit(parsed, depth + 1, force);
+      }
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, depth + 1, force);
+      return;
+    }
+
+    if (typeof value === 'object') {
+      for (const [key, nested] of Object.entries(value)) {
+        const lower = key.toLowerCase();
+        const indicatesPage = lower.includes('page');
+        visit(nested, depth + 1, force || indicatesPage);
+      }
+    }
+  };
+
+  visit(meta, 0, false);
+  return Array.from(ids);
+};
+
 router.get('/feed', async (req, res) => {
   const db = await getDB();
   const rows = await db.all('SELECT * FROM life_feed WHERE user_id=? ORDER BY ts DESC LIMIT 200', [req.user.uid]);
-  res.json({ items: rows });
+
+  const pageIdSet = new Set();
+  const feedEntries = rows.map((row) => {
+    let parsedMeta = null;
+    if (row.meta && typeof row.meta === 'string' && isLikelyJson(row.meta)) {
+      parsedMeta = safeJsonParse(row.meta);
+    } else if (row.meta && typeof row.meta === 'object') {
+      parsedMeta = row.meta;
+    }
+
+    const pageIds = collectPageIdsFromMeta(parsedMeta);
+    for (const id of pageIds) pageIdSet.add(id);
+
+    return {
+      raw: row,
+      pageId: pageIds.length > 0 ? pageIds[0] : null
+    };
+  });
+
+  const pageVisuals = new Map();
+  if (pageIdSet.size > 0) {
+    const pageIds = Array.from(pageIdSet);
+    const placeholders = pageIds.map(() => '?').join(',');
+    const params = [req.user.uid, ...pageIds];
+    const pageRows = await db.all(
+      `SELECT id, banner_url, banner_gradient FROM journal_pages WHERE user_id=? AND id IN (${placeholders})`,
+      params
+    );
+    for (const page of pageRows) {
+      pageVisuals.set(page.id, {
+        banner_url: page.banner_url || null,
+        banner_gradient: page.banner_gradient || null
+      });
+    }
+  }
+
+  const items = feedEntries.map(({ raw, pageId }) => {
+    const visual = pageId ? pageVisuals.get(pageId) || null : null;
+    return {
+      ...raw,
+      page_id: pageId,
+      page_banner_url: visual?.banner_url || null,
+      page_banner_gradient: visual?.banner_gradient || null
+    };
+  });
+
+  res.json({ items });
 });
 
 router.post('/feed/add', async (req, res) => {
