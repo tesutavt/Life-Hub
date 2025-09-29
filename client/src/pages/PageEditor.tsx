@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CalendarDays, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
 import PdfReader from '../components/pdf/PdfReader';
 
+
 const uuid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
 type BlockType =
@@ -706,7 +707,6 @@ export default function PageEditor(){
     },
     [updatePdfMeta]
   );
-
   const removePdfMarker = useCallback(
     (blockId: string, markerId: string) => {
       updatePdfMeta(blockId, meta => ({

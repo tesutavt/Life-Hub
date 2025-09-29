@@ -99,6 +99,15 @@ export default function Languages() {
   const [languagePages, setLanguagePages] = useState<LanguagePage[]>([]);
   const [languagePdfPages, setLanguagePdfPages] = useState<LanguagePdfPage[]>([]);
   const [pickerLanguageId, setPickerLanguageId] = useState<number | null>(null);
+  const [pdfForm, setPdfForm] = useState({
+    title: "",
+    page: "",
+    url: "",
+    file: null as File | null,
+    uploading: false,
+    error: null as string | null,
+    originalName: null as string | null,
+  });
 
   const mapLanguage = (entry: any): Lang => ({
     id: entry.id,
@@ -391,6 +400,12 @@ export default function Languages() {
   const pickerAttachments = pickerLanguage
     ? languagePageMap.get(pickerLanguage.id) || []
     : [];
+
+  useEffect(() => {
+    if (!pickerLanguage) {
+      setPdfForm({ title: "", page: "", url: "", file: null, uploading: false, error: null, originalName: null });
+    }
+  }, [pickerLanguage]);
 
   const streak =
     items.filter((lang) => (lang.minutes_today || 0) > 0).length > 0 ? 1 : 0;
@@ -790,9 +805,6 @@ export default function Languages() {
               }}
             />
 
-            <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 text-xs text-white/70">
-              Используйте поиск выше, чтобы добавить страницы как с сайта, так и закладки из PDF-документов.
-              Выберите нужную закладку — она появится в списке материалов языка.
             </div>
 
             {pickerAttachments.length > 0 && (
