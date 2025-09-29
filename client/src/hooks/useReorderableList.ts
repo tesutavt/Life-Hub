@@ -209,10 +209,14 @@ export const useReorderableList = <T,>(
     },
     onDragLeave: (event) => {
       event.preventDefault();
-      clearActive();
-    },
-  }), [clearActive]);
 
+      const nextTarget = event.relatedTarget as Node | null;
+      if (nextTarget && event.currentTarget.contains(nextTarget)) {
+        return;
+      }
+      setOverId(null);
+    },
+  }), [clearActive, setOverId]);
   const resetOrder = useCallback(() => {
     const next = [...knownIds];
     persistOrder(next);
