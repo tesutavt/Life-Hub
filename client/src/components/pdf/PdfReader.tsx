@@ -8,6 +8,8 @@ import {
   ExternalLink,
   Loader2,
   Minus,
+  Maximize2,
+  Minimize2,
   Plus,
   Trash2,
 } from 'lucide-react';
@@ -71,8 +73,26 @@ export default function PdfReader({
   const [showMarkerForm, setShowMarkerForm] = useState<boolean>(false);
   const [markerTitle, setMarkerTitle] = useState<string>('');
   const [markerPage, setMarkerPage] = useState<string>('');
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   const sortedMarkers = useMemo(() => markerSort(markers), [markers]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isFullscreen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -206,40 +226,77 @@ export default function PdfReader({
   const canZoomIn = scale < 2.4;
   const canZoomOut = scale > 0.6;
 
-  return (
-    <div className={`flex flex-col gap-4 rounded-2xl border border-white/10 bg-black/30 p-4 ${className}`}>
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{title || originalName || 'PDF документ'}</div>
-            {originalName && (
-              <div className="truncate text-xs opacity-60">{originalName}</div>
-            )}
-          </div>
-          <a
-            href={src}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs hover:bg-white/20"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Открыть
-          </a>
-        </div>
-        <div className="text-xs opacity-60">
-          {totalPages > 0 ? `Страниц: ${totalPages}` : loadingDocument ? 'Загрузка документа...' : ''}
-        </div>
-      </div>
+  const containerHeightClass = isFullscreen ? 'h-full' : 'h-[60vh] md:h-[70vh]';
+  const bookmarksHeightClass = isFullscreen ? 'h-full max-h-full' : 'max-h-[70vh]';
 
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <div className="relative flex-1 overflow-hidden rounded-xl border border-white/10 bg-black/60">
-          <div ref={containerRef} className="flex max-h-[520px] items-center justify-center overflow-auto p-4">
-            {error ? (
-              <div className="p-6 text-center text-sm text-red-300">{error}</div>
-            ) : (
-              <canvas ref={canvasRef} className="max-w-full" />
-            )}
+  return (
+    <>
+      {isFullscreen && (
+        <div className="pointer-events-none h-[60vh] w-full md:h-[70vh]" aria-hidden />
+      )}
+      <div
+        className={`flex flex-col gap-4 rounded-2xl border border-white/10 bg-black/30 p-4 ${
+          isFullscreen
+            ? 'fixed inset-0 z-[100] m-0 h-screen w-screen max-w-none overflow-hidden bg-black/90 p-4 sm:p-10'
+            : ''
+        } ${className}`}
+      >
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">{title || originalName || 'PDF документ'}</div>
+              {originalName && (
+                <div className="truncate text-xs opacity-60">{originalName}</div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs hover:bg-white/20"
+                onClick={() => setIsFullscreen((prev) => !prev)}
+              >
+                {isFullscreen ? (
+                  <>
+                    <Minimize2 className="h-3.5 w-3.5" />
+                    Свернуть
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    На весь экран
+                  </>
+                )}
+              </button>
+              <a
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs hover:bg-white/20"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                В новой вкладке
+              </a>
+            </div>
           </div>
+          <div className="text-xs opacity-60">
+            {totalPages > 0 ? `Страниц: ${totalPages}` : loadingDocument ? 'Загрузка документа...' : ''}
+          </div>
+        </div>
+
+        <div
+          className={`flex flex-1 flex-col gap-4 lg:flex-row ${isFullscreen ? 'lg:items-stretch' : ''}`}
+        >
+          <div className="relative flex-1 overflow-hidden rounded-xl border border-white/10 bg-black/60">
+            <div
+              ref={containerRef}
+              className={`flex ${containerHeightClass} min-h-[360px] items-center justify-center overflow-auto p-4`}
+            >
+              {error ? (
+                <div className="p-6 text-center text-sm text-red-300">{error}</div>
+              ) : (
+                <canvas ref={canvasRef} className="max-w-full" />
+              )}
+            </div>
           {(loadingDocument || renderingPage) && !error && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60">
               <Loader2 className="h-6 w-6 animate-spin text-white/70" />
@@ -299,137 +356,140 @@ export default function PdfReader({
               Закладка
             </button>
           </div>
-        </div>
+          </div>
 
-        <div className="flex w-full flex-col gap-3 rounded-xl border border-white/10 bg-black/40 p-3 lg:w-72">
-          <div className="text-xs uppercase tracking-wide text-white/60">Закладки</div>
-          {showMarkerForm && (
-            <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
-              <input
-                value={markerTitle}
-                onChange={(event) => setMarkerTitle(event.target.value)}
-                placeholder="Название"
-                className="w-full rounded bg-white/10 px-3 py-2"
-              />
-              <input
-                value={markerPage}
-                onChange={(event) => setMarkerPage(event.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="Страница"
-                className="w-full rounded bg-white/10 px-3 py-2"
-              />
-              <div className="flex items-center gap-2 text-xs">
-                <button
-                  type="button"
-                  className="flex-1 rounded bg-emerald-500/20 px-3 py-2 hover:bg-emerald-500/30"
-                  onClick={handleAddMarker}
-                >
-                  Добавить
-                </button>
-                <button
-                  type="button"
-                  className="rounded bg-white/10 px-3 py-2 hover:bg-white/20"
-                  onClick={() => {
-                    setShowMarkerForm(false);
-                    setMarkerTitle('');
-                    setMarkerPage('');
-                  }}
-                >
-                  Отмена
-                </button>
+          <div
+            className={`flex w-full flex-col gap-3 rounded-xl border border-white/10 bg-black/40 p-3 lg:w-72 ${bookmarksHeightClass} overflow-auto`}
+          >
+            <div className="text-xs uppercase tracking-wide text-white/60">Закладки</div>
+            {showMarkerForm && (
+              <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+                <input
+                  value={markerTitle}
+                  onChange={(event) => setMarkerTitle(event.target.value)}
+                  placeholder="Название"
+                  className="w-full rounded bg-white/10 px-3 py-2"
+                />
+                <input
+                  value={markerPage}
+                  onChange={(event) => setMarkerPage(event.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="Страница"
+                  className="w-full rounded bg-white/10 px-3 py-2"
+                />
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    className="flex-1 rounded bg-emerald-500/20 px-3 py-2 hover:bg-emerald-500/30"
+                    onClick={handleAddMarker}
+                  >
+                    Добавить
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded bg-white/10 px-3 py-2 hover:bg-white/20"
+                    onClick={() => {
+                      setShowMarkerForm(false);
+                      setMarkerTitle('');
+                      setMarkerPage('');
+                    }}
+                  >
+                    Отмена
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-          {sortedMarkers.length === 0 ? (
-            <div className="text-xs text-white/50">Закладок пока нет. Добавьте первую, чтобы быстро возвращаться к нужной странице.</div>
-          ) : (
-            <div className="space-y-2">
-              {sortedMarkers.map((marker) => (
-                <div
-                  key={marker.id}
-                  className={`group flex flex-col gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
-                    marker.done
-                      ? 'border-emerald-500/40 bg-emerald-500/10'
-                      : 'border-white/10 bg-white/5 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <button
-                      type="button"
-                      className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border ${
-                        marker.done
-                          ? 'border-emerald-400/80 bg-emerald-500/30 text-emerald-100'
-                          : 'border-white/30 bg-white/10 text-white/80'
-                      }`}
-                      onClick={() => onToggleMarker?.(marker.id)}
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{marker.title}</div>
-                      {marker.page != null && (
-                        <div className="text-xs opacity-70">Стр. {marker.page}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                      {marker.page != null && (
+            )}
+            {sortedMarkers.length === 0 ? (
+              <div className="text-xs text-white/50">Закладок пока нет. Добавьте первую, чтобы быстро возвращаться к нужной странице.</div>
+            ) : (
+              <div className="space-y-2">
+                {sortedMarkers.map((marker) => (
+                  <div
+                    key={marker.id}
+                    className={`group flex flex-col gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
+                      marker.done
+                        ? 'border-emerald-500/40 bg-emerald-500/10'
+                        : 'border-white/10 bg-white/5 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border ${
+                          marker.done
+                            ? 'border-emerald-400/80 bg-emerald-500/30 text-emerald-100'
+                            : 'border-white/30 bg-white/10 text-white/80'
+                        }`}
+                        onClick={() => onToggleMarker?.(marker.id)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">{marker.title}</div>
+                        {marker.page != null && (
+                          <div className="text-xs opacity-70">Стр. {marker.page}</div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                        {marker.page != null && (
+                          <button
+                            type="button"
+                            className="rounded bg-white/10 p-1 hover:bg-white/20"
+                            onClick={() => {
+                              if (marker.page != null) {
+                                setCurrentPage(marker.page);
+                              }
+                            }}
+                          >
+                            <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="rounded bg-white/10 p-1 hover:bg-white/20"
                           onClick={() => {
-                            if (marker.page != null) {
-                              setCurrentPage(marker.page);
+                            const next = window.prompt('Название закладки', marker.title);
+                            if (!next) return;
+                            onRenameMarker?.(marker.id, next.trim() || marker.title);
+                          }}
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded bg-white/10 p-1 hover:bg-white/20"
+                          onClick={() => {
+                            const next = window.prompt('Номер страницы', marker.page != null ? String(marker.page) : '');
+                            if (next === null) return;
+                            const trimmed = next.trim();
+                            if (!trimmed) {
+                              onChangeMarkerPage?.(marker.id, null);
+                              return;
+                            }
+                            const parsed = Number.parseInt(trimmed, 10);
+                            if (!Number.isNaN(parsed) && parsed > 0) {
+                              onChangeMarkerPage?.(marker.id, parsed);
+                              setCurrentPage(parsed);
                             }
                           }}
                         >
-                          <ChevronRight className="h-3.5 w-3.5 rotate-90" />
+                          <ChevronRight className="h-3.5 w-3.5 -rotate-90" />
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        className="rounded bg-white/10 p-1 hover:bg-white/20"
-                        onClick={() => {
-                          const next = window.prompt('Название закладки', marker.title);
-                          if (!next) return;
-                          onRenameMarker?.(marker.id, next.trim() || marker.title);
-                        }}
-                      >
-                        <Edit3 className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded bg-white/10 p-1 hover:bg-white/20"
-                        onClick={() => {
-                          const next = window.prompt('Номер страницы', marker.page != null ? String(marker.page) : '');
-                          if (next === null) return;
-                          const trimmed = next.trim();
-                          if (!trimmed) {
-                            onChangeMarkerPage?.(marker.id, null);
-                            return;
-                          }
-                          const parsed = Number.parseInt(trimmed, 10);
-                          if (!Number.isNaN(parsed) && parsed > 0) {
-                            onChangeMarkerPage?.(marker.id, parsed);
-                            setCurrentPage(parsed);
-                          }
-                        }}
-                      >
-                        <ChevronRight className="h-3.5 w-3.5 -rotate-90" />
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded bg-red-500/20 p-1 text-red-100 hover:bg-red-500/30"
-                        onClick={() => onRemoveMarker?.(marker.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                        <button
+                          type="button"
+                          className="rounded bg-red-500/20 p-1 text-red-100 hover:bg-red-500/30"
+                          onClick={() => onRemoveMarker?.(marker.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
