@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import classNames from 'classnames';
 import { PencilLine, Trash2 } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api } from '../api';
@@ -8,6 +9,7 @@ import { Modal } from '../components/ui/Modal';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
 import CourseMaster, { COURSE_TYPES } from '../components/master/CourseMaster';
+import { useReorderableList } from '../hooks/useReorderableList';
 
 type TagOption = { id: number; label: string; color: string };
 
@@ -110,6 +112,8 @@ export default function Courses() {
     return Number.isNaN(parsed) ? null : parsed;
   };
 
+  const coursesLayout = useReorderableList<Course>('courses:active', items, (course) => course.id);
+
   const save = async () => {
     if (!editing) return;
     const payload = {
@@ -156,17 +160,38 @@ export default function Courses() {
         placeholder="Поиск по курсам или страницам..."
       />
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {(items || []).map(c => {
+      <div
+        className="grid md:grid-cols-2 xl:grid-cols-3 gap-4"
+        {...coursesLayout.getContainerProps()}
+      >
+        {coursesLayout.items.map((c, index) => {
+          const dragProps = coursesLayout.getDraggableProps(c.id);
+          const canDrag = dragProps.draggable;
+          const isDragging = coursesLayout.activeId === String(c.id);
+          const isOver = coursesLayout.overId === String(c.id);
           const languageLabel = c.language_id != null ? languageMap.get(c.language_id) : undefined;
-          const gradient = COURSE_BANNER_GRADIENTS[c.id % COURSE_BANNER_GRADIENTS.length];
+          const gradient = COURSE_BANNER_GRADIENTS[index % COURSE_BANNER_GRADIENTS.length];
           const rawProgress = typeof c.progress === 'number' ? c.progress : null;
           const clampedProgress =
             rawProgress != null && Number.isFinite(rawProgress)
               ? Math.min(100, Math.max(0, rawProgress))
               : null;
           return (
-            <div key={c.id} className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+            <div
+              key={c.id}
+              {...dragProps}
+              data-dragging={isDragging ? 'true' : undefined}
+              data-drop-target={isOver && !isDragging ? 'true' : undefined}
+              className={classNames(
+                'flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition-all duration-200 ease-out select-none',
+                { 'cursor-grab active:cursor-grabbing': canDrag },
+                {
+                  'ring-2 ring-white/70 border-white/40 scale-[0.98] shadow-2xl shadow-black/40': isDragging,
+                  'border-white/30 ring-1 ring-white/40': isOver && !isDragging,
+                  'hover:-translate-y-0.5': !isDragging,
+                },
+              )}
+            >
               <div className="relative h-32">
                 <div className={`absolute inset-0 bg-gradient-to-r ${gradient}`} />
                 <div className="absolute inset-0 bg-black/40" />
