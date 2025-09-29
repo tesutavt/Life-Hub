@@ -94,6 +94,16 @@ const resolveMediaUrl = (value: string | null | undefined) => {
   return resolveApiUrl(value);
 };
 
+const pickFirstString = (...values: any[]): string | null => {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) continue;
+    return trimmed;
+  }
+  return null;
+};
+
 const mapProfileLanguage = (entry: any, index: number): ProfileLanguage => ({
   id: entry.id ?? entry.language_id ?? entry.slug ?? `${entry.name ?? 'language'}_${index}`,
   name: entry.name ?? 'Неизвестный язык',
@@ -135,8 +145,12 @@ const getLanguageBannerStyle = (language: ProfileLanguage, index: number): React
 };
 
 const PAGE_PREVIEW_MASK_STYLE: React.CSSProperties = {
-  maskImage: 'radial-gradient(140% 120% at 110% 50%, rgba(0, 0, 0, 1) 55%, rgba(0, 0, 0, 0) 85%)',
-  WebkitMaskImage: 'radial-gradient(140% 120% at 110% 50%, rgba(0, 0, 0, 1) 55%, rgba(0, 0, 0, 0) 85%)'
+  clipPath: 'polygon(28% 0%, 100% 0%, 100% 100%, 0% 100%)'
+};
+
+const PAGE_PREVIEW_OVERLAY_STYLE: React.CSSProperties = {
+  backgroundImage:
+    'linear-gradient(115deg, rgba(12, 12, 12, 0.9) 0%, rgba(12, 12, 12, 0.65) 35%, rgba(12, 12, 12, 0.35) 60%, rgba(12, 12, 12, 0) 100%)'
 };
 
 const PAGE_META_KEYS = [
@@ -545,6 +559,45 @@ const resolvePageVisual = (entry: any): PageVisual | null => {
 };
 
 const getPagePreviewStyle = (entry: any): React.CSSProperties | null => {
+  const directBanner = pickFirstString(
+    entry?.page_banner_url,
+    entry?.pageBannerUrl,
+    entry?.linked_page?.banner_url,
+    entry?.linked_page?.bannerUrl,
+    entry?.linkedPage?.banner_url,
+    entry?.linkedPage?.bannerUrl,
+    entry?.page_visual?.banner_url,
+    entry?.page_visual?.bannerUrl,
+    entry?.meta?.page_banner_url,
+    entry?.meta?.page_bannerUrl
+  );
+  const resolvedDirectBanner = resolveMediaUrl(directBanner);
+  if (resolvedDirectBanner) {
+    return {
+      backgroundImage: `url(${resolvedDirectBanner})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    };
+  }
+
+  const directGradient = pickFirstString(
+    entry?.page_banner_gradient,
+    entry?.pageBannerGradient,
+    entry?.linked_page?.banner_gradient,
+    entry?.linked_page?.bannerGradient,
+    entry?.linkedPage?.banner_gradient,
+    entry?.linkedPage?.bannerGradient,
+    entry?.page_visual?.banner_gradient,
+    entry?.page_visual?.bannerGradient,
+    entry?.meta?.page_banner_gradient,
+    entry?.meta?.page_bannerGradient
+  );
+  if (directGradient) {
+    return {
+      backgroundImage: directGradient
+    };
+  }
+
   const visual = resolvePageVisual(entry);
   if (!visual) return null;
 
@@ -822,7 +875,7 @@ export default function ProfileFull() {
 
       {/* ---------- Лента дневника ---------- */}
       <div className="card mt-6">
-        <div className="font-medium mb-2">Последние записи</div>
+        <div className="font-medium mb-2">Последние события</div>
         {visibleJournal.length > 0 ? (
           <div className="space-y-3">
             {visibleJournal.map((j: any) => {
@@ -830,41 +883,50 @@ export default function ProfileFull() {
               const dateLabel = formatFeedDate(j.ts ?? j.tsValue);
               const typeLabel = getFeedTypeLabel(j.type);
               const pagePreviewStyle = getPagePreviewStyle(j);
+              const previewBackgroundStyle = pagePreviewStyle
+                ? {
+                    ...pagePreviewStyle,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundSize: (pagePreviewStyle as any).backgroundSize ?? 'cover',
+                    backgroundPosition: (pagePreviewStyle as any).backgroundPosition ?? 'center'
+                  }
+                : null;
               return (
                 <div
                   key={j.id || `${j.type}_${j.ts}`}
-                  className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/10"
+                  className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d10]/80 backdrop-blur-sm"
                 >
-                  <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg ${tone}`}>
-                    <span>{icon}</span>
-                  </div>
-                  <div className="flex-1 text-sm">
-                    <div className="flex flex-wrap items-center gap-2 justify-between text-xs opacity-70">
-                      <span>{dateLabel}</span>
-                      {typeLabel && <span className="font-medium text-white/60">{typeLabel}</span>}
+                  <div className="relative z-10 flex items-start gap-3 p-3 sm:p-4 pr-4 sm:pr-40">
+                    <div
+                      className={`flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-lg font-semibold ${tone} shadow-lg shadow-black/50`}
+                    >
+                      <span>{icon}</span>
                     </div>
-                    {j.title && (
-                      <div className="mt-1 font-medium text-white/90">
-                        {j.title}
+                    <div className="flex-1 min-w-0 text-sm text-white/80">
+                      <div className="flex flex-wrap items-center gap-2 justify-between text-xs text-white/50">
+                        <span className="whitespace-nowrap">{dateLabel}</span>
+                        {typeLabel && <span className="font-medium text-white/60">{typeLabel}</span>}
                       </div>
-                    )}
-                    {j.text && (
-                      <div className="mt-1 text-white/80 whitespace-pre-line">
-                        {j.text}
-                      </div>
-                    )}
+                      {j.title && (
+                        <div className="mt-1 font-semibold text-white truncate sm:whitespace-normal">
+                          {j.title}
+                        </div>
+                      )}
+                      {j.text && (
+                        <div className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-white/80">
+                          {j.text}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  {pagePreviewStyle && (
-                    <div className="hidden sm:block w-24 h-16 relative flex-shrink-0">
-                      <div
-                        className="absolute inset-0 rounded-xl"
-                        style={{
-                          ...pagePreviewStyle,
-                          ...PAGE_PREVIEW_MASK_STYLE,
-                          backgroundRepeat: 'no-repeat'
-                        }}
-                      />
-                      <div className="absolute inset-0 rounded-xl bg-black/20" />
+                  {previewBackgroundStyle && (
+                    <div
+                      className="hidden sm:block absolute inset-y-0 right-0 w-36 md:w-48 overflow-hidden"
+                      style={PAGE_PREVIEW_MASK_STYLE}
+                    >
+                      <div className="absolute inset-0" style={previewBackgroundStyle} />
+                      <div className="absolute inset-0" style={PAGE_PREVIEW_OVERLAY_STYLE} />
+                      <div className="absolute inset-0 bg-black/15" />
                     </div>
                   )}
                 </div>
