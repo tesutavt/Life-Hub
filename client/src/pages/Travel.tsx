@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import classNames from 'classnames';
 import Shell from '../components/Shell';
 import { api } from '../api';
 import TagBadge from '../components/tags/TagBadge';
 import { Modal } from '../components/ui/Modal';
 import TagSelector from '../components/tags/TagSelector';
 import TravelMaster from '../components/master/TravelMaster';
+import { useReorderableList } from '../hooks/useReorderableList';
 
 type TagOption = { id: number; label: string; color: string };
 
@@ -23,6 +25,8 @@ export default function Travel(){
   const [editing, setEditing] = useState<Travel|null>(null);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
+
+  const travelLayout = useReorderableList<Travel>('travel:items', items, (travel) => travel.id);
 
   const mapTravel = (row: any): Travel => ({
     id: row.id,
@@ -71,9 +75,26 @@ export default function Travel(){
         <TravelMaster tagOptions={tagOptions} onCreated={load} />
       </div>
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {(items||[]).map(t => (
-          <div key={t.id} className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4" {...travelLayout.getContainerProps()}>
+        {travelLayout.items.map(t => {
+          const dragProps = travelLayout.getDraggableProps(t.id);
+          const isDragging = travelLayout.activeId === String(t.id);
+          const isDropTarget = travelLayout.overId === String(t.id) && !isDragging;
+          return (
+            <div
+              key={t.id}
+              {...dragProps}
+              data-dragging={isDragging ? 'true' : undefined}
+              data-drop-target={isDropTarget ? 'true' : undefined}
+              className={classNames(
+                'p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2 transition-all duration-200 ease-out select-none',
+                { 'cursor-grab active:cursor-grabbing': dragProps.draggable },
+                {
+                  'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-lg shadow-black/40': isDragging,
+                  'border-white/30 ring-1 ring-white/40': isDropTarget,
+                },
+              )}
+            >
             <div className="flex items-center justify-between">
               <div className="text-lg font-semibold">{t.title}</div>
               <span className="px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-xs">{t.status||'planned'}</span>
@@ -97,8 +118,9 @@ export default function Travel(){
               >✎</button>
               <button onClick={()=>del(t.id)} className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40">Удалить</button>
             </div>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
 
       <Modal

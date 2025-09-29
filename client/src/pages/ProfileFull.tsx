@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
 import Shell from '../components/Shell';
 import { Modal } from '../components/ui/Modal';
@@ -25,6 +26,11 @@ type ProfileLanguage = {
   bannerUrl: string | null;
   bannerGradient: string | null;
   imageUrl: string | null;
+};
+
+type ProfileOverviewBlock = {
+  id: string;
+  render: () => React.ReactNode;
 };
 
 const getFeedVisuals = (type: string | null | undefined) => {
@@ -644,6 +650,119 @@ export default function ProfileFull() {
     (language) => language.id,
   );
 
+  const overviewBlocks = useMemo<ProfileOverviewBlock[]>(() => {
+    const badges = Array.isArray(data?.badges) ? data.badges : [];
+
+    return [
+      {
+        id: 'badges',
+        render: () => (
+          <>
+            <div className="font-medium mb-2">Значки</div>
+            {badges.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {badges.map((b: any) => (
+                  <div
+                    key={b.id}
+                    className="p-2 rounded-xl bg-white/5 border border-white/10 text-center"
+                  >
+                    <div className="text-2xl">🏅</div>
+                    <div className="text-[11px] mt-1 truncate">{b.name}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="opacity-70 text-sm">Нет значков</div>
+            )}
+          </>
+        ),
+      },
+      {
+        id: 'languages',
+        render: () => (
+          <>
+            <div className="font-medium mb-2">Изучаемые языки</div>
+            {profileLanguagesLayout.items.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" {...profileLanguagesLayout.getContainerProps()}>
+                {profileLanguagesLayout.items.map((language, index) => {
+                  const dragProps = profileLanguagesLayout.getDraggableProps(language.id);
+                  const canDrag = dragProps.draggable;
+                  const isDragging = profileLanguagesLayout.activeId === String(language.id);
+                  const isOver = profileLanguagesLayout.overId === String(language.id);
+                  const bannerStyle = getLanguageBannerStyle(language, index);
+                  const avatarUrl = resolveMediaUrl(language.imageUrl);
+                  return (
+                    <div
+                      key={language.id}
+                      {...dragProps}
+                      data-dragging={isDragging ? 'true' : undefined}
+                      data-drop-target={isOver && !isDragging ? 'true' : undefined}
+                      className={classNames(
+                        'relative overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-all duration-200 ease-out select-none',
+                        { 'cursor-grab active:cursor-grabbing': canDrag },
+                        {
+                          'ring-2 ring-white/70 border-white/40 scale-[0.98] shadow-2xl shadow-black/40': isDragging,
+                          'border-white/30 ring-1 ring-white/40': isOver && !isDragging,
+                          'hover:-translate-y-0.5': !isDragging,
+                        },
+                      )}
+                    >
+                      <div className="absolute inset-0" style={bannerStyle} />
+                      <div className="absolute inset-0 bg-black/40" />
+                      <div className="relative p-3 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg border border-white/20 bg-black/40 overflow-hidden flex items-center justify-center text-sm font-semibold uppercase tracking-wide">
+                          {avatarUrl ? (
+                            <img
+                              src={avatarUrl}
+                              alt={`Изображение ${language.name}`}
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span>{getLanguageInitials(language.name)}</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold truncate">{language.name}</div>
+                          <div className="text-xs opacity-80">
+                            {language.level ? `Уровень ${language.level}` : 'Уровень не указан'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="opacity-70 text-sm">Нет данных</div>
+            )}
+          </>
+        ),
+      },
+      {
+        id: 'next-event',
+        render: () => (
+          <>
+            <div className="font-medium mb-2">Ближайшее событие</div>
+            {nextEvent ? (
+              <div className="text-sm">
+                <b>{nextEvent.title}</b>
+                <div className="opacity-70">{nextEvent.date}</div>
+              </div>
+            ) : (
+              <div className="opacity-70 text-sm">Событий нет</div>
+            )}
+          </>
+        ),
+      },
+    ];
+  }, [data?.badges, nextEvent, profileLanguagesLayout]);
+
+  const overviewBlocksLayout = useReorderableList<ProfileOverviewBlock>(
+    'profile:overview-blocks',
+    overviewBlocks,
+    (block) => block.id,
+  );
   const load = async () => {
     const d = await api.get('/api/life/profile');
     setData(d);
@@ -801,98 +920,30 @@ export default function ProfileFull() {
       </div>
 
       {/* ---------- Панель с тремя блоками ---------- */}
-      <div className="grid md:grid-cols-3 gap-6 mt-6">
-        {/* Значки */}
-        <div className="card">
-          <div className="font-medium mb-2">Значки</div>
-          <div className="grid grid-cols-3 gap-2">
-            {(data?.badges || []).length > 0 ? (
-              data.badges.map((b: any) => (
-                <div
-                  key={b.id}
-                  className="p-2 rounded-xl bg-white/5 border border-white/10 text-center"
-                >
-                  <div className="text-2xl">🏅</div>
-                  <div className="text-[11px] mt-1 truncate">{b.name}</div>
-                </div>
-              ))
-            ) : (
-              <div className="opacity-70 text-sm">Нет значков</div>
-            )}
-          </div>
-        </div>
-
-        {/* Языки */}
-        <div className="card" {...profileLanguagesLayout.getContainerProps()}>
-          <div className="font-medium mb-2">Изучаемые языки</div>
-          {profileLanguagesLayout.items.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {profileLanguagesLayout.items.map((language, index) => {
-                const dragProps = profileLanguagesLayout.getDraggableProps(language.id);
-                const canDrag = dragProps.draggable;
-                const isDragging = profileLanguagesLayout.activeId === String(language.id);
-                const isOver = profileLanguagesLayout.overId === String(language.id);
-                const bannerStyle = getLanguageBannerStyle(language, index);
-                const avatarUrl = resolveMediaUrl(language.imageUrl);
-                return (
-                  <div
-                    key={language.id}
-                    {...dragProps}
-                    data-dragging={isDragging ? 'true' : undefined}
-                    data-drop-target={isOver && !isDragging ? 'true' : undefined}
-                    className={classNames(
-                      'relative overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-all duration-200 ease-out select-none',
-                      { 'cursor-grab active:cursor-grabbing': canDrag },
-                      {
-                        'ring-2 ring-white/70 border-white/40 scale-[0.98] shadow-2xl shadow-black/40': isDragging,
-                        'border-white/30 ring-1 ring-white/40': isOver && !isDragging,
-                        'hover:-translate-y-0.5': !isDragging,
-                      },
-                    )}
-                  >
-                    <div className="absolute inset-0" style={bannerStyle} />
-                    <div className="absolute inset-0 bg-black/40" />
-                    <div className="relative p-3 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg border border-white/20 bg-black/40 overflow-hidden flex items-center justify-center text-sm font-semibold uppercase tracking-wide">
-                        {avatarUrl ? (
-                          <img
-                            src={avatarUrl}
-                            alt={`Изображение ${language.name}`}
-                            className="w-full h-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span>{getLanguageInitials(language.name)}</span>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate">{language.name}</div>
-                        <div className="text-xs opacity-80">
-                          {language.level ? `Уровень ${language.level}` : 'Уровень не указан'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+      <div className="grid md:grid-cols-3 gap-6 mt-6" {...overviewBlocksLayout.getContainerProps()}>
+        {overviewBlocksLayout.items.map((block) => {
+          const dragProps = overviewBlocksLayout.getDraggableProps(block.id);
+          const isDragging = overviewBlocksLayout.activeId === String(block.id);
+          const isDropTarget = overviewBlocksLayout.overId === String(block.id) && !isDragging;
+          return (
+            <div
+              key={block.id}
+              {...dragProps}
+              data-dragging={isDragging ? 'true' : undefined}
+              data-drop-target={isDropTarget ? 'true' : undefined}
+              className={classNames(
+                'card transition-all duration-200 ease-out select-none',
+                { 'cursor-grab active:cursor-grabbing': dragProps.draggable },
+                {
+                  'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-xl shadow-black/40': isDragging,
+                  'border-white/30 ring-1 ring-white/40': isDropTarget,
+                },
+              )}
+            >
+              {block.render()}
             </div>
-          ) : (
-            <div className="opacity-70 text-sm">Нет данных</div>
-          )}
-        </div>
-
-        {/* Ближайшее событие */}
-        <div className="card">
-          <div className="font-medium mb-2">Ближайшее событие</div>
-          {nextEvent ? (
-            <div className="text-sm">
-              <b>{nextEvent.title}</b>
-              <div className="opacity-70">{nextEvent.date}</div>
-            </div>
-          ) : (
-            <div className="opacity-70 text-sm">Событий нет</div>
-          )}
-        </div>
+          );
+        })}
       </div>
 
       {/* ---------- Лента дневника ---------- */}

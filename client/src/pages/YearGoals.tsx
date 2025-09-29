@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import classNames from 'classnames';
 import Shell from '../components/Shell';
 import { api } from '../api';
 import { requestMenuCountersRefresh } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
 import YearGoalMaster from '../components/master/YearGoalMaster';
+import { ReorderableListApi, useReorderableList } from '../hooks/useReorderableList';
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -90,6 +92,9 @@ export default function YearGoals() {
   const activeGoals = goals.active;
   const archivedGoals = goals.archived;
 
+  const activeGoalsLayout = useReorderableList<Goal>('year-goals:active', activeGoals, (goal) => goal.id);
+  const archivedGoalsLayout = useReorderableList<Goal>('year-goals:archived', archivedGoals, (goal) => goal.id);
+
   const totalProgress = useMemo(() => {
     if (!activeGoals.length) return 0;
     const sum = activeGoals.reduce((acc, goal) => acc + goal.completion_pct, 0);
@@ -114,7 +119,7 @@ export default function YearGoals() {
         placeholder="Поиск по целям или страницам..."
       />
 
-      {activeGoals.length > 0 && (
+      {activeGoalsLayout.items.length > 0 && (
         <div className="mb-8">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="text-lg font-semibold">Текущие цели</div>
@@ -122,17 +127,25 @@ export default function YearGoals() {
               Средний прогресс: {totalProgress}%
             </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {activeGoals.map(goal => (
-              <GoalCard
-                key={goal.id}
-                goal={goal}
-                busy={loading && processingGoalId === goal.id}
-                onToggleToday={() => markToday(goal, !goal.today_done)}
-                onUpdateTarget={(target) => updateTarget(goal, target)}
-                onDelete={() => deleteGoal(goal)}
-              />
-            ))}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" {...activeGoalsLayout.getContainerProps()}>
+            {activeGoalsLayout.items.map(goal => {
+              const dragProps = activeGoalsLayout.getDraggableProps(goal.id);
+              const isDragging = activeGoalsLayout.activeId === String(goal.id);
+              const isDropTarget = activeGoalsLayout.overId === String(goal.id) && !isDragging;
+              return (
+                <GoalCard
+                  key={goal.id}
+                  goal={goal}
+                  busy={loading && processingGoalId === goal.id}
+                  onToggleToday={() => markToday(goal, !goal.today_done)}
+                  onUpdateTarget={(target) => updateTarget(goal, target)}
+                  onDelete={() => deleteGoal(goal)}
+                  dragProps={dragProps}
+                  isDragging={isDragging}
+                  isDropTarget={isDropTarget}
+                />
+              );
+            })}
           </div>
         </div>
       )}
@@ -142,21 +155,26 @@ export default function YearGoals() {
           <div className="text-lg font-semibold">Архив</div>
           <div className="text-xs uppercase tracking-[0.2em] text-white/50">Завершённые цели</div>
         </div>
-        {archivedGoals.length === 0 ? (
+        {archivedGoalsLayout.items.length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-sm text-white/60">
             Пока нет завершённых целей.
           </div>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {archivedGoals.map(goal => (
-              <div key={goal.id} className="flex flex-col gap-2 rounded-xl border border-white/10 bg-black/40 p-4">
-                <div className="text-base font-semibold">{goal.title}</div>
-                <div className="text-xs text-white/60">
-                  Завершена: {formatDate(goal.archived_at)} • {goal.completed}/{goal.target}
-                </div>
-                <div className="text-xs text-white/50">Рекордный стрик: {goal.streak_best}</div>
-              </div>
-            ))}
+          <div className="grid gap-3 md:grid-cols-2" {...archivedGoalsLayout.getContainerProps()}>
+            {archivedGoalsLayout.items.map(goal => {
+              const dragProps = archivedGoalsLayout.getDraggableProps(goal.id);
+              const isDragging = archivedGoalsLayout.activeId === String(goal.id);
+              const isDropTarget = archivedGoalsLayout.overId === String(goal.id) && !isDragging;
+              return (
+                <ArchivedGoalCard
+                  key={goal.id}
+                  goal={goal}
+                  dragProps={dragProps}
+                  isDragging={isDragging}
+                  isDropTarget={isDropTarget}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -178,12 +196,18 @@ const Badge = ({ children }: { children: React.ReactNode }) => (
   </span>
 );
 
-function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete }: {
+type GoalLayoutApi = ReorderableListApi<Goal>;
+type GoalDragProps = ReturnType<GoalLayoutApi['getDraggableProps']>;
+
+function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete, dragProps, isDragging, isDropTarget }: {
   goal: Goal;
   busy: boolean;
   onToggleToday: () => void;
   onUpdateTarget: (target: number) => void;
   onDelete: () => void;
+  dragProps: GoalDragProps;
+  isDragging: boolean;
+  isDropTarget: boolean;
 }) {
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetValue, setTargetValue] = useState(goal.target);
@@ -201,8 +225,22 @@ function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete }: {
   const completion = Math.min(100, Math.max(0, goal.completion_pct));
   const recentDates = goal.recent_logs?.slice(0, 6) ?? [];
 
+  const canDrag = dragProps.draggable;
+
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+    <div
+      {...dragProps}
+      data-dragging={isDragging ? 'true' : undefined}
+      data-drop-target={isDropTarget ? 'true' : undefined}
+      className={classNames(
+        'flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition-all duration-200 ease-out select-none',
+        { 'cursor-grab active:cursor-grabbing': canDrag },
+        {
+          'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-lg shadow-black/40': isDragging,
+          'border-white/30 ring-1 ring-white/40': isDropTarget,
+        },
+      )}
+    >
       <div className="relative h-32 overflow-hidden">
         <div className={`absolute inset-0 bg-gradient-to-r ${gradient}`} />
         <div className="absolute inset-0 bg-black/40" />
@@ -295,6 +333,37 @@ function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete }: {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ArchivedGoalCard({ goal, dragProps, isDragging, isDropTarget }: {
+  goal: Goal;
+  dragProps: GoalDragProps;
+  isDragging: boolean;
+  isDropTarget: boolean;
+}) {
+  const canDrag = dragProps.draggable;
+
+  return (
+    <div
+      {...dragProps}
+      data-dragging={isDragging ? 'true' : undefined}
+      data-drop-target={isDropTarget ? 'true' : undefined}
+      className={classNames(
+        'flex flex-col gap-2 rounded-xl border border-white/10 bg-black/40 p-4 transition-all duration-200 ease-out select-none',
+        { 'cursor-grab active:cursor-grabbing': canDrag },
+        {
+          'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-lg shadow-black/40': isDragging,
+          'border-white/30 ring-1 ring-white/40': isDropTarget,
+        },
+      )}
+    >
+      <div className="text-base font-semibold">{goal.title}</div>
+      <div className="text-xs text-white/60">
+        Завершена: {formatDate(goal.archived_at)} • {goal.completed}/{goal.target}
+      </div>
+      <div className="text-xs text-white/50">Рекордный стрик: {goal.streak_best}</div>
     </div>
   );
 }
