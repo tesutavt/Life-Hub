@@ -27,7 +27,8 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+const MAX_PDF_FILE_SIZE = 512 * 1024 * 1024; // 512MB limit to allow 200MB+ uploads
+const upload = multer({ storage, limits: { fileSize: MAX_PDF_FILE_SIZE } });
 
 async function removeLocalUpload(url) {
   if (!url || typeof url !== 'string') return;
