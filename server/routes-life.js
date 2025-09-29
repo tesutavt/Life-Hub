@@ -386,6 +386,81 @@ const extractPageSnippet = (blocksJson) => {
   }
 };
 
+const parseBlocksJson = (blocksJson) => {
+  if (!blocksJson) return [];
+  try {
+    const parsed = JSON.parse(blocksJson);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.blocks)) {
+      return parsed.blocks;
+    }
+  } catch {
+    return [];
+  }
+  return [];
+};
+
+const collectPdfBookmarksFromPage = (pageRow, queryLower) => {
+  const output = [];
+  const rawBlocks = parseBlocksJson(pageRow.blocks_json);
+  if (!Array.isArray(rawBlocks)) return output;
+
+  const pageTitle = sanitizeRequiredText(pageRow.title, 'Без названия', 255);
+  const pageTitleLower = pageTitle.toLowerCase();
+
+  rawBlocks.forEach((block, blockIndex) => {
+    if (!block || block.type !== 'pdf') return;
+    const pdfUrl = normalizePdfUrl(block.url || block.src || null);
+    if (!pdfUrl) return;
+
+    const pdfTitle = sanitizeRequiredText(block.text, 'PDF документ', 255);
+    const pdfTitleLower = pdfTitle.toLowerCase();
+    const originalName = sanitizeOptionalText(block?.meta?.originalName ?? block?.meta?.original_name ?? null, 255);
+    const originalLower = (originalName || '').toLowerCase();
+    const markers = Array.isArray(block?.meta?.markers) ? block.meta.markers : [];
+
+    markers.forEach((marker, markerIndex) => {
+      if (!marker) return;
+      const markerTitle = sanitizeRequiredText(marker.title, 'Фрагмент', 255);
+      const markerLower = markerTitle.toLowerCase();
+      if (
+        queryLower &&
+        !(
+          markerLower.includes(queryLower) ||
+          pdfTitleLower.includes(queryLower) ||
+          pageTitleLower.includes(queryLower) ||
+          (originalLower && originalLower.includes(queryLower))
+        )
+      ) {
+        return;
+      }
+
+      let pageNumber = null;
+      if (marker.page !== undefined && marker.page !== null) {
+        const parsed = Number.parseInt(marker.page, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) pageNumber = parsed;
+      }
+
+      const markerId = typeof marker.id === 'string' && marker.id.trim() ? marker.id.trim() : `marker-${blockIndex}-${markerIndex}`;
+      const blockId = typeof block.id === 'string' && block.id.trim() ? block.id.trim() : `pdf-${blockIndex}`;
+
+      output.push({
+        id: `${pageRow.id}:${blockId}:${markerId}`,
+        marker_title: markerTitle,
+        page_number: pageNumber,
+        pdf_url: pdfUrl,
+        pdf_title: pdfTitle,
+        original_name: originalName,
+        page_id: pageRow.id,
+        page_title: pageTitle,
+        marker_done: !!marker.done,
+      });
+    });
+  });
+
+  return output;
+};
+
 router.get('/search', async (req, res) => {
   const db = await getDB();
   const rawQuery = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
@@ -407,6 +482,7 @@ router.get('/search', async (req, res) => {
   const showPageResults = hasTextQuery || includeTagFilter;
 
   let pages = [];
+  let pageRows = [];
   if (showPageResults) {
     let pageSql = 'SELECT jp.id, jp.title, jp.blocks_json, jp.updated_at, jp.created_at, jp.banner_url, jp.banner_gradient, jp.pinned FROM journal_pages jp WHERE jp.user_id=?';
     const pageParams = [req.user.uid];
@@ -422,7 +498,7 @@ router.get('/search', async (req, res) => {
     }
     pageSql += ' ORDER BY jp.pinned DESC, jp.updated_at DESC LIMIT ?';
     pageParams.push(limit);
-    const pageRows = await db.all(pageSql, pageParams);
+    pageRows = await db.all(pageSql, pageParams);
     const pageIds = pageRows.map((row) => row.id);
     const pageTagMap = await fetchPageTagsMap(db, req.user.uid, pageIds);
     pages = pageRows.map((row) => ({
@@ -436,6 +512,34 @@ router.get('/search', async (req, res) => {
       pinned: !!row.pinned,
       tags: pageTagMap.get(row.id) || []
     }));
+  }
+
+  let pdfBookmarks = [];
+  if (hasTextQuery) {
+    const bookmarkMap = new Map();
+    for (const row of pageRows) {
+      bookmarkMap.set(row.id, row);
+    }
+    const extraRows = await db.all(
+      'SELECT jp.id, jp.title, jp.blocks_json FROM journal_pages jp WHERE jp.user_id=? AND LOWER(COALESCE(jp.blocks_json, "")) LIKE ? ORDER BY jp.updated_at DESC LIMIT ?',
+      [req.user.uid, '%' + query + '%', limit * 3]
+    );
+    for (const row of extraRows) {
+      if (!bookmarkMap.has(row.id)) bookmarkMap.set(row.id, row);
+    }
+
+    const dedupe = new Set();
+    for (const row of bookmarkMap.values()) {
+      const matches = collectPdfBookmarksFromPage(row, query);
+      for (const match of matches) {
+        const key = `${match.pdf_url}|${match.page_number ?? 'none'}|${match.marker_title.toLowerCase()}|${match.page_id}`;
+        if (dedupe.has(key)) continue;
+        dedupe.add(key);
+        pdfBookmarks.push(match);
+        if (pdfBookmarks.length >= limit) break;
+      }
+      if (pdfBookmarks.length >= limit) break;
+    }
   }
 
   const shouldSearchOther = hasTextQuery || includeTagFilter;
@@ -645,6 +749,7 @@ router.get('/search', async (req, res) => {
     selected_tag: selectedTag,
     tag_matches: tagMatches,
     pages,
+    pdf_bookmarks: pdfBookmarks,
     languages,
     courses,
     travel,

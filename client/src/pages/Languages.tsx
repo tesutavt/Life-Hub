@@ -4,7 +4,7 @@ import { Circle, CircleCheck, ExternalLink, FileText, PencilLine, Trash2 } from 
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { requestMenuCountersRefresh } from "../menuBus";
-import SiteSearch from "../components/SiteSearch";
+import SiteSearch, { SearchPdfBookmark } from "../components/SiteSearch";
 import TagBadge from "../components/tags/TagBadge";
 import TagSelector from "../components/tags/TagSelector";
 import { Modal } from "../components/ui/Modal";
@@ -310,18 +310,29 @@ export default function Languages() {
     }
   };
 
-  const handleAttachPdf = async (
-    languageId: number,
-    input: { title: string; pdfUrl: string; pageNumber?: number | null; originalName?: string | null }
-  ) => {
+  const handleAttachPdfBookmark = async (languageId: number, bookmark: SearchPdfBookmark) => {
+    const pdfUrl = bookmark.pdf_url?.trim();
+    if (!pdfUrl) return;
+
+    const existing = languagePdfPages.some(
+      (entry) =>
+        entry.language_id === languageId &&
+        entry.pdf_url === pdfUrl &&
+        (entry.page_number ?? null) === (bookmark.page_number ?? null) &&
+        (entry.title || "").trim().toLowerCase() === bookmark.marker_title.trim().toLowerCase()
+    );
+    if (existing) return;
+
     try {
       const payload: Record<string, unknown> = {
         language_id: languageId,
-        title: input.title,
-        pdf_url: input.pdfUrl,
+        title: bookmark.marker_title,
+        pdf_url: pdfUrl,
       };
-      if (input.pageNumber != null) payload.page_number = input.pageNumber;
-      if (input.originalName) payload.original_name = input.originalName;
+      if (bookmark.page_number != null) payload.page_number = bookmark.page_number;
+      const originalName = bookmark.original_name || bookmark.pdf_title || null;
+      if (originalName) payload.original_name = originalName;
+
       const res = await api.post("/api/life/language-pdf-pages", payload);
       if (res?.item) {
         const item = res.item;
@@ -330,18 +341,17 @@ export default function Languages() {
           {
             id: item.id,
             language_id: item.language_id ?? languageId,
-            title: item.title || input.title,
-            pdf_url: item.pdf_url || input.pdfUrl,
-            page_number: item.page_number ?? input.pageNumber ?? null,
+            title: item.title || bookmark.marker_title,
+            pdf_url: item.pdf_url || pdfUrl,
+            page_number: item.page_number ?? bookmark.page_number ?? null,
             done: !!item.done,
             done_at: item.done_at ?? null,
-            original_name: item.original_name ?? input.originalName ?? null,
+            original_name: item.original_name ?? originalName,
           },
         ]);
       }
     } catch (err) {
       console.error(err);
-      throw err;
     }
   };
 
@@ -380,58 +390,6 @@ export default function Languages() {
       setLanguagePdfPages((prev) => prev.filter((item) => item.id !== link.id));
     } catch (err) {
       console.error(err);
-    }
-  };
-
-  const submitPdfAttachment = async () => {
-    if (!pickerLanguage || pdfForm.uploading) return;
-    const trimmedUrl = pdfForm.url.trim();
-    if (!pdfForm.file && !trimmedUrl) {
-      setPdfForm((prev) => ({ ...prev, error: "Загрузите файл или укажите ссылку" }));
-      return;
-    }
-    let pageNumber: number | null = null;
-    if (pdfForm.page.trim()) {
-      const parsed = Number.parseInt(pdfForm.page.trim(), 10);
-      if (Number.isNaN(parsed) || parsed <= 0) {
-        setPdfForm((prev) => ({ ...prev, error: "Неверный номер страницы" }));
-        return;
-      }
-      pageNumber = parsed;
-    }
-
-    setPdfForm((prev) => ({ ...prev, uploading: true, error: null }));
-
-    try {
-      let pdfUrl = trimmedUrl;
-      let originalName = pdfForm.originalName;
-
-      if (pdfForm.file) {
-        const formData = new FormData();
-        formData.append("file", pdfForm.file);
-        const upload = await api.post("/api/life/uploads/pdf", formData, { silentSuccess: true });
-        pdfUrl = upload?.url;
-        originalName = upload?.original_name ?? pdfForm.file.name;
-      }
-
-      if (!pdfUrl) throw new Error("Не удалось получить ссылку на PDF");
-
-      const title = pdfForm.title.trim() || originalName || "PDF материал";
-
-      await handleAttachPdf(pickerLanguage.id, {
-        title,
-        pdfUrl,
-        pageNumber,
-        originalName,
-      });
-
-      setPdfForm({ title: "", page: "", url: "", file: null, uploading: false, error: null, originalName: null });
-    } catch (err: any) {
-      setPdfForm((prev) => ({
-        ...prev,
-        uploading: false,
-        error: err?.message || "Не удалось добавить PDF",
-      }));
     }
   };
 
@@ -822,87 +780,31 @@ export default function Languages() {
             </div>
 
             <SiteSearch
-              sections={['pages']}
+              sections={['pages', 'pdfBookmarks']}
               className="mt-2 bg-black/25 border-white/15"
-              placeholder="Поиск по страницам..."
+              placeholder="Поиск по страницам и PDF закладкам..."
               onSelectPage={(page) => {
                 if (!pickerLanguage) return;
                 if (pickerAttachments.some((link) => link.kind === "page" && link.page_id === page.id)) return;
                 handleAttachPage(pickerLanguage.id, page.id);
               }}
+              onSelectPdfBookmark={(bookmark) => {
+                if (!pickerLanguage) return;
+                if (
+                  pickerAttachments.some(
+                    (link) =>
+                      link.kind === "pdf" &&
+                      link.pdf_url === bookmark.pdf_url &&
+                      (link.page_number ?? null) === (bookmark.page_number ?? null) &&
+                      link.title.trim().toLowerCase() === bookmark.marker_title.trim().toLowerCase()
+                  )
+                ) {
+                  return;
+                }
+                handleAttachPdfBookmark(pickerLanguage.id, bookmark);
+              }}
             />
 
-            <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
-              <div className="text-sm font-medium">Добавить страницу из PDF</div>
-              <div className="text-xs opacity-70">
-                Загрузите файл в формате PDF или укажите прямую ссылку. Можно добавить название и номер страницы.
-              </div>
-              {pdfForm.error && <div className="text-xs text-red-300">{pdfForm.error}</div>}
-              <div className="space-y-2">
-                <input
-                  value={pdfForm.title}
-                  onChange={(event) => setPdfForm((prev) => ({ ...prev, title: event.target.value }))}
-                  placeholder="Название материала"
-                  className="w-full px-3 py-2 rounded bg-white/10 text-sm"
-                />
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <label className="flex-1 px-3 py-2 rounded bg-white/10 text-sm cursor-pointer flex items-center justify-between gap-2">
-                    <span className="truncate">
-                      {pdfForm.file ? `Выбран файл: ${pdfForm.file.name}` : 'Выбрать PDF файл'}
-                    </span>
-                    <input
-                      type="file"
-                      accept="application/pdf"
-                      className="hidden"
-                      disabled={pdfForm.uploading}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0] || null;
-                        setPdfForm((prev) => ({
-                          ...prev,
-                          file,
-                          originalName: file ? file.name : prev.originalName,
-                          error: null,
-                        }));
-                        if (event.target) event.target.value = "";
-                      }}
-                    />
-                  </label>
-                  <input
-                    value={pdfForm.url}
-                    onChange={(event) => setPdfForm((prev) => ({ ...prev, url: event.target.value }))}
-                    placeholder="Ссылка на PDF (опционально)"
-                    className="flex-1 px-3 py-2 rounded bg-white/10 text-sm"
-                    disabled={pdfForm.uploading}
-                  />
-                </div>
-                <input
-                  value={pdfForm.page}
-                  onChange={(event) => setPdfForm((prev) => ({ ...prev, page: event.target.value }))}
-                  placeholder="Номер страницы (опционально)"
-                  className="w-full px-3 py-2 rounded bg-white/10 text-sm"
-                  disabled={pdfForm.uploading}
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={submitPdfAttachment}
-                  disabled={pdfForm.uploading}
-                  className="px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
-                >
-                  {pdfForm.uploading ? "Добавление…" : "Добавить PDF"}
-                </button>
-                {pdfForm.file && (
-                  <button
-                    type="button"
-                    onClick={() => setPdfForm((prev) => ({ ...prev, file: null, originalName: null }))}
-                    className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-                    disabled={pdfForm.uploading}
-                  >
-                    Очистить файл
-                  </button>
-                )}
-              </div>
             </div>
 
             {pickerAttachments.length > 0 && (

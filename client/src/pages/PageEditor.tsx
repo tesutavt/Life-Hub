@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import Shell from '../components/Shell';
 import { api, resolveApiUrl } from '../api';
 import { useNavigate, useParams } from 'react-router-dom';
-import { CalendarDays, Circle, CircleCheck, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
+import { CalendarDays, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
+import PdfReader from '../components/pdf/PdfReader';
+
 
 const uuid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
@@ -239,7 +241,6 @@ export default function PageEditor(){
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [formatMenu, setFormatMenu] = useState<MenuState | null>(null);
   const [emojiMenu, setEmojiMenu] = useState<MenuState | null>(null);
-  const [pdfMarkerDrafts, setPdfMarkerDrafts] = useState<Record<string, { title: string; page: string }>>({});
   const [uploadingPdfBlockId, setUploadingPdfBlockId] = useState<string | null>(null);
   const [pdfErrors, setPdfErrors] = useState<Record<string, string | null>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -695,6 +696,17 @@ export default function PageEditor(){
     [updatePdfMeta]
   );
 
+  const updatePdfMarker = useCallback(
+    (blockId: string, markerId: string, updates: Partial<PdfMarker>) => {
+      updatePdfMeta(blockId, meta => ({
+        ...meta,
+        markers: meta.markers.map(marker =>
+          marker.id === markerId ? { ...marker, ...updates } : marker
+        )
+      }));
+    },
+    [updatePdfMeta]
+  );
   const removePdfMarker = useCallback(
     (blockId: string, markerId: string) => {
       updatePdfMeta(blockId, meta => ({
@@ -749,28 +761,6 @@ export default function PageEditor(){
       }));
     },
     [updateBlock]
-  );
-
-  const handleAddPdfMarker = useCallback(
-    (block: Block) => {
-      if (block.type !== 'pdf') return;
-      const draft = pdfMarkerDrafts[block.id] ?? { title: '', page: '' };
-      const pageValue = draft.page.trim();
-      let pageNumber: number | null = null;
-      if (pageValue) {
-        const parsed = Number.parseInt(pageValue, 10);
-        if (Number.isNaN(parsed) || parsed <= 0) {
-          setPdfErrors(prev => ({ ...prev, [block.id]: 'Неверный номер страницы' }));
-          return;
-        }
-        pageNumber = parsed;
-      }
-      const title = draft.title.trim() || (pageNumber ? `Страница ${pageNumber}` : 'Фрагмент');
-      addPdfMarker(block.id, { id: uuid(), title, page: pageNumber, done: false });
-      setPdfMarkerDrafts(prev => ({ ...prev, [block.id]: { title: '', page: '' } }));
-      setPdfErrors(prev => ({ ...prev, [block.id]: null }));
-    },
-    [addPdfMarker, pdfMarkerDrafts]
   );
 
   const handleBlockContextMenu = (event: React.MouseEvent, block: Block) => {
@@ -1027,18 +1017,9 @@ export default function PageEditor(){
         {blocks.map((block, index) => {
           const isPdf = block.type === 'pdf';
           const pdfMeta = isPdf ? ensurePdfMeta(block.meta) : null;
-          const pdfDraft = pdfMarkerDrafts[block.id] ?? { title: '', page: '' };
           const pdfError = pdfErrors[block.id] || null;
-          const sortedMarkers = pdfMeta
-            ? [...pdfMeta.markers].sort((a, b) => {
-                if (a.done !== b.done) return a.done ? 1 : -1;
-                if (a.page != null && b.page != null && a.page !== b.page) return a.page - b.page;
-                if (a.page != null) return -1;
-                if (b.page != null) return 1;
-                return a.title.localeCompare(b.title, 'ru');
-              })
-            : [];
           const pdfSrc = block.url ? resolveApiUrl(block.url) : '';
+          const pdfTitle = block.text || pdfMeta?.originalName || 'PDF документ';
 
           return (
             <div
@@ -1122,99 +1103,24 @@ export default function PageEditor(){
                     <div className="text-xs text-red-300">{pdfError}</div>
                   )}
                   {block.url ? (
-                    <div className="overflow-hidden rounded-xl border border-white/10">
-                      <iframe
-                        src={pdfSrc}
-                        title={block.text || 'PDF document'}
-                        className="w-full h-72 bg-black/40"
-                      />
-                    </div>
+                    <PdfReader
+                      src={pdfSrc}
+                      title={pdfTitle}
+                      originalName={pdfMeta?.originalName ?? null}
+                      markers={pdfMeta?.markers || []}
+                      onAddMarker={({ title, page }) =>
+                        addPdfMarker(block.id, { id: uuid(), title, page, done: false })
+                      }
+                      onToggleMarker={markerId => togglePdfMarker(block.id, markerId)}
+                      onRemoveMarker={markerId => removePdfMarker(block.id, markerId)}
+                      onRenameMarker={(markerId, value) =>
+                        updatePdfMarker(block.id, markerId, { title: value })
+                      }
+                      onChangeMarkerPage={(markerId, page) => updatePdfMarker(block.id, markerId, { page })}
+                    />
                   ) : (
                     <div className="text-xs opacity-60">Загрузите файл или укажите ссылку, чтобы просмотреть PDF.</div>
                   )}
-                  <div className="space-y-2">
-                    <div className="text-xs uppercase tracking-wide opacity-60">Закладки</div>
-                    {sortedMarkers.length === 0 ? (
-                      <div className="text-xs opacity-60">Пока нет отмеченных страниц.</div>
-                    ) : (
-                      <div className="space-y-2">
-                        {sortedMarkers.map(marker => (
-                          <div
-                            key={marker.id}
-                            className="flex items-center gap-3 rounded border border-white/10 bg-white/0 px-3 py-2 text-sm"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => togglePdfMarker(block.id, marker.id)}
-                              className={`h-6 w-6 rounded-full border flex items-center justify-center ${
-                                marker.done
-                                  ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
-                                  : 'border-white/20 bg-white/5 text-white/80'
-                              }`}
-                              title={marker.done ? 'Снять отметку' : 'Отметить пройденной'}
-                            >
-                              {marker.done ? <CircleCheck className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
-                            </button>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate">{marker.title}</div>
-                              {marker.page != null && (
-                                <div className="text-xs opacity-70">Страница {marker.page}</div>
-                              )}
-                            </div>
-                            {block.url && (
-                              <a
-                                href={`${pdfSrc}${marker.page ? `#page=${marker.page}` : ''}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
-                              >
-                                Открыть
-                              </a>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => removePdfMarker(block.id, marker.id)}
-                              className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
-                            >
-                              Удалить
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/30 p-3">
-                      <div className="text-xs uppercase tracking-wide opacity-70">Добавить закладку</div>
-                      <input
-                        value={pdfDraft.title}
-                        onChange={event =>
-                          setPdfMarkerDrafts(prev => ({
-                            ...prev,
-                            [block.id]: { ...pdfDraft, title: event.target.value }
-                          }))
-                        }
-                        placeholder="Название"
-                        className="px-3 py-2 rounded bg-white/10 text-sm"
-                      />
-                      <input
-                        value={pdfDraft.page}
-                        onChange={event =>
-                          setPdfMarkerDrafts(prev => ({
-                            ...prev,
-                            [block.id]: { ...pdfDraft, page: event.target.value }
-                          }))
-                        }
-                        placeholder="Номер страницы"
-                        className="px-3 py-2 rounded bg-white/10 text-sm"
-                      />
-                      <button
-                        type="button"
-                        className="self-start px-3 py-2 text-xs rounded bg-emerald-500/20 hover:bg-emerald-500/30"
-                        onClick={() => handleAddPdfMarker(block)}
-                      >
-                        Добавить
-                      </button>
-                    </div>
-                  </div>
                 </div>
               ) : block.type === 'todo' ? (
                 <label className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
