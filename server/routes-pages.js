@@ -41,7 +41,8 @@ const serializeBlocks = (blocks) => {
       text: block.text ?? "",
       checked: block.checked ?? false,
       url: block.url ?? null,
-      relation: block.relation ?? null
+      relation: block.relation ?? null,
+      meta: block.meta ?? null
     }))
   );
 };
