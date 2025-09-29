@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Circle, CircleCheck, PencilLine, Trash2 } from "lucide-react";
+import { Circle, CircleCheck, ExternalLink, FileText, PencilLine, Trash2 } from "lucide-react";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { requestMenuCountersRefresh } from "../menuBus";
@@ -39,6 +39,21 @@ type LanguagePage = {
   done: boolean;
   done_at?: string | null;
 };
+
+type LanguagePdfPage = {
+  id: number;
+  language_id: number;
+  title: string;
+  pdf_url: string;
+  page_number?: number | null;
+  done: boolean;
+  done_at?: string | null;
+  original_name?: string | null;
+};
+
+type LanguageAttachment =
+  | (LanguagePage & { kind: "page" })
+  | (LanguagePdfPage & { kind: "pdf" });
 
 type PageOption = { id: number; title: string };
 
@@ -82,7 +97,17 @@ export default function Languages() {
   const [history, setHistory] = useState<Record<string, number[]>>({});
   const [pages, setPages] = useState<PageOption[]>([]);
   const [languagePages, setLanguagePages] = useState<LanguagePage[]>([]);
+  const [languagePdfPages, setLanguagePdfPages] = useState<LanguagePdfPage[]>([]);
   const [pickerLanguageId, setPickerLanguageId] = useState<number | null>(null);
+  const [pdfForm, setPdfForm] = useState({
+    title: "",
+    page: "",
+    url: "",
+    file: null as File | null,
+    uploading: false,
+    error: null as string | null,
+    originalName: null as string | null,
+  });
 
   const mapLanguage = (entry: any): Lang => ({
     id: entry.id,
@@ -124,6 +149,21 @@ export default function Languages() {
     setLanguagePages(normalized);
   };
 
+  const loadLanguagePdfPages = async () => {
+    const res = await api.get("/api/life/language-pdf-pages");
+    const normalized = (res.items || []).map((entry: any) => ({
+      id: entry.id,
+      language_id: entry.language_id,
+      title: entry.title || "PDF материал",
+      pdf_url: entry.pdf_url,
+      page_number: entry.page_number ?? null,
+      done: !!entry.done,
+      done_at: entry.done_at ?? null,
+      original_name: entry.original_name ?? null,
+    }));
+    setLanguagePdfPages(normalized);
+  };
+
   const loadPages = async () => {
     const res = await api.get("/api/life/pages");
     const normalized = (res.items || []).map((row: any) => ({
@@ -146,6 +186,7 @@ export default function Languages() {
   useEffect(() => {
     loadLanguages();
     loadLanguagePages();
+    loadLanguagePdfPages();
     loadPages();
     loadTagOptions();
   }, []);
@@ -157,19 +198,25 @@ export default function Languages() {
   );
 
   const languagePageMap = useMemo(() => {
-    const map = new Map<number, LanguagePage[]>();
+    const map = new Map<number, LanguageAttachment[]>();
     for (const link of languagePages) {
       if (!map.has(link.language_id)) map.set(link.language_id, []);
-      map.get(link.language_id)!.push(link);
+      map.get(link.language_id)!.push({ ...link, kind: "page" });
     }
-    for (const [, links] of map) {
-      links.sort((a, b) => {
+    for (const entry of languagePdfPages) {
+      if (!map.has(entry.language_id)) map.set(entry.language_id, []);
+      map.get(entry.language_id)!.push({ ...entry, kind: "pdf" });
+    }
+    for (const [, attachments] of map) {
+      attachments.sort((a, b) => {
         if (a.done !== b.done) return a.done ? 1 : -1;
-        return a.page_title.localeCompare(b.page_title, "ru");
+        const titleA = a.kind === "page" ? a.page_title : a.title;
+        const titleB = b.kind === "page" ? b.page_title : b.title;
+        return titleA.localeCompare(titleB, "ru");
       });
     }
     return map;
-  }, [languagePages]);
+  }, [languagePages, languagePdfPages]);
 
   const saveEdit = async () => {
     if (!editing) return;
@@ -197,7 +244,7 @@ export default function Languages() {
     await loadLanguages();
   };
 
-  const toggleLinkDone = async (link: LanguagePage) => {
+  const togglePageLinkDone = async (link: LanguagePage) => {
     try {
       const res = await api.patch(`/api/life/language-pages/${link.id}`, {
         done: !link.done,
@@ -212,7 +259,7 @@ export default function Languages() {
     }
   };
 
-  const removeLink = async (link: LanguagePage) => {
+  const removePageLink = async (link: LanguagePage) => {
     if (!confirm("Удалить учебную страницу?")) return;
     try {
       await api.del(`/api/life/language-pages/${link.id}`);
@@ -263,6 +310,131 @@ export default function Languages() {
     }
   };
 
+  const handleAttachPdf = async (
+    languageId: number,
+    input: { title: string; pdfUrl: string; pageNumber?: number | null; originalName?: string | null }
+  ) => {
+    try {
+      const payload: Record<string, unknown> = {
+        language_id: languageId,
+        title: input.title,
+        pdf_url: input.pdfUrl,
+      };
+      if (input.pageNumber != null) payload.page_number = input.pageNumber;
+      if (input.originalName) payload.original_name = input.originalName;
+      const res = await api.post("/api/life/language-pdf-pages", payload);
+      if (res?.item) {
+        const item = res.item;
+        setLanguagePdfPages((prev) => [
+          ...prev,
+          {
+            id: item.id,
+            language_id: item.language_id ?? languageId,
+            title: item.title || input.title,
+            pdf_url: item.pdf_url || input.pdfUrl,
+            page_number: item.page_number ?? input.pageNumber ?? null,
+            done: !!item.done,
+            done_at: item.done_at ?? null,
+            original_name: item.original_name ?? input.originalName ?? null,
+          },
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
+      throw err;
+    }
+  };
+
+  const togglePdfLinkDone = async (link: LanguagePdfPage) => {
+    try {
+      const res = await api.patch(`/api/life/language-pdf-pages/${link.id}`, {
+        done: !link.done,
+      });
+      if (res?.item) {
+        setLanguagePdfPages((prev) =>
+          prev.map((item) =>
+            item.id === link.id
+              ? {
+                  id: res.item.id,
+                  language_id: res.item.language_id ?? link.language_id,
+                  title: res.item.title ?? link.title,
+                  pdf_url: res.item.pdf_url ?? link.pdf_url,
+                  page_number: res.item.page_number ?? link.page_number ?? null,
+                  done: !!res.item.done,
+                  done_at: res.item.done_at ?? null,
+                  original_name: res.item.original_name ?? link.original_name ?? null,
+                }
+              : item,
+          ),
+        );
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const removePdfLink = async (link: LanguagePdfPage) => {
+    if (!confirm("Удалить PDF материал?")) return;
+    try {
+      await api.del(`/api/life/language-pdf-pages/${link.id}`);
+      setLanguagePdfPages((prev) => prev.filter((item) => item.id !== link.id));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const submitPdfAttachment = async () => {
+    if (!pickerLanguage || pdfForm.uploading) return;
+    const trimmedUrl = pdfForm.url.trim();
+    if (!pdfForm.file && !trimmedUrl) {
+      setPdfForm((prev) => ({ ...prev, error: "Загрузите файл или укажите ссылку" }));
+      return;
+    }
+    let pageNumber: number | null = null;
+    if (pdfForm.page.trim()) {
+      const parsed = Number.parseInt(pdfForm.page.trim(), 10);
+      if (Number.isNaN(parsed) || parsed <= 0) {
+        setPdfForm((prev) => ({ ...prev, error: "Неверный номер страницы" }));
+        return;
+      }
+      pageNumber = parsed;
+    }
+
+    setPdfForm((prev) => ({ ...prev, uploading: true, error: null }));
+
+    try {
+      let pdfUrl = trimmedUrl;
+      let originalName = pdfForm.originalName;
+
+      if (pdfForm.file) {
+        const formData = new FormData();
+        formData.append("file", pdfForm.file);
+        const upload = await api.post("/api/life/uploads/pdf", formData, { silentSuccess: true });
+        pdfUrl = upload?.url;
+        originalName = upload?.original_name ?? pdfForm.file.name;
+      }
+
+      if (!pdfUrl) throw new Error("Не удалось получить ссылку на PDF");
+
+      const title = pdfForm.title.trim() || originalName || "PDF материал";
+
+      await handleAttachPdf(pickerLanguage.id, {
+        title,
+        pdfUrl,
+        pageNumber,
+        originalName,
+      });
+
+      setPdfForm({ title: "", page: "", url: "", file: null, uploading: false, error: null, originalName: null });
+    } catch (err: any) {
+      setPdfForm((prev) => ({
+        ...prev,
+        uploading: false,
+        error: err?.message || "Не удалось добавить PDF",
+      }));
+    }
+  };
+
   const pickerLanguage =
     pickerLanguageId != null
       ? items.find((l) => l.id === pickerLanguageId) || null
@@ -270,6 +442,12 @@ export default function Languages() {
   const pickerAttachments = pickerLanguage
     ? languagePageMap.get(pickerLanguage.id) || []
     : [];
+
+  useEffect(() => {
+    if (!pickerLanguage) {
+      setPdfForm({ title: "", page: "", url: "", file: null, uploading: false, error: null, originalName: null });
+    }
+  }, [pickerLanguage]);
 
   const streak =
     items.filter((lang) => (lang.minutes_today || 0) > 0).length > 0 ? 1 : 0;
@@ -385,18 +563,40 @@ export default function Languages() {
                     <div className="space-y-2">
                       {attachments.map((link) => (
                         <div
-                          key={link.id}
+                          key={`${link.kind}-${link.id}`}
                           className="flex items-center gap-3 rounded border border-white/10 bg-white/0 px-3 py-2 transition hover:bg-white/5"
                         >
-                          <Link
-                            to={`/pages/${link.page_id}`}
-                            className="flex-1 min-w-0 truncate text-sm hover:underline"
-                          >
-                            {link.page_title}
-                          </Link>
+                          {link.kind === "page" ? (
+                            <Link
+                              to={`/pages/${link.page_id}`}
+                              className="flex-1 min-w-0 truncate text-sm hover:underline"
+                            >
+                              {link.page_title}
+                            </Link>
+                          ) : (
+                            <div className="flex-1 min-w-0 text-sm">
+                              <a
+                                href={`${link.pdf_url}${link.page_number ? `#page=${link.page_number}` : ""}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-2 hover:underline"
+                              >
+                                <FileText className="h-4 w-4" />
+                                <span className="truncate">{link.title}</span>
+                                <ExternalLink className="h-3 w-3 opacity-60" />
+                              </a>
+                              {link.page_number != null && (
+                                <div className="text-xs opacity-60">Страница {link.page_number}</div>
+                              )}
+                            </div>
+                          )}
                           <button
                             type="button"
-                            onClick={() => toggleLinkDone(link)}
+                            onClick={() =>
+                              link.kind === "page"
+                                ? togglePageLinkDone(link)
+                                : togglePdfLinkDone(link)
+                            }
                             className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-white/0 text-white/80 transition hover:bg-white/10"
                             title={link.done ? "Снять отметку" : "Отметить пройденной"}
                             aria-label={link.done ? "Снять отметку" : "Отметить пройденной"}
@@ -409,7 +609,9 @@ export default function Languages() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => removeLink(link)}
+                            onClick={() =>
+                              link.kind === "page" ? removePageLink(link) : removePdfLink(link)
+                            }
                             className="flex h-8 w-8 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 text-red-200 transition hover:bg-red-500/20"
                             title="Удалить"
                             aria-label="Удалить"
@@ -625,10 +827,83 @@ export default function Languages() {
               placeholder="Поиск по страницам..."
               onSelectPage={(page) => {
                 if (!pickerLanguage) return;
-                if (pickerAttachments.some((link) => link.page_id === page.id)) return;
+                if (pickerAttachments.some((link) => link.kind === "page" && link.page_id === page.id)) return;
                 handleAttachPage(pickerLanguage.id, page.id);
               }}
             />
+
+            <div className="mt-4 space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
+              <div className="text-sm font-medium">Добавить страницу из PDF</div>
+              <div className="text-xs opacity-70">
+                Загрузите файл в формате PDF или укажите прямую ссылку. Можно добавить название и номер страницы.
+              </div>
+              {pdfForm.error && <div className="text-xs text-red-300">{pdfForm.error}</div>}
+              <div className="space-y-2">
+                <input
+                  value={pdfForm.title}
+                  onChange={(event) => setPdfForm((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder="Название материала"
+                  className="w-full px-3 py-2 rounded bg-white/10 text-sm"
+                />
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <label className="flex-1 px-3 py-2 rounded bg-white/10 text-sm cursor-pointer flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      {pdfForm.file ? `Выбран файл: ${pdfForm.file.name}` : 'Выбрать PDF файл'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      className="hidden"
+                      disabled={pdfForm.uploading}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] || null;
+                        setPdfForm((prev) => ({
+                          ...prev,
+                          file,
+                          originalName: file ? file.name : prev.originalName,
+                          error: null,
+                        }));
+                        if (event.target) event.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <input
+                    value={pdfForm.url}
+                    onChange={(event) => setPdfForm((prev) => ({ ...prev, url: event.target.value }))}
+                    placeholder="Ссылка на PDF (опционально)"
+                    className="flex-1 px-3 py-2 rounded bg-white/10 text-sm"
+                    disabled={pdfForm.uploading}
+                  />
+                </div>
+                <input
+                  value={pdfForm.page}
+                  onChange={(event) => setPdfForm((prev) => ({ ...prev, page: event.target.value }))}
+                  placeholder="Номер страницы (опционально)"
+                  className="w-full px-3 py-2 rounded bg-white/10 text-sm"
+                  disabled={pdfForm.uploading}
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={submitPdfAttachment}
+                  disabled={pdfForm.uploading}
+                  className="px-3 py-2 rounded bg-emerald-500/20 hover:bg-emerald-500/30 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+                >
+                  {pdfForm.uploading ? "Добавление…" : "Добавить PDF"}
+                </button>
+                {pdfForm.file && (
+                  <button
+                    type="button"
+                    onClick={() => setPdfForm((prev) => ({ ...prev, file: null, originalName: null }))}
+                    className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                    disabled={pdfForm.uploading}
+                  >
+                    Очистить файл
+                  </button>
+                )}
+              </div>
+            </div>
 
             {pickerAttachments.length > 0 && (
               <div className="space-y-2">
@@ -639,21 +914,46 @@ export default function Languages() {
                       key={link.id}
                       className="flex items-center justify-between gap-3 px-3 py-2 rounded border border-white/10 bg-white/5"
                     >
-                      <div className="flex-1 min-w-0 text-sm truncate">
-                        {link.page_title}
-                      </div>
-                      <button
-                        onClick={() => toggleLinkDone(link)}
-                        className={`text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20`}
-                      >
-                        {link.done ? "Снять отметку" : "Отметить пройденной"}
-                      </button>
-                      <button
-                        onClick={() => removeLink(link)}
-                        className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
-                      >
-                        Удалить
-                      </button>
+                      {link.kind === "page" ? (
+                        <>
+                          <div className="flex-1 min-w-0 text-sm truncate">
+                            {link.page_title}
+                          </div>
+                          <button
+                            onClick={() => togglePageLinkDone(link)}
+                            className={`text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20`}
+                          >
+                            {link.done ? "Снять отметку" : "Отметить пройденной"}
+                          </button>
+                          <button
+                            onClick={() => removePageLink(link)}
+                            className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
+                          >
+                            Удалить
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex-1 min-w-0 text-sm truncate">
+                            {link.title}
+                            {link.page_number != null && (
+                              <span className="ml-2 text-xs opacity-60">Стр. {link.page_number}</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => togglePdfLinkDone(link)}
+                            className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                          >
+                            {link.done ? "Снять отметку" : "Отметить пройденной"}
+                          </button>
+                          <button
+                            onClick={() => removePdfLink(link)}
+                            className="text-xs px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40"
+                          >
+                            Удалить
+                          </button>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
