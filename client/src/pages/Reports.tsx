@@ -50,10 +50,10 @@ const ReportHistoryCard = ({ report, onOpen }: { report: ReportData; onOpen: (re
         <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
           <div className="text-xs uppercase tracking-wide text-white/50">Языки</div>
           <div className="font-semibold text-white mt-1">
-            {formatNumber(report.sections.languages.summary.current)} материалов
+            {formatNumber(report.sections.languages.summary.current)} курсов
           </div>
           <div className="text-xs text-white/50">
-            {formatSigned(report.sections.languages.summary.difference)} vs прошлый период
+            {formatSigned(report.sections.languages.summary.difference)} курсов vs прошлый период
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">

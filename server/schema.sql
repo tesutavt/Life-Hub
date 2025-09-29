@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS language_pages(
   UNIQUE(user_id, language_id, page_id)
 );
 
+CREATE TABLE IF NOT EXISTS language_pdf_pages(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  language_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  pdf_url TEXT NOT NULL,
+  page_number INTEGER,
+  done INTEGER DEFAULT 0,
+  done_at TEXT,
+  original_name TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(language_id) REFERENCES languages(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS courses(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
@@ -112,6 +127,35 @@ CREATE TABLE IF NOT EXISTS courses(
   progress INTEGER DEFAULT 0,
   status TEXT DEFAULT 'in-progress',
   archived_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS course_pages(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  course_id INTEGER NOT NULL,
+  page_id INTEGER NOT NULL,
+  done INTEGER DEFAULT 0,
+  done_at TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE,
+  FOREIGN KEY(page_id) REFERENCES journal_pages(id) ON DELETE CASCADE,
+  UNIQUE(user_id, course_id, page_id)
+);
+
+CREATE TABLE IF NOT EXISTS course_pdf_pages(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  course_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  pdf_url TEXT NOT NULL,
+  page_number INTEGER,
+  done INTEGER DEFAULT 0,
+  done_at TEXT,
+  original_name TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS yearly_goals(

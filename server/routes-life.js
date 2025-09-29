@@ -177,6 +177,24 @@ const mapLanguagePage = (row) => ({
   page_title: row.page_title || 'Untitled page'
 });
 
+const COURSE_PAGE_SELECT = `
+SELECT cp.id, cp.course_id, cp.page_id, cp.done, cp.done_at, cp.created_at,
+       COALESCE(jp.title, 'Untitled page') AS page_title
+FROM course_pages cp
+LEFT JOIN journal_pages jp ON jp.id = cp.page_id
+WHERE cp.user_id=?`;
+
+const coursePageQuery = (tail = '') => `${COURSE_PAGE_SELECT}${tail}`;
+
+const mapCoursePage = (row) => ({
+  id: row.id,
+  course_id: row.course_id,
+  page_id: row.page_id,
+  done: !!row.done,
+  done_at: row.done_at,
+  page_title: row.page_title || 'Untitled page'
+});
+
 const mapLanguagePdfPage = (row) => ({
   id: row.id,
   language_id: row.language_id,
@@ -187,6 +205,98 @@ const mapLanguagePdfPage = (row) => ({
   done_at: row.done_at,
   original_name: row.original_name || null
 });
+
+const mapCoursePdfPage = (row) => ({
+  id: row.id,
+  course_id: row.course_id,
+  title: row.title,
+  pdf_url: row.pdf_url,
+  page_number: row.page_number,
+  done: !!row.done,
+  done_at: row.done_at,
+  original_name: row.original_name || null
+});
+
+const mapCourseRow = (row, tags = []) => ({
+  id: row.id,
+  title: row.title,
+  provider: row.provider,
+  course_type: row.course_type,
+  language_id: row.language_id,
+  progress: row.progress ?? 0,
+  status: row.status || 'in-progress',
+  archived_at: row.archived_at,
+  tags
+});
+
+const normalizeCourseProgress = (value) => {
+  if (!Number.isFinite(Number(value))) return 0;
+  const rounded = Math.round(Number(value));
+  if (rounded < 0) return 0;
+  if (rounded > 100) return 100;
+  return rounded;
+};
+
+async function logCourseProgress(db, userId, courseId, progress) {
+  const normalized = normalizeCourseProgress(progress);
+  const last = await db.get(
+    'SELECT progress FROM course_progress_logs WHERE user_id=? AND course_id=? ORDER BY logged_at DESC LIMIT 1',
+    [userId, courseId]
+  );
+  if (last && normalizeCourseProgress(last.progress) === normalized) {
+    return;
+  }
+  await db.run(
+    'INSERT INTO course_progress_logs(user_id, course_id, progress, logged_at) VALUES(?,?,?,?)',
+    [userId, courseId, normalized, new Date().toISOString()]
+  );
+}
+
+async function recomputeCourseProgress(db, userId, courseId) {
+  const course = await db.get('SELECT id, progress, status FROM courses WHERE id=? AND user_id=?', [courseId, userId]);
+  if (!course) return null;
+
+  const pageStats = await db.get(
+    'SELECT COUNT(*) AS total, SUM(done) AS completed FROM course_pages WHERE user_id=? AND course_id=?',
+    [userId, courseId]
+  );
+  const pdfStats = await db.get(
+    'SELECT COUNT(*) AS total, SUM(done) AS completed FROM course_pdf_pages WHERE user_id=? AND course_id=?',
+    [userId, courseId]
+  );
+
+  const total = Number(pageStats?.total || 0) + Number(pdfStats?.total || 0);
+  const completed = Number(pageStats?.completed || 0) + Number(pdfStats?.completed || 0);
+  const normalized = normalizeCourseProgress(total > 0 ? Math.round((completed * 100) / total) : 0);
+  const currentProgress = normalizeCourseProgress(course.progress);
+  const desiredStatus = normalized >= 100 ? 'done' : 'in-progress';
+  const currentStatus = course.status || 'in-progress';
+
+  const updates = [];
+  const values = [];
+  let progressChanged = false;
+
+  if (normalized !== currentProgress) {
+    updates.push('progress=?');
+    values.push(normalized);
+    progressChanged = true;
+  }
+
+  if (desiredStatus !== currentStatus) {
+    updates.push('status=?');
+    values.push(desiredStatus);
+  }
+
+  if (updates.length) {
+    await db.run(`UPDATE courses SET ${updates.join(', ')} WHERE id=? AND user_id=?`, [...values, courseId, userId]);
+  }
+
+  if (progressChanged) {
+    await logCourseProgress(db, userId, courseId, normalized);
+  }
+
+  return { total, completed, progress: normalized, status: desiredStatus };
+}
 
 const HABIT_MILESTONES = [1, 10, 25, 50, 100, 200];
 const LANGUAGE_MILESTONES = [25, 50, 75, 100];
@@ -1273,10 +1383,44 @@ languagesRouter.get('/', async (req, res) => {
   const rows = await db.all('SELECT id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at FROM languages WHERE user_id=? ORDER BY name COLLATE NOCASE', [req.user.uid]);
   const ids = rows.map((row) => row.id);
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, ids);
+  const courseRows = await db.all(
+    'SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE user_id=?',
+    [req.user.uid]
+  );
+  const courseTagMap = await fetchTagLinks(
+    db,
+    req.user.uid,
+    TAG_ENTITY_TYPES.COURSE,
+    courseRows.map((course) => course.id)
+  );
+  const coursesByLanguage = new Map();
+  for (const courseRow of courseRows) {
+    if (courseRow.archived_at) continue;
+    if (courseRow.language_id == null) continue;
+    const mappedCourse = mapCourseRow(courseRow, courseTagMap.get(courseRow.id) || []);
+    if (!coursesByLanguage.has(courseRow.language_id)) {
+      coursesByLanguage.set(courseRow.language_id, []);
+    }
+    coursesByLanguage.get(courseRow.language_id).push(mappedCourse);
+  }
+  for (const courseList of coursesByLanguage.values()) {
+    courseList.sort((a, b) => a.title.localeCompare(b.title));
+  }
   const active = [];
   const archived = [];
   for (const row of rows) {
-    const mapped = mapLanguageRow(row, tagMap.get(row.id) || []);
+    const base = mapLanguageRow(row, tagMap.get(row.id) || []);
+    const courseList = coursesByLanguage.get(row.id) || [];
+    const totalCourses = courseList.length;
+    const completedCourses = courseList.filter((course) => normalizeCourseProgress(course.progress) >= 100).length;
+    const courseProgressPct = totalCourses > 0 ? Math.round((completedCourses * 100) / totalCourses) : 0;
+    const mapped = {
+      ...base,
+      courses: courseList,
+      courses_total: totalCourses,
+      courses_completed: completedCourses,
+      courses_progress_pct: courseProgressPct
+    };
     if (mapped.archived_at || mapped.status === 'archived') archived.push(mapped); else active.push(mapped);
   }
   res.json({ items: active, archived });
@@ -1351,41 +1495,6 @@ languagesRouter.post('/:id/restore', async (req, res) => {
   if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
   res.json({ success: true });
 });
-
-const mapCourseRow = (row, tags = []) => ({
-  id: row.id,
-  title: row.title,
-  provider: row.provider,
-  course_type: row.course_type,
-  language_id: row.language_id,
-  progress: row.progress ?? 0,
-  status: row.status || 'in-progress',
-  archived_at: row.archived_at,
-  tags
-});
-
-const normalizeCourseProgress = (value) => {
-  if (!Number.isFinite(Number(value))) return 0;
-  const rounded = Math.round(Number(value));
-  if (rounded < 0) return 0;
-  if (rounded > 100) return 100;
-  return rounded;
-};
-
-async function logCourseProgress(db, userId, courseId, progress) {
-  const normalized = normalizeCourseProgress(progress);
-  const last = await db.get(
-    'SELECT progress FROM course_progress_logs WHERE user_id=? AND course_id=? ORDER BY logged_at DESC LIMIT 1',
-    [userId, courseId]
-  );
-  if (last && normalizeCourseProgress(last.progress) === normalized) {
-    return;
-  }
-  await db.run(
-    'INSERT INTO course_progress_logs(user_id, course_id, progress, logged_at) VALUES(?,?,?,?)',
-    [userId, courseId, normalized, new Date().toISOString()]
-  );
-}
 
 const coursesRouter = express.Router();
 
@@ -1669,6 +1778,194 @@ coursesRouter.post('/:id/restore', async (req, res) => {
   if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
   res.json({ success: true });
 });
+router.get('/course-pages', async (req, res) => {
+  const db = await getDB();
+  const rows = await db.all(coursePageQuery(' ORDER BY cp.created_at DESC, cp.id DESC'), [req.user.uid]);
+  res.json({ items: rows.map(mapCoursePage) });
+});
+
+router.post('/course-pages', async (req, res) => {
+  const db = await getDB();
+  const { course_id, page_id } = req.body || {};
+  const courseId = Number(course_id);
+  const pageId = Number(page_id);
+  if (!Number.isInteger(courseId) || !Number.isInteger(pageId) || courseId <= 0 || pageId <= 0) {
+    return res.status(400).json({ error: 'course_id_and_page_id_required' });
+  }
+  const course = await db.get('SELECT id FROM courses WHERE id=? AND user_id=?', [courseId, req.user.uid]);
+  if (!course) return res.status(404).json({ error: 'course_not_found' });
+  const page = await db.get('SELECT id FROM journal_pages WHERE id=? AND user_id=?', [pageId, req.user.uid]);
+  if (!page) return res.status(404).json({ error: 'page_not_found' });
+  let row = null;
+  try {
+    const result = await db.run(
+      'INSERT INTO course_pages(user_id, course_id, page_id, done, done_at, created_at) VALUES(?,?,?,?,?,?)',
+      [req.user.uid, courseId, pageId, 0, null, new Date().toISOString()]
+    );
+    row = await db.get(coursePageQuery(' AND cp.id=?'), [req.user.uid, result.lastID]);
+  } catch (err) {
+    const message = String(err || '');
+    if ((err && err.code === 'SQLITE_CONSTRAINT') || message.includes('UNIQUE constraint failed')) {
+      row = await db.get(coursePageQuery(' AND cp.course_id=? AND cp.page_id=?'), [req.user.uid, courseId, pageId]);
+    } else {
+      throw err;
+    }
+  }
+  if (!row) return res.status(500).json({ error: 'course_page_create_failed' });
+  await recomputeCourseProgress(db, req.user.uid, courseId);
+  res.json({ item: mapCoursePage(row) });
+});
+
+router.patch('/course-pages/:id', async (req, res) => {
+  const db = await getDB();
+  const targetId = Number(req.params.id);
+  if (!Number.isInteger(targetId) || targetId <= 0) return res.status(400).json({ error: 'invalid_id' });
+  if (req.body?.done === undefined) return res.status(400).json({ error: 'done_required' });
+  const done = !!req.body.done;
+  const doneAt = done ? new Date().toISOString() : null;
+  const result = await db.run('UPDATE course_pages SET done=?, done_at=? WHERE id=? AND user_id=?', [done ? 1 : 0, doneAt, targetId, req.user.uid]);
+  if (!result.changes) return res.status(404).json({ error: 'not_found' });
+  const row = await db.get(coursePageQuery(' AND cp.id=?'), [req.user.uid, targetId]);
+  if (row) {
+    await recomputeCourseProgress(db, req.user.uid, row.course_id);
+  }
+  res.json({ item: mapCoursePage(row) });
+});
+
+router.delete('/course-pages/:id', async (req, res) => {
+  const db = await getDB();
+  const targetId = Number(req.params.id);
+  if (!Number.isInteger(targetId) || targetId <= 0) return res.status(400).json({ error: 'invalid_id' });
+  const existing = await db.get('SELECT course_id FROM course_pages WHERE id=? AND user_id=?', [targetId, req.user.uid]);
+  const result = await db.run('DELETE FROM course_pages WHERE id=? AND user_id=?', [targetId, req.user.uid]);
+  if (!result.changes) return res.status(404).json({ error: 'not_found' });
+  if (existing) {
+    await recomputeCourseProgress(db, req.user.uid, existing.course_id);
+  }
+  res.json({ success: true });
+});
+
+router.get('/course-pdf-pages', async (req, res) => {
+  const db = await getDB();
+  const rows = await db.all(
+    'SELECT id, course_id, title, pdf_url, page_number, done, done_at, original_name FROM course_pdf_pages WHERE user_id=? ORDER BY created_at DESC',
+    [req.user.uid]
+  );
+  res.json({ items: rows.map(mapCoursePdfPage) });
+});
+
+router.post('/course-pdf-pages', async (req, res) => {
+  const db = await getDB();
+  const courseId = Number.parseInt(req.body?.course_id ?? req.body?.courseId, 10);
+  if (!Number.isInteger(courseId) || courseId <= 0) {
+    return res.status(400).json({ error: 'invalid_course' });
+  }
+
+  const course = await db.get('SELECT id FROM courses WHERE id=? AND user_id=?', [courseId, req.user.uid]);
+  if (!course) return res.status(404).json({ error: 'course_not_found' });
+
+  const pdfUrl = normalizePdfUrl(req.body?.pdf_url ?? req.body?.pdfUrl);
+  if (!pdfUrl) return res.status(400).json({ error: 'invalid_pdf_url' });
+
+  const title = sanitizeRequiredText(req.body?.title, 'PDF материал');
+  const originalName = sanitizeOptionalText(req.body?.original_name ?? req.body?.originalName, 255);
+  let pageNumber = null;
+  const rawPageNumber = req.body?.page_number ?? req.body?.pageNumber;
+  if (rawPageNumber !== undefined && rawPageNumber !== null && `${rawPageNumber}`.trim().length > 0) {
+    const parsed = Number.parseInt(rawPageNumber, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) pageNumber = parsed;
+  }
+
+  const result = await db.run(
+    'INSERT INTO course_pdf_pages(user_id, course_id, title, pdf_url, page_number, original_name) VALUES(?,?,?,?,?,?)',
+    [req.user.uid, courseId, title, pdfUrl, pageNumber, originalName]
+  );
+
+  const row = await db.get(
+    'SELECT id, course_id, title, pdf_url, page_number, done, done_at, original_name FROM course_pdf_pages WHERE id=? AND user_id=?',
+    [result.lastID, req.user.uid]
+  );
+
+  await recomputeCourseProgress(db, req.user.uid, courseId);
+
+  res.json({ item: mapCoursePdfPage(row) });
+});
+
+router.patch('/course-pdf-pages/:id', async (req, res) => {
+  const db = await getDB();
+  const entry = await db.get(
+    'SELECT id, course_id, title, pdf_url, page_number, done, done_at, original_name FROM course_pdf_pages WHERE id=? AND user_id=?',
+    [req.params.id, req.user.uid]
+  );
+  if (!entry) return res.status(404).json({ error: 'not_found' });
+
+  const updates = [];
+  const values = [];
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'title')) {
+    updates.push('title=?');
+    values.push(sanitizeRequiredText(req.body.title, entry.title));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'pdf_url') || Object.prototype.hasOwnProperty.call(req.body || {}, 'pdfUrl')) {
+    const newUrl = normalizePdfUrl(req.body?.pdf_url ?? req.body?.pdfUrl);
+    if (!newUrl) return res.status(400).json({ error: 'invalid_pdf_url' });
+    updates.push('pdf_url=?');
+    values.push(newUrl);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'page_number') || Object.prototype.hasOwnProperty.call(req.body || {}, 'pageNumber')) {
+    const rawPageNumber = req.body?.page_number ?? req.body?.pageNumber;
+    let pageNumber = null;
+    if (rawPageNumber !== undefined && rawPageNumber !== null && `${rawPageNumber}`.trim().length > 0) {
+      const parsed = Number.parseInt(rawPageNumber, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) pageNumber = parsed;
+    }
+    updates.push('page_number=?');
+    values.push(pageNumber);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'done')) {
+    const done = req.body.done ? 1 : 0;
+    updates.push('done=?', 'done_at=?');
+    values.push(done, done ? new Date().toISOString() : null);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'original_name') || Object.prototype.hasOwnProperty.call(req.body || {}, 'originalName')) {
+    updates.push('original_name=?');
+    values.push(sanitizeOptionalText(req.body?.original_name ?? req.body?.originalName, 255));
+  }
+
+  if (updates.length === 0) {
+    return res.json({ item: mapCoursePdfPage(entry) });
+  }
+
+  values.push(req.params.id, req.user.uid);
+  await db.run(`UPDATE course_pdf_pages SET ${updates.join(', ')} WHERE id=? AND user_id=?`, values);
+
+  const row = await db.get(
+    'SELECT id, course_id, title, pdf_url, page_number, done, done_at, original_name FROM course_pdf_pages WHERE id=? AND user_id=?',
+    [req.params.id, req.user.uid]
+  );
+
+  if (row) {
+    await recomputeCourseProgress(db, req.user.uid, row.course_id);
+  }
+
+  res.json({ item: mapCoursePdfPage(row) });
+});
+
+router.delete('/course-pdf-pages/:id', async (req, res) => {
+  const db = await getDB();
+  const existing = await db.get('SELECT course_id FROM course_pdf_pages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  const result = await db.run('DELETE FROM course_pdf_pages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  if (!result.changes) return res.status(404).json({ error: 'not_found' });
+  if (existing) {
+    await recomputeCourseProgress(db, req.user.uid, existing.course_id);
+  }
+  res.json({ success: true });
+});
+
 router.get('/language-pages', async (req, res) => {
   const db = await getDB();
   const rows = await db.all(languagePageQuery(' ORDER BY lp.created_at DESC, lp.id DESC'), [req.user.uid]);
@@ -2238,67 +2535,79 @@ const buildTimelineFromEvents = (buckets, events) =>
     };
   });
 
-const fetchLanguageActivity = async (db, userId, startIso, endIso) => {
-  const pageRows = await db.all(
-    'SELECT language_id, done_at FROM language_pages WHERE user_id=? AND done=1 AND done_at IS NOT NULL AND done_at>=? AND done_at<?',
-    [userId, startIso, endIso]
-  );
-  const pdfRows = await db.all(
-    'SELECT language_id, done_at FROM language_pdf_pages WHERE user_id=? AND done=1 AND done_at IS NOT NULL AND done_at>=? AND done_at<?',
-    [userId, startIso, endIso]
-  );
-  const counts = new Map();
-  for (const row of [...pageRows, ...pdfRows]) {
-    const id = row.language_id;
-    counts.set(id, (counts.get(id) || 0) + 1);
-  }
-  const events = [];
-  for (const row of [...pageRows, ...pdfRows]) {
-    const ts = parseTimestamp(row.done_at);
-    if (ts === null) continue;
-    events.push({ ts, value: 1 });
-  }
-  return { counts, events };
-};
-
 const buildLanguageSection = async (db, userId, context) => {
   const languages = await db.all(
     "SELECT id, name FROM languages WHERE user_id=? AND (archived_at IS NULL OR archived_at='') AND COALESCE(status,'active') <> 'archived' ORDER BY name COLLATE NOCASE",
     [userId]
   );
-  const { counts: currentCounts, events } = await fetchLanguageActivity(
-    db,
-    userId,
-    context.start.toISOString(),
-    context.endExclusive.toISOString()
+  const courseRows = await db.all(
+    'SELECT id, language_id, progress FROM courses WHERE user_id=? AND archived_at IS NULL',
+    [userId]
   );
-  const { counts: previousCounts } = await fetchLanguageActivity(
-    db,
-    userId,
-    context.previousStart.toISOString(),
-    context.previousEndExclusive.toISOString()
-  );
-  const { events: timelineEvents } = await fetchLanguageActivity(
-    db,
-    userId,
-    context.timelineStart.toISOString(),
-    context.timelineEndExclusive.toISOString()
-  );
+  const logsByCourse = await prepareCourseLogs(db, userId, context.timelineEndExclusive);
+
+  const currentCounts = new Map();
+  const previousCounts = new Map();
+  const totalsByLanguage = new Map();
+  const timelineEvents = [];
+
+  const startMs = context.start.getTime();
+  const endMs = context.endExclusive.getTime();
+  const previousStartMs = context.previousStart.getTime();
+  const previousEndMs = context.previousEndExclusive.getTime();
+  const timelineStartMs = context.timelineStart.getTime();
+  const timelineEndMs = context.timelineEndExclusive.getTime();
+
+  for (const course of courseRows) {
+    const languageId = course.language_id;
+    if (!languageId) continue;
+    const normalizedProgress = normalizeCourseProgress(course.progress);
+    const totals = totalsByLanguage.get(languageId) || { total: 0, completed: 0 };
+    totals.total += 1;
+    if (normalizedProgress >= 100) totals.completed += 1;
+    totalsByLanguage.set(languageId, totals);
+
+    const logs = logsByCourse.get(course.id) || [];
+    let previousProgress = 0;
+    for (const entry of logs) {
+      if (entry.progress >= 100 && previousProgress < 100) {
+        const ts = entry.ts;
+        if (ts >= startMs && ts < endMs) {
+          currentCounts.set(languageId, (currentCounts.get(languageId) || 0) + 1);
+        }
+        if (ts >= previousStartMs && ts < previousEndMs) {
+          previousCounts.set(languageId, (previousCounts.get(languageId) || 0) + 1);
+        }
+        if (ts >= timelineStartMs && ts < timelineEndMs) {
+          timelineEvents.push({ ts, value: 1 });
+        }
+      }
+      previousProgress = entry.progress;
+    }
+  }
 
   const itemsRaw = languages.map((language) => {
     const current = currentCounts.get(language.id) || 0;
     const previous = previousCounts.get(language.id) || 0;
     const difference = current - previous;
     const trend = determineTrend(current, previous);
+    const totals = totalsByLanguage.get(language.id) || { total: 0, completed: 0 };
+    const pct = totals.total > 0 ? Math.round((totals.completed * 100) / totals.total) : 0;
     let message = '';
-    if (difference > 0) {
-      message = `Прогресс улучшился на ${formatNumber(difference)} материалов.`;
-    } else if (difference < 0) {
-      message = `На ${formatNumber(Math.abs(difference))} материалов меньше, чем в прошлом периоде.`;
-    } else if (current === 0) {
-      message = 'Новых материалов не добавлено.';
+    if (current > 0) {
+      if (totals.total > 0) {
+        message = `Завершено ${formatNumber(current)} курсов; всего выполнено ${formatNumber(totals.completed)} из ${formatNumber(totals.total)} (${formatNumber(pct)}%).`;
+      } else {
+        message = `Завершено ${formatNumber(current)} курсов.`;
+      }
+    } else if (totals.total > 0) {
+      if (totals.completed > 0) {
+        message = `Без новых завершений; всего выполнено ${formatNumber(totals.completed)} из ${formatNumber(totals.total)} (${formatNumber(pct)}%).`;
+      } else {
+        message = `Курсы не завершались; запланировано ${formatNumber(totals.total)} курсов.`;
+      }
     } else {
-      message = 'Прогресс на уровне прошлого периода.';
+      message = 'Нет закреплённых курсов.';
     }
     return {
       id: language.id,
@@ -2307,50 +2616,61 @@ const buildLanguageSection = async (db, userId, context) => {
       previous,
       difference,
       trend,
+      total: pct,
       message
     };
   });
 
   const filteredItems = itemsRaw
     .filter((item) => item.current > 0 || item.previous > 0)
-    .sort((a, b) => b.current - a.current || b.difference - a.difference || a.name.localeCompare(b.name));
+    .sort((a, b) => b.current - a.current || b.total - a.total || a.name.localeCompare(b.name));
 
   const items = filteredItems.slice(0, 8);
 
   const totalCurrent = itemsRaw.reduce((acc, item) => acc + item.current, 0);
   const totalPrevious = itemsRaw.reduce((acc, item) => acc + item.previous, 0);
   const difference = totalCurrent - totalPrevious;
+  const totalCoursesOverall = courseRows.filter((course) => course.language_id).length;
+
   let summaryMessage = '';
-  if (totalCurrent === 0 && totalPrevious === 0) {
-    summaryMessage = 'Новых материалов не изучено.';
+  if (totalCoursesOverall === 0) {
+    summaryMessage = 'Закреплённых курсов по языкам нет.';
+  } else if (totalCurrent === 0 && totalPrevious === 0) {
+    summaryMessage = 'Курсы не завершались в текущем и прошлом периодах.';
+  } else if (totalCurrent === 0) {
+    summaryMessage = `Завершённых курсов нет (на ${formatNumber(totalPrevious)} меньше, чем ранее).`;
   } else if (difference > 0) {
-    summaryMessage = `Всего добавлено ${formatNumber(totalCurrent)} материалов (+${formatNumber(difference)} к прошлому периоду).`;
+    summaryMessage = `Завершено ${formatNumber(totalCurrent)} курсов (+${formatNumber(difference)} к прошлому периоду).`;
   } else if (difference < 0) {
-    summaryMessage = `Изучено ${formatNumber(totalCurrent)} материалов (на ${formatNumber(Math.abs(difference))} меньше, чем ранее).`;
+    summaryMessage = `Завершено ${formatNumber(totalCurrent)} курсов (на ${formatNumber(Math.abs(difference))} меньше, чем ранее).`;
   } else {
-    summaryMessage = `Изучено ${formatNumber(totalCurrent)} материалов — на уровне прошлого периода.`;
+    summaryMessage = `Завершено ${formatNumber(totalCurrent)} курсов — на уровне прошлого периода.`;
   }
 
-  const noProgress = itemsRaw.filter((item) => item.current === 0).map((item) => item.name);
   const improved = itemsRaw
-    .filter((item) => item.difference > 0)
-    .sort((a, b) => b.difference - a.difference);
-  const declined = itemsRaw
-    .filter((item) => item.difference < 0)
-    .sort((a, b) => a.difference - b.difference);
+    .filter((item) => item.current > 0)
+    .sort((a, b) => b.current - a.current || b.total - a.total);
+  const unfinished = itemsRaw.filter((item) => {
+    const totals = totalsByLanguage.get(item.id) || { total: 0, completed: 0 };
+    return totals.total > 0 && totals.completed < totals.total && item.current === 0;
+  });
+  const fullyCompleted = itemsRaw.filter((item) => {
+    const totals = totalsByLanguage.get(item.id) || { total: 0, completed: 0 };
+    return totals.total > 0 && totals.completed === totals.total;
+  });
 
   const insights = [];
   if (improved.length) {
     const top = improved[0];
-    insights.push(`Лучший прогресс: ${top.name} (+${formatNumber(top.difference)} материалов).`);
+    insights.push(`Больше всего завершений по языку «${top.name}»: ${formatNumber(top.current)}.`);
   }
-  if (declined.length) {
-    const worst = declined[0];
-    insights.push(`Проседание в языке ${worst.name}: −${formatNumber(Math.abs(worst.difference))} материалов.`);
+  if (unfinished.length) {
+    const listed = unfinished.map((item) => item.name).slice(0, 3).join(', ');
+    insights.push(`Без завершений в этом периоде: ${listed}${unfinished.length > 3 ? ' и другие' : ''}.`);
   }
-  if (noProgress.length) {
-    const listed = noProgress.slice(0, 3).join(', ');
-    insights.push(`Без прогресса: ${listed}${noProgress.length > 3 ? ' и другие' : ''}.`);
+  if (fullyCompleted.length) {
+    const listed = fullyCompleted.map((item) => item.name).slice(0, 3).join(', ');
+    insights.push(`Курсы полностью закрыты по: ${listed}${fullyCompleted.length > 3 ? ' и другие' : ''}.`);
   }
 
   const timeline = buildTimelineFromEvents(context.timelineBuckets, timelineEvents);
@@ -2358,8 +2678,8 @@ const buildLanguageSection = async (db, userId, context) => {
   return {
     key: 'languages',
     title: 'Языки',
-    subtitle: 'Учебные материалы и PDF',
-    unit: 'материалов',
+    subtitle: 'Завершённые курсы',
+    unit: 'курсов',
     summary: {
       current: totalCurrent,
       previous: totalPrevious,

@@ -24,7 +24,6 @@ type FormState = {
   provider: string;
   course_type: CourseType;
   language_id: number | null;
-  progress: number;
 };
 
 const INITIAL_FORM: FormState = {
@@ -32,7 +31,6 @@ const INITIAL_FORM: FormState = {
   provider: "",
   course_type: COURSE_TYPES[0].value,
   language_id: null,
-  progress: 0,
 };
 
 export default function CourseMaster({ tagOptions, languages, onCreated }: CourseMasterProps) {
@@ -126,18 +124,8 @@ export default function CourseMaster({ tagOptions, languages, onCreated }: Cours
               </select>
             </div>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs uppercase tracking-wide text-white/60">Прогресс, %</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={form.progress}
-              onChange={(event) =>
-                setForm({ ...form, progress: Math.min(100, Math.max(0, Number(event.target.value) || 0)) })
-              }
-              className="px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-white/40 outline-none transition"
-            />
+          <div className="text-xs text-white/60">
+            Прогресс курса будет рассчитываться автоматически после добавления материалов.
           </div>
           <TagSelector
             tags={tagOptions}
