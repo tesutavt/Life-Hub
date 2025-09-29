@@ -209,6 +209,43 @@ async function runMigrations(database) {
     'CREATE INDEX IF NOT EXISTS idx_language_pdf_pages_user ON language_pdf_pages(user_id, language_id, done)'
   );
 
+  await database.exec(
+    'CREATE TABLE IF NOT EXISTS course_pages (' +
+      'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+      'user_id INTEGER NOT NULL, ' +
+      'course_id INTEGER NOT NULL, ' +
+      'page_id INTEGER NOT NULL, ' +
+      'done INTEGER DEFAULT 0, ' +
+      'done_at TEXT, ' +
+      'created_at TEXT DEFAULT CURRENT_TIMESTAMP, ' +
+      'UNIQUE(user_id, course_id, page_id), ' +
+      'FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, ' +
+      'FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE, ' +
+      'FOREIGN KEY(page_id) REFERENCES journal_pages(id) ON DELETE CASCADE' +
+    ')'
+  );
+
+  await database.exec(
+    'CREATE TABLE IF NOT EXISTS course_pdf_pages (' +
+      'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+      'user_id INTEGER NOT NULL, ' +
+      'course_id INTEGER NOT NULL, ' +
+      'title TEXT NOT NULL, ' +
+      'pdf_url TEXT NOT NULL, ' +
+      'page_number INTEGER, ' +
+      'done INTEGER DEFAULT 0, ' +
+      'done_at TEXT, ' +
+      'original_name TEXT, ' +
+      'created_at TEXT DEFAULT CURRENT_TIMESTAMP, ' +
+      'FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, ' +
+      'FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE CASCADE' +
+    ')'
+  );
+
+  await database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_course_pdf_pages_user ON course_pdf_pages(user_id, course_id, done)'
+  );
+
   await database.exec("CREATE TABLE IF NOT EXISTS yearly_goal_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, goal_id INTEGER NOT NULL, date TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, goal_id, date), FOREIGN KEY(goal_id) REFERENCES yearly_goals(id) ON DELETE CASCADE, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
 
   await database.exec('CREATE TABLE IF NOT EXISTS habit_checks (user_id INTEGER NOT NULL, habit_id INTEGER NOT NULL, date TEXT NOT NULL, PRIMARY KEY(user_id, habit_id, date), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE CASCADE)');
