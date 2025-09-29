@@ -94,6 +94,16 @@ const resolveMediaUrl = (value: string | null | undefined) => {
   return resolveApiUrl(value);
 };
 
+const pickFirstString = (...values: any[]): string | null => {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) continue;
+    return trimmed;
+  }
+  return null;
+};
+
 const mapProfileLanguage = (entry: any, index: number): ProfileLanguage => ({
   id: entry.id ?? entry.language_id ?? entry.slug ?? `${entry.name ?? 'language'}_${index}`,
   name: entry.name ?? 'Неизвестный язык',
@@ -545,6 +555,45 @@ const resolvePageVisual = (entry: any): PageVisual | null => {
 };
 
 const getPagePreviewStyle = (entry: any): React.CSSProperties | null => {
+  const directBanner = pickFirstString(
+    entry?.page_banner_url,
+    entry?.pageBannerUrl,
+    entry?.linked_page?.banner_url,
+    entry?.linked_page?.bannerUrl,
+    entry?.linkedPage?.banner_url,
+    entry?.linkedPage?.bannerUrl,
+    entry?.page_visual?.banner_url,
+    entry?.page_visual?.bannerUrl,
+    entry?.meta?.page_banner_url,
+    entry?.meta?.page_bannerUrl
+  );
+  const resolvedDirectBanner = resolveMediaUrl(directBanner);
+  if (resolvedDirectBanner) {
+    return {
+      backgroundImage: `url(${resolvedDirectBanner})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center'
+    };
+  }
+
+  const directGradient = pickFirstString(
+    entry?.page_banner_gradient,
+    entry?.pageBannerGradient,
+    entry?.linked_page?.banner_gradient,
+    entry?.linked_page?.bannerGradient,
+    entry?.linkedPage?.banner_gradient,
+    entry?.linkedPage?.bannerGradient,
+    entry?.page_visual?.banner_gradient,
+    entry?.page_visual?.bannerGradient,
+    entry?.meta?.page_banner_gradient,
+    entry?.meta?.page_bannerGradient
+  );
+  if (directGradient) {
+    return {
+      backgroundImage: directGradient
+    };
+  }
+
   const visual = resolvePageVisual(entry);
   if (!visual) return null;
 
@@ -822,7 +871,7 @@ export default function ProfileFull() {
 
       {/* ---------- Лента дневника ---------- */}
       <div className="card mt-6">
-        <div className="font-medium mb-2">Последние записи</div>
+        <div className="font-medium mb-2">Последние события</div>
         {visibleJournal.length > 0 ? (
           <div className="space-y-3">
             {visibleJournal.map((j: any) => {
