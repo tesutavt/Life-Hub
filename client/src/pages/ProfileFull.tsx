@@ -149,26 +149,395 @@ const PAGE_META_KEYS = [
   'pageMeta'
 ];
 
-const resolvePageLikeMeta = (entry: any): Record<string, any> | null => {
-  if (!entry || typeof entry !== 'object') return null;
+type PageVisual = {
+  bannerUrl: string | null;
+  bannerGradient: string | null;
+};
 
-  const directCandidate = entry.page ?? entry.page_info ?? entry.pageInfo;
-  if (directCandidate && typeof directCandidate === 'object') {
-    return directCandidate;
+const isLikelyJson = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return (
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    (trimmed.startsWith('[') && trimmed.endsWith(']'))
+  );
+};
+
+const safeParseJson = (value: string) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const buildGradientFromColors = (colors: string[], angle?: string | number | null) => {
+  if (colors.length < 2) return null;
+  let angleValue = '135deg';
+  if (typeof angle === 'number' && Number.isFinite(angle)) {
+    angleValue = `${angle}deg`;
+  } else if (typeof angle === 'string' && angle.trim()) {
+    angleValue = angle.trim();
+  }
+  return `linear-gradient(${angleValue}, ${colors.join(', ')})`;
+};
+
+const extractColorFromUnknown = (value: any): string | null => {
+  if (value == null) return null;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (isLikelyJson(trimmed)) {
+      const parsed = safeParseJson(trimmed);
+      return parsed ? extractColorFromUnknown(parsed) : null;
+    }
+    if (/gradient\s*\(/i.test(trimmed)) return null;
+    if (/^https?:\/\//i.test(trimmed)) return null;
+    if (trimmed.startsWith('url(')) return null;
+    return trimmed;
   }
 
-  const meta = entry.meta;
-  if (meta && typeof meta === 'object') {
-    for (const key of PAGE_META_KEYS) {
-      const candidate = (meta as any)[key];
-      if (candidate && typeof candidate === 'object') {
-        return candidate;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const color = extractColorFromUnknown(item);
+      if (color) return color;
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, any>;
+    if (typeof obj.color === 'string' && obj.color.trim()) return obj.color.trim();
+    if (typeof obj.value === 'string') {
+      const trimmed = obj.value.trim();
+      if (trimmed && !/gradient\s*\(/i.test(trimmed) && !/^https?:\/\//i.test(trimmed)) {
+        return trimmed;
+      }
+    }
+    if (typeof obj.hex === 'string' && obj.hex.trim()) return obj.hex.trim();
+    if (typeof obj.code === 'string' && obj.code.trim()) return obj.code.trim();
+    for (const nested of Object.values(obj)) {
+      const color = extractColorFromUnknown(nested);
+      if (color) return color;
+    }
+  }
+
+  return null;
+};
+
+const extractUrlFromUnknown = (value: any): string | null => {
+  if (value == null) return null;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (isLikelyJson(trimmed)) {
+      const parsed = safeParseJson(trimmed);
+      return parsed ? extractUrlFromUnknown(parsed) : null;
+    }
+    if (/gradient\s*\(/i.test(trimmed)) return null;
+    if (trimmed.startsWith('url(')) return null;
+    const looksLikeUrl =
+      /^https?:\/\//i.test(trimmed) ||
+      trimmed.startsWith('/') ||
+      trimmed.startsWith('data:image') ||
+      trimmed.startsWith('blob:') ||
+      trimmed.includes('/') ||
+      /\.(png|jpe?g|gif|webp|avif|svg)(\?|$)/i.test(trimmed);
+    if (looksLikeUrl) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = extractUrlFromUnknown(item);
+      if (url) return url;
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, any>;
+    const prioritizedKeys = [
+      'url',
+      'src',
+      'href',
+      'path',
+      'image',
+      'file',
+      'original',
+      'default',
+      'large',
+      'medium',
+      'small',
+      'value'
+    ];
+    for (const key of prioritizedKeys) {
+      if (key in obj) {
+        const candidate = extractUrlFromUnknown(obj[key]);
+        if (candidate) return candidate;
+      }
+    }
+    for (const nested of Object.values(obj)) {
+      const candidate = extractUrlFromUnknown(nested);
+      if (candidate) return candidate;
+    }
+  }
+
+  return null;
+};
+
+const extractGradientFromUnknown = (value: any): string | null => {
+  if (value == null) return null;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (isLikelyJson(trimmed)) {
+      const parsed = safeParseJson(trimmed);
+      return parsed ? extractGradientFromUnknown(parsed) : null;
+    }
+    if (/gradient\s*\(/i.test(trimmed)) return trimmed;
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    const colors: string[] = [];
+    for (const item of value) {
+      const gradient = extractGradientFromUnknown(item);
+      if (gradient) return gradient;
+      const color = extractColorFromUnknown(item);
+      if (color) colors.push(color);
+    }
+    if (colors.length >= 2) {
+      const built = buildGradientFromColors(colors);
+      if (built) return built;
+    }
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, any>;
+    if (typeof obj.css === 'string' && obj.css.trim()) {
+      const css = obj.css.trim();
+      if (/gradient\s*\(/i.test(css)) return css;
+    }
+    if (typeof obj.value === 'string' && obj.value.trim()) {
+      const val = obj.value.trim();
+      if (/gradient\s*\(/i.test(val)) return val;
+    }
+    const colors: string[] = [];
+    const collectColors = (input: any) => {
+      const color = extractColorFromUnknown(input);
+      if (color) colors.push(color);
+    };
+    collectColors(obj.from);
+    collectColors(obj.start);
+    collectColors(obj.begin);
+    if (Array.isArray(obj.colors)) {
+      for (const entry of obj.colors) collectColors(entry);
+    }
+    if (Array.isArray(obj.stops)) {
+      for (const stop of obj.stops) {
+        collectColors((stop as any)?.color ?? (stop as any)?.value ?? stop);
+      }
+    }
+    collectColors(obj.to);
+    collectColors(obj.end);
+    if (colors.length >= 2) {
+      const angleSource = obj.angle ?? obj.rotation ?? obj.deg ?? null;
+      const built = buildGradientFromColors(colors, angleSource as string | number | null | undefined);
+      if (built) return built;
+    }
+    for (const nested of Object.values(obj)) {
+      const gradient = extractGradientFromUnknown(nested);
+      if (gradient) return gradient;
+    }
+  }
+
+  return null;
+};
+
+const BANNER_SOURCE_KEYS = [
+  'banner_url',
+  'bannerUrl',
+  'banner',
+  'cover_url',
+  'coverUrl',
+  'cover',
+  'image_url',
+  'imageUrl',
+  'image',
+  'thumbnail_url',
+  'thumbnailUrl',
+  'thumbnail',
+  'preview_url',
+  'previewUrl',
+  'preview',
+  'hero',
+  'hero_image',
+  'heroImage',
+  'background_image',
+  'backgroundImage',
+  'background',
+  'media',
+  'assets',
+  'visual',
+  'visuals',
+  'header'
+];
+
+const GRADIENT_SOURCE_KEYS = [
+  'banner_gradient',
+  'bannerGradient',
+  'gradient',
+  'cover_gradient',
+  'coverGradient',
+  'background_gradient',
+  'backgroundGradient',
+  'background',
+  'appearance',
+  'style',
+  'theme',
+  'visual',
+  'visuals',
+  'media'
+];
+
+const collectPageMetaCandidates = (entry: any): Record<string, any>[] => {
+  const visited = new Set<any>();
+  const queue: any[] = [];
+  const result: Record<string, any>[] = [];
+
+  const push = (value: any) => {
+    if (!value || typeof value !== 'object') return;
+    if (visited.has(value)) return;
+    visited.add(value);
+    queue.push(value);
+  };
+
+  push(entry);
+  push(entry?.meta);
+  push(entry?.page);
+  push(entry?.page_info);
+  push(entry?.pageInfo);
+  push(entry?.page_data);
+  push(entry?.pageData);
+  push(entry?.page_meta);
+  push(entry?.pageMeta);
+  push(entry?.resource);
+  push(entry?.data);
+  push(entry?.payload);
+
+  const keysToFollow = new Set<string>([
+    ...PAGE_META_KEYS,
+    'meta',
+    'data',
+    'attributes',
+    'details',
+    'page',
+    'info',
+    'appearance',
+    'style',
+    'background',
+    'visual',
+    'visuals',
+    'media',
+    'asset',
+    'assets',
+    'content',
+    'config',
+    'options',
+    'theme',
+    'header',
+    'cover',
+    'banner',
+    'preview',
+    'resource',
+    'payload',
+    'entity'
+  ]);
+
+  while (queue.length > 0 && result.length < 64) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') continue;
+    if (Array.isArray(current)) {
+      for (const item of current) push(item);
+      continue;
+    }
+
+    result.push(current as Record<string, any>);
+
+    for (const [key, rawValue] of Object.entries(current as Record<string, any>)) {
+      if (!rawValue) continue;
+
+      if (typeof rawValue === 'string') {
+        const trimmed = rawValue.trim();
+        if (isLikelyJson(trimmed)) {
+          const parsed = safeParseJson(trimmed);
+          if (parsed && typeof parsed === 'object') {
+            push(parsed);
+          }
+        }
+      }
+
+      if (typeof rawValue === 'object') {
+        if (Array.isArray(rawValue)) {
+          for (const item of rawValue) push(item);
+        } else if (
+          keysToFollow.has(key) ||
+          key.endsWith('_meta') ||
+          key.endsWith('Meta') ||
+          key.endsWith('_data') ||
+          key.endsWith('Data') ||
+          key.endsWith('_info') ||
+          key.endsWith('Info')
+        ) {
+          push(rawValue);
+        }
+      }
+    }
+  }
+
+  return result;
+};
+
+const resolvePageVisual = (entry: any): PageVisual | null => {
+  if (!entry || typeof entry !== 'object') return null;
+  const candidates = collectPageMetaCandidates(entry);
+
+  for (const candidate of candidates) {
+    let bannerUrl: string | null = null;
+    for (const key of BANNER_SOURCE_KEYS) {
+      if (key in candidate) {
+        const extracted = extractUrlFromUnknown((candidate as any)[key]);
+        if (extracted) {
+          bannerUrl = extracted;
+          break;
+        }
       }
     }
 
-    const hasDirectBanner = meta.banner_url ?? meta.bannerUrl ?? meta.banner ?? null;
-    if (hasDirectBanner || meta.banner_gradient || meta.bannerGradient || meta.gradient) {
-      return meta as Record<string, any>;
+    let bannerGradient: string | null = null;
+    for (const key of GRADIENT_SOURCE_KEYS) {
+      if (key in candidate) {
+        const extracted = extractGradientFromUnknown((candidate as any)[key]);
+        if (extracted) {
+          bannerGradient = extracted;
+          break;
+        }
+      }
+    }
+
+    if (bannerUrl || bannerGradient) {
+      return {
+        bannerUrl: bannerUrl ? resolveMediaUrl(bannerUrl) : null,
+        bannerGradient
+      };
+
     }
   }
 
@@ -176,37 +545,20 @@ const resolvePageLikeMeta = (entry: any): Record<string, any> | null => {
 };
 
 const getPagePreviewStyle = (entry: any): React.CSSProperties | null => {
-  const pageMeta = resolvePageLikeMeta(entry);
-  if (!pageMeta) return null;
+  const visual = resolvePageVisual(entry);
+  if (!visual) return null;
 
-  const bannerUrl =
-    pageMeta.banner_url ??
-    pageMeta.bannerUrl ??
-    pageMeta.banner ??
-    pageMeta.cover_url ??
-    pageMeta.coverUrl ??
-    null;
-
-  const bannerGradient =
-    pageMeta.banner_gradient ??
-    pageMeta.bannerGradient ??
-    pageMeta.gradient ??
-    pageMeta.cover_gradient ??
-    pageMeta.coverGradient ??
-    null;
-
-  const resolvedBannerUrl = resolveMediaUrl(bannerUrl);
-  if (resolvedBannerUrl) {
+  if (visual.bannerUrl) {
     return {
-      backgroundImage: `url(${resolvedBannerUrl})`,
+      backgroundImage: `url(${visual.bannerUrl})`,
       backgroundSize: 'cover',
       backgroundPosition: 'center'
     };
   }
 
-  if (typeof bannerGradient === 'string' && bannerGradient.trim().length > 0) {
+  if (visual.bannerGradient) {
     return {
-      backgroundImage: bannerGradient
+      backgroundImage: visual.bannerGradient
     };
   }
 
