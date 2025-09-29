@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import classNames from 'classnames';
 import Shell from '../components/Shell';
 import { Modal } from '../components/ui/Modal';
 import { api, resolveApiUrl } from '../api';
 import { useAuth } from '../AuthContext';
 import { useNotifications } from '../notifications/NotificationProvider';
+import { useReorderableList } from '../hooks/useReorderableList';
 
 const JOURNAL_BATCH_SIZE = 10;
 
@@ -636,6 +638,11 @@ export default function ProfileFull() {
   const { pushError } = useNotifications();
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
+  const profileLanguagesLayout = useReorderableList<ProfileLanguage>(
+    'languages:active',
+    languages,
+    (language) => language.id,
+  );
 
   const load = async () => {
     const d = await api.get('/api/life/profile');
@@ -816,17 +823,32 @@ export default function ProfileFull() {
         </div>
 
         {/* Языки */}
-        <div className="card">
+        <div className="card" {...profileLanguagesLayout.getContainerProps()}>
           <div className="font-medium mb-2">Изучаемые языки</div>
-          {languages.length > 0 ? (
+          {profileLanguagesLayout.items.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {languages.map((language, index) => {
+              {profileLanguagesLayout.items.map((language, index) => {
+                const dragProps = profileLanguagesLayout.getDraggableProps(language.id);
+                const canDrag = dragProps.draggable;
+                const isDragging = profileLanguagesLayout.activeId === String(language.id);
+                const isOver = profileLanguagesLayout.overId === String(language.id);
                 const bannerStyle = getLanguageBannerStyle(language, index);
                 const avatarUrl = resolveMediaUrl(language.imageUrl);
                 return (
                   <div
                     key={language.id}
-                    className="relative overflow-hidden rounded-xl border border-white/10 bg-white/5"
+                    {...dragProps}
+                    data-dragging={isDragging ? 'true' : undefined}
+                    data-drop-target={isOver && !isDragging ? 'true' : undefined}
+                    className={classNames(
+                      'relative overflow-hidden rounded-xl border border-white/10 bg-white/5 transition-all duration-200 ease-out select-none',
+                      { 'cursor-grab active:cursor-grabbing': canDrag },
+                      {
+                        'ring-2 ring-white/70 border-white/40 scale-[0.98] shadow-2xl shadow-black/40': isDragging,
+                        'border-white/30 ring-1 ring-white/40': isOver && !isDragging,
+                        'hover:-translate-y-0.5': !isDragging,
+                      },
+                    )}
                   >
                     <div className="absolute inset-0" style={bannerStyle} />
                     <div className="absolute inset-0 bg-black/40" />

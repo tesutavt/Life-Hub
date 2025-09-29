@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import classNames from "classnames";
 import { Link } from "react-router-dom";
 import { Circle, CircleCheck, ExternalLink, FileText, PencilLine, Trash2 } from "lucide-react";
 import Shell from "../components/Shell";
@@ -9,6 +10,7 @@ import TagBadge from "../components/tags/TagBadge";
 import TagSelector from "../components/tags/TagSelector";
 import { Modal } from "../components/ui/Modal";
 import LanguageMaster from "../components/master/LanguageMaster";
+import { useReorderableList } from "../hooks/useReorderableList";
 import {
   LineChart,
   Line,
@@ -195,6 +197,18 @@ export default function Languages() {
     () =>
       (items || []).reduce((acc, lang) => acc + (lang.minutes_today || 0), 0),
     [items],
+  );
+
+  const activeLanguagesLayout = useReorderableList<Lang>(
+    "languages:active",
+    items,
+    (language) => language.id,
+  );
+
+  const archivedLanguagesLayout = useReorderableList<Lang>(
+    "languages:archived",
+    archivedLanguages,
+    (language) => language.id,
   );
 
   const languagePageMap = useMemo(() => {
@@ -422,14 +436,32 @@ export default function Languages() {
         <LanguageMaster tagOptions={tagOptions} onCreated={loadLanguages} />
       </div>
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {(items || []).map((language) => {
+      <div
+        className="grid md:grid-cols-2 xl:grid-cols-3 gap-4"
+        {...activeLanguagesLayout.getContainerProps()}
+      >
+        {activeLanguagesLayout.items.map((language, index) => {
+          const dragProps = activeLanguagesLayout.getDraggableProps(language.id);
+          const canDrag = dragProps.draggable;
+          const isDragging = activeLanguagesLayout.activeId === String(language.id);
+          const isOver = activeLanguagesLayout.overId === String(language.id);
           const attachments = languagePageMap.get(language.id) || [];
           const streak = (language.minutes_today || 0) > 0 ? 1 : 0;
           return (
             <div
               key={language.id}
-              className="rounded-2xl border border-white/10 bg-white/5 overflow-hidden flex flex-col"
+              {...dragProps}
+              data-dragging={isDragging ? "true" : undefined}
+              data-drop-target={isOver && !isDragging ? "true" : undefined}
+              className={classNames(
+                "rounded-2xl border border-white/10 bg-white/5 overflow-hidden flex flex-col transition-all duration-200 ease-out select-none",
+                { "cursor-grab active:cursor-grabbing": canDrag },
+                {
+                  "ring-2 ring-white/70 border-white/40 scale-[0.98] shadow-2xl shadow-black/40": isDragging,
+                  "border-white/30 ring-1 ring-white/40": isOver && !isDragging,
+                  "hover:-translate-y-0.5": !isDragging,
+                },
+              )}
             >
               <div className="relative h-28 overflow-hidden">
                 {language.bannerUrl ? (
@@ -442,7 +474,7 @@ export default function Languages() {
                 ) : (
                   <div
                     className={`absolute inset-0 bg-gradient-to-r ${
-                      BANNER_FALLBACKS[language.id % BANNER_FALLBACKS.length]
+                      BANNER_FALLBACKS[(language.id + index) % BANNER_FALLBACKS.length]
                     }`}
                   />
                 )}
@@ -624,7 +656,7 @@ export default function Languages() {
         })}
       </div>
 
-      <div className="card">
+      <div className="card" {...archivedLanguagesLayout.getContainerProps()}>
         <div className="flex items-center justify-between mb-2">
           <div className="font-medium">Архив языков</div>
           {archivedLanguages.length > 0 && (
@@ -635,32 +667,49 @@ export default function Languages() {
           <div className="text-sm opacity-60">Архив пуст.</div>
         ) : (
           <div className="space-y-2">
-            {archivedLanguages.map((language) => (
-              <div
-                key={language.id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-              >
-                <div>
-                  <div className="font-medium">{language.name}</div>
-                  <div className="text-xs opacity-70">
-                    Уровень: {language.level || "A1"}
-                  </div>
-                  {language.tags.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1 text-xs">
-                      {language.tags.map((tag) => (
-                        <TagBadge key={tag.id} tag={tag} compact />
-                      ))}
-                    </div>
+            {archivedLanguagesLayout.items.map((language) => {
+              const dragProps = archivedLanguagesLayout.getDraggableProps(language.id);
+              const canDrag = dragProps.draggable;
+              const isDragging = archivedLanguagesLayout.activeId === String(language.id);
+              const isOver = archivedLanguagesLayout.overId === String(language.id);
+              return (
+                <div
+                  key={language.id}
+                  {...dragProps}
+                  data-dragging={isDragging ? "true" : undefined}
+                  data-drop-target={isOver && !isDragging ? "true" : undefined}
+                  className={classNames(
+                    "flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 transition-all duration-200 ease-out select-none",
+                    { "cursor-grab active:cursor-grabbing": canDrag },
+                    {
+                      "ring-2 ring-white/70 border-white/40 scale-[0.98] shadow-2xl shadow-black/40": isDragging,
+                      "border-white/30 ring-1 ring-white/40": isOver && !isDragging,
+                      "hover:-translate-y-0.5": !isDragging,
+                    },
                   )}
-                </div>
-                <button
-                  onClick={() => restoreLanguage(language.id)}
-                  className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-white/80"
                 >
-                  Восстановить
-                </button>
-              </div>
-            ))}
+                  <div>
+                    <div className="font-medium">{language.name}</div>
+                    <div className="text-xs opacity-70">
+                      Уровень: {language.level || "A1"}
+                    </div>
+                    {language.tags.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1 text-xs">
+                        {language.tags.map((tag) => (
+                          <TagBadge key={tag.id} tag={tag} compact />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => restoreLanguage(language.id)}
+                    className="text-xs px-3 py-1 rounded bg-white text-black hover:bg-white/80"
+                  >
+                    Восстановить
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
