@@ -1,1 +1,3 @@
 server/lifehub.sqlite
+server/uploads/
+client/node_modules/

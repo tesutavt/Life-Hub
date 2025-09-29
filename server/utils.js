@@ -228,20 +228,20 @@ async function runMigrations(database) {
   );
   await database.exec('CREATE INDEX IF NOT EXISTS idx_course_progress_logs_user ON course_progress_logs(user_id, course_id, logged_at)');
 
-  await database.exec(
-    'CREATE TABLE IF NOT EXISTS progress_reports (' +
-      'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
-      'user_id INTEGER NOT NULL, ' +
-      'period TEXT NOT NULL, ' +
-      'period_key TEXT NOT NULL, ' +
-      'period_start TEXT NOT NULL, ' +
-      'period_end TEXT NOT NULL, ' +
-      'data TEXT NOT NULL, ' +
-      'generated_at TEXT DEFAULT CURRENT_TIMESTAMP, ' +
-      'FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, ' +
-      'UNIQUE(user_id, period, period_key)'
-    ')'
-  );
+await database.exec(
+  'CREATE TABLE IF NOT EXISTS progress_reports (' +
+    'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+    'user_id INTEGER NOT NULL, ' +
+    'period TEXT NOT NULL, ' +
+    'period_key TEXT NOT NULL, ' +
+    'period_start TEXT NOT NULL, ' +
+    'period_end TEXT NOT NULL, ' +
+    'data TEXT NOT NULL, ' +
+    'generated_at TEXT DEFAULT CURRENT_TIMESTAMP, ' +
+    'FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, ' +
+    'UNIQUE(user_id, period, period_key)' + // закрывающая скобка была потеряна
+  ');' // <-- точка с запятой после скобки
+);
   await database.exec('CREATE INDEX IF NOT EXISTS idx_progress_reports_user ON progress_reports(user_id, period, period_start)');
 
   await database.exec(`CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, label TEXT NOT NULL, color TEXT DEFAULT '#6366F1', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
