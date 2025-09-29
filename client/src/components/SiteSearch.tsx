@@ -20,6 +20,18 @@ type SearchPage = {
   tags: SearchTag[];
 };
 
+type SearchPdfBookmark = {
+  id: string;
+  marker_title: string;
+  page_number?: number | null;
+  pdf_url: string;
+  pdf_title: string;
+  original_name?: string | null;
+  page_id: number;
+  page_title: string;
+  marker_done?: boolean;
+};
+
 type SearchLanguage = {
   id: number;
   name: string;
@@ -94,6 +106,7 @@ type SearchResponse = {
   selected_tag: SearchTag | null;
   tag_matches: SearchTag[];
   pages: SearchPage[];
+  pdf_bookmarks: SearchPdfBookmark[];
   languages: SearchLanguage[];
   courses: SearchCourse[];
   travel: SearchTravel[];
@@ -105,6 +118,7 @@ type SearchResponse = {
 
 type SearchSection =
   | 'pages'
+  | 'pdfBookmarks'
   | 'languages'
   | 'courses'
   | 'travel'
@@ -115,6 +129,7 @@ type SearchSection =
 
 type SiteSearchProps = {
   onSelectPage?: (page: SearchPage) => void;
+  onSelectPdfBookmark?: (bookmark: SearchPdfBookmark) => void;
   sections?: SearchSection[];
   className?: string;
   placeholder?: string;
@@ -122,7 +137,17 @@ type SiteSearchProps = {
   initialTagId?: number | null;
 };
 
-const DEFAULT_SECTIONS: SearchSection[] = ['pages', 'languages', 'courses', 'travel', 'loans', 'habits', 'calendar', 'goals'];
+const DEFAULT_SECTIONS: SearchSection[] = [
+  'pages',
+  'pdfBookmarks',
+  'languages',
+  'courses',
+  'travel',
+  'loans',
+  'habits',
+  'calendar',
+  'goals',
+];
 const SEARCH_DELAY = 250;
 const LANGUAGE_BANNER_FALLBACKS = [
   'from-rose-500/40 via-orange-500/30 to-amber-400/40',
@@ -133,10 +158,11 @@ const LANGUAGE_BANNER_FALLBACKS = [
 
 const hasQuery = (value: string) => value.trim().length > 0;
 
-export type { SearchPage };
+export type { SearchPage, SearchPdfBookmark };
 
 export default function SiteSearch({
   onSelectPage,
+  onSelectPdfBookmark,
   sections = DEFAULT_SECTIONS,
   className = '',
   placeholder = 'Search anything...',
@@ -181,6 +207,7 @@ export default function SiteSearch({
           selected_tag: response?.selected_tag || null,
           tag_matches: hasTextQuery ? response?.tag_matches || [] : [],
           pages: showPageResults ? response?.pages || [] : [],
+          pdf_bookmarks: hasTextQuery ? response?.pdf_bookmarks || [] : [],
           languages: allowSecondary ? response?.languages || [] : [],
           courses: allowSecondary ? response?.courses || [] : [],
           travel: allowSecondary ? response?.travel || [] : [],
@@ -361,6 +388,67 @@ export default function SiteSearch({
                   </div>
                 ) : (
                   <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">No pages found.</div>
+                )}
+              </section>
+            );
+          }
+
+          if (section === 'pdfBookmarks') {
+            if (!hasTextQuery) return null;
+            const bookmarks = results?.pdf_bookmarks ?? [];
+            const hasBookmarks = bookmarks.length > 0;
+            return (
+              <section key="pdfBookmarks" className="space-y-2">
+                {renderSectionTitle('PDF bookmarks')}
+                {hasBookmarks ? (
+                  <div className="space-y-2">
+                    {bookmarks.map((bookmark) => (
+                      <div
+                        key={bookmark.id}
+                        className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/80"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-white">{bookmark.marker_title}</div>
+                            <div className="mt-1 text-xs text-white/60">
+                              {bookmark.page_number != null ? `Стр. ${bookmark.page_number} · ` : ''}
+                              {bookmark.pdf_title}
+                            </div>
+                            <div className="text-[11px] text-white/40">{bookmark.page_title}</div>
+                          </div>
+                          <div className="flex flex-col items-end gap-2 text-xs text-white/60">
+                            <a
+                              href={bookmark.pdf_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded bg-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/20"
+                            >
+                              Открыть PDF
+                            </a>
+                            <Link
+                              to={`/pages/${bookmark.page_id}`}
+                              className="rounded bg-white/10 px-3 py-1 text-xs text-white/70 hover:bg-white/20"
+                            >
+                              Страница
+                            </Link>
+                            {onSelectPdfBookmark && (
+                              <button
+                                type="button"
+                                onClick={() => onSelectPdfBookmark(bookmark)}
+                                className="rounded bg-white px-3 py-1 text-xs font-semibold text-black hover:bg-white/90"
+                              >
+                                Добавить
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">
+                    Закладок PDF не найдено.
+                  </div>
                 )}
               </section>
             );

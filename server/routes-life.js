@@ -27,7 +27,8 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+const MAX_PDF_FILE_SIZE = 512 * 1024 * 1024; // 512MB limit to allow 200MB+ uploads
+const upload = multer({ storage, limits: { fileSize: MAX_PDF_FILE_SIZE } });
 
 async function removeLocalUpload(url) {
   if (!url || typeof url !== 'string') return;
@@ -41,6 +42,23 @@ async function removeLocalUpload(url) {
   }
 }
 
+router.post('/uploads/pdf', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'no_file' });
+  const mime = (file.mimetype || '').toLowerCase();
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const isPdf = mime.includes('pdf') || ext === '.pdf';
+  if (!isPdf) {
+    await removeLocalUpload(`/uploads/${file.filename}`);
+    return res.status(400).json({ error: 'invalid_type' });
+  }
+  res.json({
+    url: `/uploads/${file.filename}`,
+    original_name: file.originalname || file.filename,
+    size: file.size
+  });
+});
+
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const pad = (n) => n.toString().padStart(2, '0');
@@ -51,6 +69,20 @@ const sanitizeOptionalText = (value, limit = 2048) => {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, limit);
+};
+
+const sanitizeRequiredText = (value, fallback = 'Без названия', limit = 255) => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return trimmed.slice(0, limit);
+};
+
+const normalizePdfUrl = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 2048);
 };
 
 async function recomputeGoal(db, userId, goalId) {
@@ -143,6 +175,17 @@ const mapLanguagePage = (row) => ({
   done: !!row.done,
   done_at: row.done_at,
   page_title: row.page_title || 'Untitled page'
+});
+
+const mapLanguagePdfPage = (row) => ({
+  id: row.id,
+  language_id: row.language_id,
+  title: row.title,
+  pdf_url: row.pdf_url,
+  page_number: row.page_number,
+  done: !!row.done,
+  done_at: row.done_at,
+  original_name: row.original_name || null
 });
 
 const HABIT_MILESTONES = [1, 10, 25, 50, 100, 200];
@@ -343,6 +386,81 @@ const extractPageSnippet = (blocksJson) => {
   }
 };
 
+const parseBlocksJson = (blocksJson) => {
+  if (!blocksJson) return [];
+  try {
+    const parsed = JSON.parse(blocksJson);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.blocks)) {
+      return parsed.blocks;
+    }
+  } catch {
+    return [];
+  }
+  return [];
+};
+
+const collectPdfBookmarksFromPage = (pageRow, queryLower) => {
+  const output = [];
+  const rawBlocks = parseBlocksJson(pageRow.blocks_json);
+  if (!Array.isArray(rawBlocks)) return output;
+
+  const pageTitle = sanitizeRequiredText(pageRow.title, 'Без названия', 255);
+  const pageTitleLower = pageTitle.toLowerCase();
+
+  rawBlocks.forEach((block, blockIndex) => {
+    if (!block || block.type !== 'pdf') return;
+    const pdfUrl = normalizePdfUrl(block.url || block.src || null);
+    if (!pdfUrl) return;
+
+    const pdfTitle = sanitizeRequiredText(block.text, 'PDF документ', 255);
+    const pdfTitleLower = pdfTitle.toLowerCase();
+    const originalName = sanitizeOptionalText(block?.meta?.originalName ?? block?.meta?.original_name ?? null, 255);
+    const originalLower = (originalName || '').toLowerCase();
+    const markers = Array.isArray(block?.meta?.markers) ? block.meta.markers : [];
+
+    markers.forEach((marker, markerIndex) => {
+      if (!marker) return;
+      const markerTitle = sanitizeRequiredText(marker.title, 'Фрагмент', 255);
+      const markerLower = markerTitle.toLowerCase();
+      if (
+        queryLower &&
+        !(
+          markerLower.includes(queryLower) ||
+          pdfTitleLower.includes(queryLower) ||
+          pageTitleLower.includes(queryLower) ||
+          (originalLower && originalLower.includes(queryLower))
+        )
+      ) {
+        return;
+      }
+
+      let pageNumber = null;
+      if (marker.page !== undefined && marker.page !== null) {
+        const parsed = Number.parseInt(marker.page, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) pageNumber = parsed;
+      }
+
+      const markerId = typeof marker.id === 'string' && marker.id.trim() ? marker.id.trim() : `marker-${blockIndex}-${markerIndex}`;
+      const blockId = typeof block.id === 'string' && block.id.trim() ? block.id.trim() : `pdf-${blockIndex}`;
+
+      output.push({
+        id: `${pageRow.id}:${blockId}:${markerId}`,
+        marker_title: markerTitle,
+        page_number: pageNumber,
+        pdf_url: pdfUrl,
+        pdf_title: pdfTitle,
+        original_name: originalName,
+        page_id: pageRow.id,
+        page_title: pageTitle,
+        marker_done: !!marker.done,
+      });
+    });
+  });
+
+  return output;
+};
+
 router.get('/search', async (req, res) => {
   const db = await getDB();
   const rawQuery = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
@@ -364,6 +482,7 @@ router.get('/search', async (req, res) => {
   const showPageResults = hasTextQuery || includeTagFilter;
 
   let pages = [];
+  let pageRows = [];
   if (showPageResults) {
     let pageSql = 'SELECT jp.id, jp.title, jp.blocks_json, jp.updated_at, jp.created_at, jp.banner_url, jp.banner_gradient, jp.pinned FROM journal_pages jp WHERE jp.user_id=?';
     const pageParams = [req.user.uid];
@@ -379,7 +498,7 @@ router.get('/search', async (req, res) => {
     }
     pageSql += ' ORDER BY jp.pinned DESC, jp.updated_at DESC LIMIT ?';
     pageParams.push(limit);
-    const pageRows = await db.all(pageSql, pageParams);
+    pageRows = await db.all(pageSql, pageParams);
     const pageIds = pageRows.map((row) => row.id);
     const pageTagMap = await fetchPageTagsMap(db, req.user.uid, pageIds);
     pages = pageRows.map((row) => ({
@@ -393,6 +512,34 @@ router.get('/search', async (req, res) => {
       pinned: !!row.pinned,
       tags: pageTagMap.get(row.id) || []
     }));
+  }
+
+  let pdfBookmarks = [];
+  if (hasTextQuery) {
+    const bookmarkMap = new Map();
+    for (const row of pageRows) {
+      bookmarkMap.set(row.id, row);
+    }
+    const extraRows = await db.all(
+      'SELECT jp.id, jp.title, jp.blocks_json FROM journal_pages jp WHERE jp.user_id=? AND LOWER(COALESCE(jp.blocks_json, "")) LIKE ? ORDER BY jp.updated_at DESC LIMIT ?',
+      [req.user.uid, '%' + query + '%', limit * 3]
+    );
+    for (const row of extraRows) {
+      if (!bookmarkMap.has(row.id)) bookmarkMap.set(row.id, row);
+    }
+
+    const dedupe = new Set();
+    for (const row of bookmarkMap.values()) {
+      const matches = collectPdfBookmarksFromPage(row, query);
+      for (const match of matches) {
+        const key = `${match.pdf_url}|${match.page_number ?? 'none'}|${match.marker_title.toLowerCase()}|${match.page_id}`;
+        if (dedupe.has(key)) continue;
+        dedupe.add(key);
+        pdfBookmarks.push(match);
+        if (pdfBookmarks.length >= limit) break;
+      }
+      if (pdfBookmarks.length >= limit) break;
+    }
   }
 
   const shouldSearchOther = hasTextQuery || includeTagFilter;
@@ -602,6 +749,7 @@ router.get('/search', async (req, res) => {
     selected_tag: selectedTag,
     tag_matches: tagMatches,
     pages,
+    pdf_bookmarks: pdfBookmarks,
     languages,
     courses,
     travel,
@@ -1426,6 +1574,117 @@ router.delete('/language-pages/:id', async (req, res) => {
   const targetId = Number(req.params.id);
   if (!Number.isInteger(targetId) || targetId <= 0) return res.status(400).json({ error: 'invalid_id' });
   const result = await db.run('DELETE FROM language_pages WHERE id=? AND user_id=?', [targetId, req.user.uid]);
+  if (!result.changes) return res.status(404).json({ error: 'not_found' });
+  res.json({ success: true });
+});
+
+router.get('/language-pdf-pages', async (req, res) => {
+  const db = await getDB();
+  const rows = await db.all(
+    'SELECT id, language_id, title, pdf_url, page_number, done, done_at, original_name FROM language_pdf_pages WHERE user_id=? ORDER BY created_at DESC',
+    [req.user.uid]
+  );
+  res.json({ items: rows.map(mapLanguagePdfPage) });
+});
+
+router.post('/language-pdf-pages', async (req, res) => {
+  const db = await getDB();
+  const languageId = Number.parseInt(req.body?.language_id ?? req.body?.languageId, 10);
+  if (!Number.isInteger(languageId) || languageId <= 0) {
+    return res.status(400).json({ error: 'invalid_language' });
+  }
+
+  const language = await db.get('SELECT id FROM languages WHERE id=? AND user_id=?', [languageId, req.user.uid]);
+  if (!language) return res.status(404).json({ error: 'language_not_found' });
+
+  const pdfUrl = normalizePdfUrl(req.body?.pdf_url ?? req.body?.pdfUrl);
+  if (!pdfUrl) return res.status(400).json({ error: 'invalid_pdf_url' });
+
+  const title = sanitizeRequiredText(req.body?.title, 'PDF материал');
+  const originalName = sanitizeOptionalText(req.body?.original_name ?? req.body?.originalName, 255);
+  let pageNumber = null;
+  const rawPageNumber = req.body?.page_number ?? req.body?.pageNumber;
+  if (rawPageNumber !== undefined && rawPageNumber !== null && `${rawPageNumber}`.trim().length > 0) {
+    const parsed = Number.parseInt(rawPageNumber, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) pageNumber = parsed;
+  }
+
+  const result = await db.run(
+    'INSERT INTO language_pdf_pages(user_id, language_id, title, pdf_url, page_number, original_name) VALUES(?,?,?,?,?,?)',
+    [req.user.uid, languageId, title, pdfUrl, pageNumber, originalName]
+  );
+
+  const row = await db.get(
+    'SELECT id, language_id, title, pdf_url, page_number, done, done_at, original_name FROM language_pdf_pages WHERE id=? AND user_id=?',
+    [result.lastID, req.user.uid]
+  );
+
+  res.json({ item: mapLanguagePdfPage(row) });
+});
+
+router.patch('/language-pdf-pages/:id', async (req, res) => {
+  const db = await getDB();
+  const entry = await db.get(
+    'SELECT id, language_id, title, pdf_url, page_number, done, done_at, original_name FROM language_pdf_pages WHERE id=? AND user_id=?',
+    [req.params.id, req.user.uid]
+  );
+  if (!entry) return res.status(404).json({ error: 'not_found' });
+
+  const updates = [];
+  const values = [];
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'title')) {
+    updates.push('title=?');
+    values.push(sanitizeRequiredText(req.body.title, entry.title));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'pdf_url') || Object.prototype.hasOwnProperty.call(req.body || {}, 'pdfUrl')) {
+    const newUrl = normalizePdfUrl(req.body?.pdf_url ?? req.body?.pdfUrl);
+    if (!newUrl) return res.status(400).json({ error: 'invalid_pdf_url' });
+    updates.push('pdf_url=?');
+    values.push(newUrl);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'page_number') || Object.prototype.hasOwnProperty.call(req.body || {}, 'pageNumber')) {
+    const rawPageNumber = req.body?.page_number ?? req.body?.pageNumber;
+    let pageNumber = null;
+    if (rawPageNumber !== undefined && rawPageNumber !== null && `${rawPageNumber}`.trim().length > 0) {
+      const parsed = Number.parseInt(rawPageNumber, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) pageNumber = parsed;
+    }
+    updates.push('page_number=?');
+    values.push(pageNumber);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'done')) {
+    const done = req.body.done ? 1 : 0;
+    updates.push('done=?', 'done_at=?');
+    values.push(done, done ? new Date().toISOString() : null);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'original_name') || Object.prototype.hasOwnProperty.call(req.body || {}, 'originalName')) {
+    updates.push('original_name=?');
+    values.push(sanitizeOptionalText(req.body?.original_name ?? req.body?.originalName, 255));
+  }
+
+  if (updates.length === 0) {
+    return res.json({ item: mapLanguagePdfPage(entry) });
+  }
+
+  values.push(req.params.id, req.user.uid);
+  await db.run(`UPDATE language_pdf_pages SET ${updates.join(', ')} WHERE id=? AND user_id=?`, values);
+
+  const row = await db.get(
+    'SELECT id, language_id, title, pdf_url, page_number, done, done_at, original_name FROM language_pdf_pages WHERE id=? AND user_id=?',
+    [req.params.id, req.user.uid]
+  );
+
+  res.json({ item: mapLanguagePdfPage(row) });
+});
+
+router.delete('/language-pdf-pages/:id', async (req, res) => {
+  const db = await getDB();
+  const result = await db.run('DELETE FROM language_pdf_pages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   if (!result.changes) return res.status(404).json({ error: 'not_found' });
   res.json({ success: true });
 });
