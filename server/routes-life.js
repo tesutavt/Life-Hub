@@ -1364,6 +1364,29 @@ const mapCourseRow = (row, tags = []) => ({
   tags
 });
 
+const normalizeCourseProgress = (value) => {
+  if (!Number.isFinite(Number(value))) return 0;
+  const rounded = Math.round(Number(value));
+  if (rounded < 0) return 0;
+  if (rounded > 100) return 100;
+  return rounded;
+};
+
+async function logCourseProgress(db, userId, courseId, progress) {
+  const normalized = normalizeCourseProgress(progress);
+  const last = await db.get(
+    'SELECT progress FROM course_progress_logs WHERE user_id=? AND course_id=? ORDER BY logged_at DESC LIMIT 1',
+    [userId, courseId]
+  );
+  if (last && normalizeCourseProgress(last.progress) === normalized) {
+    return;
+  }
+  await db.run(
+    'INSERT INTO course_progress_logs(user_id, course_id, progress, logged_at) VALUES(?,?,?,?)',
+    [userId, courseId, normalized, new Date().toISOString()]
+  );
+}
+
 const coursesRouter = express.Router();
 
 coursesRouter.get('/', async (req, res) => {
@@ -1392,7 +1415,7 @@ coursesRouter.post('/', async (req, res) => {
     const parsed = Number(rawLanguage);
     languageId = Number.isNaN(parsed) ? null : parsed;
   }
-  const progress = Number.isFinite(Number(payload.progress)) ? Number(payload.progress) : 0;
+  const progress = normalizeCourseProgress(payload.progress);
   const status = typeof payload.status === 'string' ? payload.status : 'in-progress';
   const result = await db.run('INSERT INTO courses(user_id,title,provider,course_type,language_id,progress,status,archived_at) VALUES(?,?,?,?,?,?,?,NULL)', [req.user.uid, title, provider, courseType, languageId, progress, status]);
   const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
@@ -1407,12 +1430,18 @@ coursesRouter.post('/', async (req, res) => {
     const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, [row.id]);
     tags = tagMap.get(row.id) || [];
   }
+  await logCourseProgress(db, req.user.uid, row.id, row.progress);
   res.json({ course: mapCourseRow(row, tags) });
 });
 
 coursesRouter.put('/:id', async (req, res) => {
   const db = await getDB();
   const payload = req.body || {};
+  const existing = await db.get(
+    'SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?',
+    [req.params.id, req.user.uid]
+  );
+  if (!existing) return res.status(404).json({ error: 'not_found' });
   const updates = [];
   const values = [];
   if (payload.title !== undefined) { updates.push('title=?'); values.push(String(payload.title)); }
@@ -1428,7 +1457,15 @@ coursesRouter.put('/:id', async (req, res) => {
       values.push(Number.isNaN(parsed) ? null : parsed);
     }
   }
-  if (payload.progress !== undefined) { updates.push('progress=?'); values.push(Number(payload.progress) || 0); }
+  let progressChanged = false;
+  let nextProgress = normalizeCourseProgress(existing.progress);
+  if (payload.progress !== undefined) {
+    const normalized = normalizeCourseProgress(payload.progress);
+    updates.push('progress=?');
+    values.push(normalized);
+    progressChanged = normalized !== normalizeCourseProgress(existing.progress);
+    nextProgress = normalized;
+  }
   if (payload.status !== undefined) { updates.push('status=?'); values.push(String(payload.status)); }
   if (payload.tags !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, req.params.id, payload.tags);
@@ -1444,6 +1481,9 @@ coursesRouter.put('/:id', async (req, res) => {
   const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   if (!row) return res.status(404).json({ error: 'not_found' });
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, [row.id]);
+  if (progressChanged) {
+    await logCourseProgress(db, req.user.uid, row.id, nextProgress);
+  }
   res.json({ course: mapCourseRow(row, tagMap.get(row.id) || []) });
 });
 
@@ -1965,6 +2005,820 @@ router.delete('/journal-pages/:id', async (req, res) => {
   const db = await getDB();
   await db.run('DELETE FROM journal_pages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   res.json({ ok: true });
+});
+
+const MS_DAY = 86400000;
+const REPORT_PERIODS = new Set(['daily', 'weekly', 'monthly']);
+const numberFormatter = new Intl.NumberFormat('ru-RU');
+const shortDateFormatter = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' });
+const fullDateFormatter = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+const monthLongFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric' });
+const monthShortFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'short', year: 'numeric' });
+
+const clampNumber = (value) => {
+  if (!Number.isFinite(Number(value))) return 0;
+  return Number(value);
+};
+
+const formatNumber = (value) => numberFormatter.format(Math.round(clampNumber(value)));
+
+const formatSigned = (value) => {
+  const rounded = Math.round(clampNumber(value));
+  if (rounded > 0) return `+${rounded}`;
+  if (rounded < 0) return `${rounded}`;
+  return '0';
+};
+
+const startOfUtcDay = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+const addDaysUtc = (date, amount) => {
+  const result = new Date(date.getTime());
+  result.setUTCDate(result.getUTCDate() + amount);
+  return result;
+};
+
+const addMonthsUtc = (date, amount) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + amount, 1));
+
+const toDateISO = (date) => date.toISOString().slice(0, 10);
+
+const isoWeekKey = (date) => {
+  const target = startOfUtcDay(date);
+  const day = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  const weekNumber = Math.ceil(((target - yearStart) / MS_DAY + 1) / 7);
+  return `${target.getUTCFullYear()}-W${weekNumber.toString().padStart(2, '0')}`;
+};
+
+const formatRangeLabel = (start, endExclusive) => {
+  const endInclusive = addDaysUtc(endExclusive, -1);
+  if (endInclusive.getTime() < start.getTime()) return fullDateFormatter.format(start);
+  if (start.getTime() === endInclusive.getTime()) {
+    return fullDateFormatter.format(start);
+  }
+  return `${fullDateFormatter.format(start)} — ${fullDateFormatter.format(endInclusive)}`;
+};
+
+const formatShortRangeLabel = (start, endExclusive) => {
+  const endInclusive = addDaysUtc(endExclusive, -1);
+  if (endInclusive.getTime() < start.getTime()) return shortDateFormatter.format(start);
+  if (start.getTime() === endInclusive.getTime()) {
+    return shortDateFormatter.format(start);
+  }
+  return `${shortDateFormatter.format(start)} – ${shortDateFormatter.format(endInclusive)}`;
+};
+
+const buildTimelineBuckets = (unit, count, endExclusive) => {
+  const buckets = [];
+  if (count <= 0) return buckets;
+  if (unit === 'day') {
+    let cursor = addDaysUtc(endExclusive, -count);
+    for (let i = 0; i < count; i += 1) {
+      const start = addDaysUtc(cursor, i);
+      const end = addDaysUtc(start, 1);
+      buckets.push({
+        start,
+        end,
+        startMs: start.getTime(),
+        endMs: end.getTime(),
+        label: shortDateFormatter.format(start)
+      });
+    }
+  } else if (unit === 'week') {
+    let cursor = addDaysUtc(endExclusive, -7 * count);
+    for (let i = 0; i < count; i += 1) {
+      const start = addDaysUtc(cursor, i * 7);
+      const end = addDaysUtc(start, 7);
+      buckets.push({
+        start,
+        end,
+        startMs: start.getTime(),
+        endMs: end.getTime(),
+        label: formatShortRangeLabel(start, end)
+      });
+    }
+  } else if (unit === 'month') {
+    let cursor = addMonthsUtc(endExclusive, -count);
+    for (let i = 0; i < count; i += 1) {
+      const start = addMonthsUtc(cursor, i);
+      const end = addMonthsUtc(start, 1);
+      buckets.push({
+        start,
+        end,
+        startMs: start.getTime(),
+        endMs: end.getTime(),
+        label: monthShortFormatter.format(start)
+      });
+    }
+  }
+  return buckets;
+};
+
+const determineTrend = (current, previous) => {
+  const curr = clampNumber(current);
+  const prev = clampNumber(previous);
+  if (curr > prev) return 'up';
+  if (curr < prev) return 'down';
+  return 'flat';
+};
+
+const computePeriodContext = (period, referenceDate = new Date()) => {
+  const reference = startOfUtcDay(referenceDate);
+  if (period === 'daily') {
+    const endExclusive = reference;
+    const start = addDaysUtc(endExclusive, -1);
+    const previousStart = addDaysUtc(start, -1);
+    const previousEndExclusive = start;
+    const rangeLabel = fullDateFormatter.format(start);
+    const previousLabel = fullDateFormatter.format(previousStart);
+    const key = toDateISO(start);
+    const timelineBuckets = buildTimelineBuckets('day', 7, endExclusive);
+    return {
+      period,
+      key,
+      start,
+      endExclusive,
+      previousStart,
+      previousEndExclusive,
+      label: `Дневной отчёт за ${rangeLabel}`,
+      rangeLabel,
+      previousLabel,
+      timelineBuckets,
+      timelineStart: timelineBuckets.length ? timelineBuckets[0].start : start,
+      timelineEndExclusive: timelineBuckets.length ? timelineBuckets[timelineBuckets.length - 1].end : endExclusive,
+      rangeStartString: toDateISO(start),
+      rangeEndString: toDateISO(addDaysUtc(endExclusive, -1)),
+      previousStartString: toDateISO(previousStart),
+      previousEndString: toDateISO(addDaysUtc(previousEndExclusive, -1))
+    };
+  }
+  if (period === 'weekly') {
+    const day = reference.getUTCDay() || 7;
+    const currentWeekStart = addDaysUtc(reference, -(day - 1));
+    const endExclusive = currentWeekStart;
+    const start = addDaysUtc(endExclusive, -7);
+    const previousStart = addDaysUtc(start, -7);
+    const previousEndExclusive = start;
+    const rangeLabel = formatRangeLabel(start, endExclusive);
+    const previousLabel = formatRangeLabel(previousStart, previousEndExclusive);
+    const key = isoWeekKey(start);
+    const timelineBuckets = buildTimelineBuckets('week', 8, endExclusive);
+    return {
+      period,
+      key,
+      start,
+      endExclusive,
+      previousStart,
+      previousEndExclusive,
+      label: `Недельный отчёт (${rangeLabel})`,
+      rangeLabel,
+      previousLabel,
+      timelineBuckets,
+      timelineStart: timelineBuckets.length ? timelineBuckets[0].start : start,
+      timelineEndExclusive: timelineBuckets.length ? timelineBuckets[timelineBuckets.length - 1].end : endExclusive,
+      rangeStartString: toDateISO(start),
+      rangeEndString: toDateISO(addDaysUtc(endExclusive, -1)),
+      previousStartString: toDateISO(previousStart),
+      previousEndString: toDateISO(addDaysUtc(previousEndExclusive, -1))
+    };
+  }
+  if (period === 'monthly') {
+    const currentMonthStart = new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), 1));
+    const endExclusive = currentMonthStart;
+    const start = addMonthsUtc(endExclusive, -1);
+    const previousStart = addMonthsUtc(start, -1);
+    const previousEndExclusive = start;
+    const rangeLabel = monthLongFormatter.format(start);
+    const previousLabel = monthLongFormatter.format(previousStart);
+    const key = `${start.getUTCFullYear()}-${(start.getUTCMonth() + 1).toString().padStart(2, '0')}`;
+    const timelineBuckets = buildTimelineBuckets('month', 6, endExclusive);
+    return {
+      period,
+      key,
+      start,
+      endExclusive,
+      previousStart,
+      previousEndExclusive,
+      label: `Месячный отчёт за ${rangeLabel}`,
+      rangeLabel,
+      previousLabel,
+      timelineBuckets,
+      timelineStart: timelineBuckets.length ? timelineBuckets[0].start : start,
+      timelineEndExclusive: timelineBuckets.length ? timelineBuckets[timelineBuckets.length - 1].end : endExclusive,
+      rangeStartString: toDateISO(start),
+      rangeEndString: toDateISO(addDaysUtc(endExclusive, -1)),
+      previousStartString: toDateISO(previousStart),
+      previousEndString: toDateISO(addDaysUtc(previousEndExclusive, -1))
+    };
+  }
+  throw new Error('unknown_period');
+};
+
+const parseTimestamp = (value) => {
+  if (!value) return null;
+  const ts = Date.parse(value);
+  if (Number.isNaN(ts)) return null;
+  return ts;
+};
+
+const buildTimelineFromEvents = (buckets, events) =>
+  buckets.map((bucket) => {
+    let total = 0;
+    for (const event of events) {
+      if (event.ts >= bucket.startMs && event.ts < bucket.endMs) {
+        total += event.value ?? 1;
+      }
+    }
+    const endInclusive = addDaysUtc(bucket.end, -1);
+    return {
+      label: bucket.label,
+      start: toDateISO(bucket.start),
+      end: toDateISO(endInclusive),
+      value: total
+    };
+  });
+
+const fetchLanguageActivity = async (db, userId, startIso, endIso) => {
+  const pageRows = await db.all(
+    'SELECT language_id, done_at FROM language_pages WHERE user_id=? AND done=1 AND done_at IS NOT NULL AND done_at>=? AND done_at<?',
+    [userId, startIso, endIso]
+  );
+  const pdfRows = await db.all(
+    'SELECT language_id, done_at FROM language_pdf_pages WHERE user_id=? AND done=1 AND done_at IS NOT NULL AND done_at>=? AND done_at<?',
+    [userId, startIso, endIso]
+  );
+  const counts = new Map();
+  for (const row of [...pageRows, ...pdfRows]) {
+    const id = row.language_id;
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  const events = [];
+  for (const row of [...pageRows, ...pdfRows]) {
+    const ts = parseTimestamp(row.done_at);
+    if (ts === null) continue;
+    events.push({ ts, value: 1 });
+  }
+  return { counts, events };
+};
+
+const buildLanguageSection = async (db, userId, context) => {
+  const languages = await db.all(
+    "SELECT id, name FROM languages WHERE user_id=? AND (archived_at IS NULL OR archived_at='') AND COALESCE(status,'active') <> 'archived' ORDER BY name COLLATE NOCASE",
+    [userId]
+  );
+  const { counts: currentCounts, events } = await fetchLanguageActivity(
+    db,
+    userId,
+    context.start.toISOString(),
+    context.endExclusive.toISOString()
+  );
+  const { counts: previousCounts } = await fetchLanguageActivity(
+    db,
+    userId,
+    context.previousStart.toISOString(),
+    context.previousEndExclusive.toISOString()
+  );
+  const { events: timelineEvents } = await fetchLanguageActivity(
+    db,
+    userId,
+    context.timelineStart.toISOString(),
+    context.timelineEndExclusive.toISOString()
+  );
+
+  const itemsRaw = languages.map((language) => {
+    const current = currentCounts.get(language.id) || 0;
+    const previous = previousCounts.get(language.id) || 0;
+    const difference = current - previous;
+    const trend = determineTrend(current, previous);
+    let message = '';
+    if (difference > 0) {
+      message = `Прогресс улучшился на ${formatNumber(difference)} материалов.`;
+    } else if (difference < 0) {
+      message = `На ${formatNumber(Math.abs(difference))} материалов меньше, чем в прошлом периоде.`;
+    } else if (current === 0) {
+      message = 'Новых материалов не добавлено.';
+    } else {
+      message = 'Прогресс на уровне прошлого периода.';
+    }
+    return {
+      id: language.id,
+      name: language.name,
+      current,
+      previous,
+      difference,
+      trend,
+      message
+    };
+  });
+
+  const filteredItems = itemsRaw
+    .filter((item) => item.current > 0 || item.previous > 0)
+    .sort((a, b) => b.current - a.current || b.difference - a.difference || a.name.localeCompare(b.name));
+
+  const items = filteredItems.slice(0, 8);
+
+  const totalCurrent = itemsRaw.reduce((acc, item) => acc + item.current, 0);
+  const totalPrevious = itemsRaw.reduce((acc, item) => acc + item.previous, 0);
+  const difference = totalCurrent - totalPrevious;
+  let summaryMessage = '';
+  if (totalCurrent === 0 && totalPrevious === 0) {
+    summaryMessage = 'Новых материалов не изучено.';
+  } else if (difference > 0) {
+    summaryMessage = `Всего добавлено ${formatNumber(totalCurrent)} материалов (+${formatNumber(difference)} к прошлому периоду).`;
+  } else if (difference < 0) {
+    summaryMessage = `Изучено ${formatNumber(totalCurrent)} материалов (на ${formatNumber(Math.abs(difference))} меньше, чем ранее).`;
+  } else {
+    summaryMessage = `Изучено ${formatNumber(totalCurrent)} материалов — на уровне прошлого периода.`;
+  }
+
+  const noProgress = itemsRaw.filter((item) => item.current === 0).map((item) => item.name);
+  const improved = itemsRaw
+    .filter((item) => item.difference > 0)
+    .sort((a, b) => b.difference - a.difference);
+  const declined = itemsRaw
+    .filter((item) => item.difference < 0)
+    .sort((a, b) => a.difference - b.difference);
+
+  const insights = [];
+  if (improved.length) {
+    const top = improved[0];
+    insights.push(`Лучший прогресс: ${top.name} (+${formatNumber(top.difference)} материалов).`);
+  }
+  if (declined.length) {
+    const worst = declined[0];
+    insights.push(`Проседание в языке ${worst.name}: −${formatNumber(Math.abs(worst.difference))} материалов.`);
+  }
+  if (noProgress.length) {
+    const listed = noProgress.slice(0, 3).join(', ');
+    insights.push(`Без прогресса: ${listed}${noProgress.length > 3 ? ' и другие' : ''}.`);
+  }
+
+  const timeline = buildTimelineFromEvents(context.timelineBuckets, timelineEvents);
+
+  return {
+    key: 'languages',
+    title: 'Языки',
+    subtitle: 'Учебные материалы и PDF',
+    unit: 'материалов',
+    summary: {
+      current: totalCurrent,
+      previous: totalPrevious,
+      difference,
+      trend: determineTrend(totalCurrent, totalPrevious),
+      message: summaryMessage
+    },
+    items,
+    timeline,
+    insights
+  };
+};
+
+const prepareCourseLogs = async (db, userId, timelineEndExclusive) => {
+  const rows = await db.all(
+    'SELECT course_id, progress, logged_at FROM course_progress_logs WHERE user_id=? AND logged_at IS NOT NULL AND logged_at<? ORDER BY logged_at ASC',
+    [userId, timelineEndExclusive.toISOString()]
+  );
+  const map = new Map();
+  for (const row of rows) {
+    const ts = parseTimestamp(row.logged_at);
+    if (ts === null) continue;
+    const progress = normalizeCourseProgress(row.progress);
+    if (!map.has(row.course_id)) map.set(row.course_id, []);
+    map.get(row.course_id).push({ progress, ts });
+  }
+  return map;
+};
+
+const getProgressAt = (logs, targetMs) => {
+  if (!logs || logs.length === 0) return 0;
+  let value = null;
+  for (const entry of logs) {
+    if (entry.ts < targetMs) {
+      value = entry.progress;
+    } else {
+      break;
+    }
+  }
+  return value === null ? 0 : value;
+};
+
+const getProgressDelta = (logs, startMs, endMs) => {
+  const startValue = getProgressAt(logs, startMs);
+  const endValue = getProgressAt(logs, endMs);
+  return endValue - startValue;
+};
+
+const buildCourseTimeline = (buckets, logsByCourse) =>
+  buckets.map((bucket) => {
+    let total = 0;
+    for (const logs of logsByCourse.values()) {
+      total += getProgressDelta(logs, bucket.startMs, bucket.endMs);
+    }
+    const endInclusive = addDaysUtc(bucket.end, -1);
+    return {
+      label: bucket.label,
+      start: toDateISO(bucket.start),
+      end: toDateISO(endInclusive),
+      value: total
+    };
+  });
+
+const buildCourseSection = async (db, userId, context) => {
+  const courses = await db.all(
+    "SELECT id, title, progress, status, archived_at FROM courses WHERE user_id=? AND archived_at IS NULL ORDER BY title COLLATE NOCASE",
+    [userId]
+  );
+  const logsByCourse = await prepareCourseLogs(db, userId, context.timelineEndExclusive);
+
+  const itemsRaw = courses.map((course) => {
+    const logs = logsByCourse.get(course.id) || [];
+    const currentDelta = getProgressDelta(logs, context.start.getTime(), context.endExclusive.getTime());
+    const previousDelta = getProgressDelta(logs, context.previousStart.getTime(), context.previousEndExclusive.getTime());
+    const difference = currentDelta - previousDelta;
+    const trend = determineTrend(currentDelta, previousDelta);
+    const currentTotal = normalizeCourseProgress(course.progress);
+    let message = '';
+    if (currentDelta > 0) {
+      message = `Прогресс за период: +${formatNumber(currentDelta)} п.п. (итого ${formatNumber(currentTotal)}%).`;
+    } else if (currentDelta < 0) {
+      message = `Прогресс уменьшился на ${formatNumber(Math.abs(currentDelta))} п.п.`;
+    } else if (currentTotal === 0) {
+      message = 'Продвижения нет, курс не начинался.';
+    } else {
+      message = `Прогресс без изменений (${formatNumber(currentTotal)}%).`;
+    }
+    return {
+      id: course.id,
+      name: course.title,
+      current: currentDelta,
+      previous: previousDelta,
+      difference,
+      trend,
+      total: currentTotal,
+      message
+    };
+  });
+
+  const filteredItems = itemsRaw
+    .filter((item) => item.current !== 0 || item.previous !== 0)
+    .sort((a, b) => b.current - a.current || b.total - a.total || a.name.localeCompare(b.name));
+
+  const items = filteredItems.slice(0, 8);
+
+  const totalCurrent = itemsRaw.reduce((acc, item) => acc + item.current, 0);
+  const totalPrevious = itemsRaw.reduce((acc, item) => acc + item.previous, 0);
+  const difference = totalCurrent - totalPrevious;
+  let summaryMessage = '';
+  if (courses.length === 0) {
+    summaryMessage = 'Активных курсов нет.';
+  } else if (totalCurrent === 0 && totalPrevious === 0) {
+    summaryMessage = 'Продвижения по курсам не зафиксировано.';
+  } else if (difference > 0) {
+    summaryMessage = `Суммарный прогресс: +${formatNumber(totalCurrent)} п.п. (${formatSigned(difference)} к прошлому периоду).`;
+  } else if (difference < 0) {
+    summaryMessage = `Суммарный прогресс уменьшился на ${formatNumber(Math.abs(difference))} п.п.`;
+  } else {
+    summaryMessage = `Продвижение за период: ${formatNumber(totalCurrent)} п.п. — на уровне прошлого периода.`;
+  }
+
+  const improved = itemsRaw
+    .filter((item) => item.current > 0)
+    .sort((a, b) => b.current - a.current);
+  const declined = itemsRaw
+    .filter((item) => item.current < 0)
+    .sort((a, b) => a.current - b.current);
+  const stagnant = itemsRaw.filter((item) => item.current === 0);
+
+  const insights = [];
+  if (improved.length) {
+    const top = improved[0];
+    insights.push(`Лучшее продвижение: «${top.name}» (+${formatNumber(top.current)} п.п.).`);
+  }
+  if (declined.length) {
+    const worst = declined[0];
+    insights.push(`Прогресс снизился в курсе «${worst.name}» на ${formatNumber(Math.abs(worst.current))} п.п.`);
+  }
+  if (stagnant.length) {
+    const listed = stagnant.map((item) => item.name).slice(0, 3).join(', ');
+    insights.push(`Без продвижения: ${listed}${stagnant.length > 3 ? ' и другие' : ''}.`);
+  }
+
+  const timeline = buildCourseTimeline(context.timelineBuckets, logsByCourse);
+
+  return {
+    key: 'courses',
+    title: 'Курсы',
+    subtitle: 'Прогресс обучения',
+    unit: 'п.п.',
+    summary: {
+      current: totalCurrent,
+      previous: totalPrevious,
+      difference,
+      trend: determineTrend(totalCurrent, totalPrevious),
+      message: summaryMessage
+    },
+    items,
+    timeline,
+    insights
+  };
+};
+
+const buildGoalsSection = async (db, userId, context) => {
+  const goals = await db.all(
+    "SELECT id, title, target, completed, status FROM yearly_goals WHERE user_id=? AND COALESCE(status,'active') <> 'archived' ORDER BY created_at DESC",
+    [userId]
+  );
+
+  const currentRows = await db.all(
+    'SELECT goal_id, COUNT(*) AS count FROM yearly_goal_logs WHERE user_id=? AND date BETWEEN ? AND ? GROUP BY goal_id',
+    [userId, context.rangeStartString, context.rangeEndString]
+  );
+  const previousRows = await db.all(
+    'SELECT goal_id, COUNT(*) AS count FROM yearly_goal_logs WHERE user_id=? AND date BETWEEN ? AND ? GROUP BY goal_id',
+    [userId, context.previousStartString, context.previousEndString]
+  );
+  const timelineRows = await db.all(
+    'SELECT goal_id, date FROM yearly_goal_logs WHERE user_id=? AND date BETWEEN ? AND ?',
+    [
+      userId,
+      context.timelineStart.toISOString().slice(0, 10),
+      addDaysUtc(context.timelineEndExclusive, -1).toISOString().slice(0, 10)
+    ]
+  );
+
+  const currentMap = new Map();
+  for (const row of currentRows) {
+    currentMap.set(row.goal_id, Number(row.count) || 0);
+  }
+  const previousMap = new Map();
+  for (const row of previousRows) {
+    previousMap.set(row.goal_id, Number(row.count) || 0);
+  }
+
+  const timelineEvents = [];
+  for (const row of timelineRows) {
+    const ts = parseTimestamp(`${row.date}T00:00:00Z`);
+    if (ts === null) continue;
+    timelineEvents.push({ ts, value: 1 });
+  }
+
+  const itemsRaw = goals.map((goal) => {
+    const current = currentMap.get(goal.id) || 0;
+    const previous = previousMap.get(goal.id) || 0;
+    const difference = current - previous;
+    const trend = determineTrend(current, previous);
+    const target = Math.max(0, Number(goal.target) || 0);
+    const completed = Math.max(0, Number(goal.completed) || 0);
+    const pct = target > 0 ? Math.min(100, Math.round((completed * 100) / target)) : 0;
+    let message = '';
+    if (current > 0) {
+      if (target > 0) {
+        message = `Добавлено ${formatNumber(current)} отметок; прогресс ${formatNumber(pct)}% (${formatNumber(completed)} из ${formatNumber(target)}).`;
+      } else {
+        message = `Добавлено ${formatNumber(current)} отметок.`;
+      }
+    } else if (target > 0) {
+      message = `Без отметок; прогресс ${formatNumber(pct)}% (${formatNumber(completed)} из ${formatNumber(target)}).`;
+    } else {
+      message = 'Отметки не добавлены.';
+    }
+    return {
+      id: goal.id,
+      name: goal.title,
+      current,
+      previous,
+      difference,
+      trend,
+      total: pct,
+      message
+    };
+  });
+
+  const filteredItems = itemsRaw
+    .filter((item) => item.current > 0 || item.previous > 0)
+    .sort((a, b) => b.current - a.current || b.total - a.total || a.name.localeCompare(b.name));
+
+  const items = filteredItems.slice(0, 8);
+
+  const totalCurrent = itemsRaw.reduce((acc, item) => acc + item.current, 0);
+  const totalPrevious = itemsRaw.reduce((acc, item) => acc + item.previous, 0);
+  const difference = totalCurrent - totalPrevious;
+  let summaryMessage = '';
+  if (goals.length === 0) {
+    summaryMessage = 'Годовые цели не настроены.';
+  } else if (totalCurrent === 0 && totalPrevious === 0) {
+    summaryMessage = 'Отметок по целям не добавлено.';
+  } else if (difference > 0) {
+    summaryMessage = `Всего ${formatNumber(totalCurrent)} отметок по целям (+${formatNumber(difference)} к прошлому периоду).`;
+  } else if (difference < 0) {
+    summaryMessage = `Отметок стало меньше на ${formatNumber(Math.abs(difference))}.`;
+  } else {
+    summaryMessage = `Отметок за период: ${formatNumber(totalCurrent)} — на уровне прошлого периода.`;
+  }
+
+  const improved = itemsRaw
+    .filter((item) => item.current > 0)
+    .sort((a, b) => b.current - a.current);
+  const stagnant = itemsRaw.filter((item) => item.current === 0);
+
+  const insights = [];
+  if (improved.length) {
+    const top = improved[0];
+    insights.push(`Больше всего прогресса в цели «${top.name}»: +${formatNumber(top.current)} отметок.`);
+  }
+  if (stagnant.length) {
+    const listed = stagnant.map((item) => item.name).slice(0, 3).join(', ');
+    insights.push(`Без отметок: ${listed}${stagnant.length > 3 ? ' и другие' : ''}.`);
+  }
+
+  const timeline = buildTimelineFromEvents(context.timelineBuckets, timelineEvents);
+
+  return {
+    key: 'goals',
+    title: 'Годовые цели',
+    subtitle: 'Выполнение планов',
+    unit: 'отметок',
+    summary: {
+      current: totalCurrent,
+      previous: totalPrevious,
+      difference,
+      trend: determineTrend(totalCurrent, totalPrevious),
+      message: summaryMessage
+    },
+    items,
+    timeline,
+    insights
+  };
+};
+
+const generateReportData = async (db, userId, context) => {
+  const [languages, courses, goals] = await Promise.all([
+    buildLanguageSection(db, userId, context),
+    buildCourseSection(db, userId, context),
+    buildGoalsSection(db, userId, context)
+  ]);
+
+  const highlights = [
+    languages.summary.message,
+    courses.summary.message,
+    goals.summary.message,
+    ...languages.insights.slice(0, 2),
+    ...courses.insights.slice(0, 2),
+    ...goals.insights.slice(0, 2)
+  ].filter((line) => line && String(line).trim().length > 0);
+
+  const nowIso = new Date().toISOString();
+
+  return {
+    period: context.period,
+    period_key: context.key,
+    period_label: context.label,
+    period_description: `Промежуток: ${context.rangeLabel}`,
+    generated_at: nowIso,
+    range: {
+      start: context.rangeStartString,
+      end: context.rangeEndString,
+      label: context.rangeLabel
+    },
+    previous_range: {
+      start: context.previousStartString,
+      end: context.previousEndString,
+      label: context.previousLabel
+    },
+    highlights: highlights.slice(0, 8),
+    sections: {
+      languages,
+      courses,
+      goals
+    }
+  };
+};
+
+const normalizeStoredReport = (raw, context, fallbackGeneratedAt, reportId) => {
+  const report = raw && typeof raw === 'object' ? { ...raw } : {};
+  report.period = report.period || context.period;
+  report.period_key = report.period_key || context.key;
+  report.period_label = report.period_label || context.label;
+  report.period_description = report.period_description || `Промежуток: ${context.rangeLabel}`;
+  report.generated_at = report.generated_at || fallbackGeneratedAt || new Date().toISOString();
+  report.report_id = reportId ?? report.report_id ?? null;
+  report.range = report.range || { start: context.rangeStartString, end: context.rangeEndString, label: context.rangeLabel };
+  report.previous_range = report.previous_range || {
+    start: context.previousStartString,
+    end: context.previousEndString,
+    label: context.previousLabel
+  };
+  if (!Array.isArray(report.highlights)) report.highlights = [];
+  if (!report.sections || typeof report.sections !== 'object') {
+    report.sections = { languages: null, courses: null, goals: null };
+  }
+  return report;
+};
+
+router.get('/reports/period', async (req, res) => {
+  const rawPeriod = typeof req.query?.period === 'string' ? req.query.period.trim().toLowerCase() : 'daily';
+  if (!REPORT_PERIODS.has(rawPeriod)) {
+    return res.status(400).json({ error: 'invalid_period' });
+  }
+
+  const force = req.query?.force === '1' || req.query?.force === 'true';
+  let referenceDate = new Date();
+  if (typeof req.query?.date === 'string' && req.query.date.trim().length > 0) {
+    const parsed = Date.parse(`${req.query.date.trim()}T00:00:00Z`);
+    if (!Number.isNaN(parsed)) {
+      referenceDate = new Date(parsed);
+    }
+  }
+
+  const context = computePeriodContext(rawPeriod, referenceDate);
+  const db = await getDB();
+
+  let stored = await db.get(
+    'SELECT id, data, generated_at FROM progress_reports WHERE user_id=? AND period=? AND period_key=?',
+    [req.user.uid, rawPeriod, context.key]
+  );
+
+  let reportData = null;
+  if (!force && stored && typeof stored.data === 'string') {
+    try {
+      const parsed = JSON.parse(stored.data);
+      reportData = normalizeStoredReport(parsed, context, stored.generated_at, stored.id);
+    } catch {
+      reportData = null;
+    }
+  }
+
+  if (!reportData) {
+    reportData = await generateReportData(db, req.user.uid, context);
+    const payload = JSON.stringify(reportData);
+    const nowIso = new Date().toISOString();
+    await db.run(
+      'INSERT INTO progress_reports(user_id, period, period_key, period_start, period_end, data, generated_at) VALUES(?,?,?,?,?,?,?) ' +
+        'ON CONFLICT(user_id, period, period_key) DO UPDATE SET data=excluded.data, period_start=excluded.period_start, period_end=excluded.period_end, generated_at=excluded.generated_at',
+      [req.user.uid, rawPeriod, context.key, context.rangeStartString, context.rangeEndString, payload, nowIso]
+    );
+    stored = await db.get(
+      'SELECT id, data, generated_at FROM progress_reports WHERE user_id=? AND period=? AND period_key=?',
+      [req.user.uid, rawPeriod, context.key]
+    );
+    reportData = normalizeStoredReport(reportData, context, stored?.generated_at || nowIso, stored?.id || null);
+  }
+
+  if (stored) {
+    reportData.report_id = stored.id;
+    if (stored.generated_at) {
+      reportData.generated_at = stored.generated_at;
+    }
+  }
+
+  res.json({
+    period: rawPeriod,
+    period_key: context.key,
+    period_label: context.label,
+    report_id: reportData.report_id || stored?.id || null,
+    report: reportData
+  });
+});
+
+router.get('/reports/history', async (req, res) => {
+  const db = await getDB();
+  const limitParam = Number.parseInt(String(req.query?.limit || ''), 10);
+  const limit = Number.isNaN(limitParam) ? 20 : Math.min(Math.max(limitParam, 1), 100);
+  let periodFilter = null;
+  if (typeof req.query?.period === 'string' && req.query.period.trim().length > 0) {
+    const normalized = req.query.period.trim().toLowerCase();
+    if (normalized !== 'all') {
+      if (!REPORT_PERIODS.has(normalized)) {
+        return res.status(400).json({ error: 'invalid_period' });
+      }
+      periodFilter = normalized;
+    }
+  }
+
+  const params = [req.user.uid];
+  let sql = 'SELECT id, period, period_key, period_start, period_end, data, generated_at FROM progress_reports WHERE user_id=?';
+  if (periodFilter) {
+    sql += ' AND period=?';
+    params.push(periodFilter);
+  }
+  sql += ' ORDER BY period_start DESC, generated_at DESC LIMIT ?';
+  params.push(limit);
+
+  const rows = await db.all(sql, params);
+  const items = [];
+  for (const row of rows) {
+    if (typeof row.data !== 'string') continue;
+    try {
+      const parsed = JSON.parse(row.data);
+      const context = computePeriodContext(row.period, new Date(`${row.period_end || row.period_start}T00:00:00Z`));
+      const report = normalizeStoredReport(parsed, context, row.generated_at, row.id);
+      items.push(report);
+    } catch {
+      // skip malformed entries
+    }
+  }
+
+  res.json({ items });
 });
 
 export default router;

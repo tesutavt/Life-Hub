@@ -14,11 +14,13 @@ import {
   Share2,
   Settings as SettingsIcon,
   UserCircle,
-  Search
+  Search,
+  BarChart3
 } from 'lucide-react';
 import { onMenuCountersRefresh, onMenuVisibilityChange } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
 import { Modal } from '../components/ui/Modal';
+import ReportReminders from '../components/reports/ReportReminders';
 
 type MenuCounters = {
   languages: number;
@@ -44,6 +46,7 @@ const MENU_ITEMS: MenuItem[] = [
   { to: '/habits', label: 'Привычки', icon: CheckSquare },
   { to: '/travel', label: 'Путешествие', icon: Plane },
   { to: '/socials', label: 'Соцсети', icon: Share2 },
+  { to: '/reports', label: 'Отчёты', icon: BarChart3 },
   { to: '/settings', label: 'Настройки', icon: SettingsIcon }
 ];
 
@@ -54,6 +57,7 @@ export default function App() {
     <div className="min-h-screen grid grid-cols-[240px_1fr]">
       <Sidebar />
       <main className="p-6">
+        <ReportReminders />
         <Outlet />
       </main>
     </div>

@@ -20,6 +20,7 @@ import Socials from './pages/Socials'
 import Pages from './pages/Pages';
 import PageEditor from './pages/PageEditor';
 import Settings from './pages/Settings'
+import Reports from './pages/Reports'
 
 
 function PrivateRoute({ children }: { children: JSX.Element }){
@@ -47,10 +48,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="journal" element={<Journal/>} />
               <Route path="habits" element={<Habits/>} />
               <Route path="travel" element={<Travel/>} />
-              <Route path='socials' element={<Socials/>} />
-            <Route path='settings' element={<Settings/>} />
-              <Route path="/pages" element={<Pages/>} />
-              <Route path="/pages/:id" element={<PageEditor/>} />
+              <Route path="socials" element={<Socials/>} />
+              <Route path="settings" element={<Settings/>} />
+              <Route path="reports" element={<Reports/>} />
+              <Route path="pages" element={<Pages/>} />
+              <Route path="pages/:id" element={<PageEditor/>} />
             </Route>
           </Routes>
         </BrowserRouter>
