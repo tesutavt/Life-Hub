@@ -978,7 +978,7 @@ router.get('/calendar', async (req, res) => {
       id: 'loan_' + loan.id + '_' + y + '-' + String(m).padStart(2, '0'),
       user_id: req.user.uid,
       date: toISODate(dueDate),
-      title: '???? ? ???? ' + loan.bank,
+      title: 'Платёж по кредиту ' + loan.bank,
       type: 'loan_due',
       mood: null
     });
@@ -1003,7 +1003,7 @@ router.get('/calendar', async (req, res) => {
       id: 'page_' + row.id,
       user_id: req.user.uid,
       date: row.page_date,
-      title: row.title || '��������',
+      title: row.title || 'Страница',
       type: 'page',
       mood: null,
       page_id: row.id,
@@ -1024,7 +1024,7 @@ router.post('/xp/add', async (req, res) => {
     [req.user.uid, newXp, level, newXp, level]);
   const ts = new Date().toISOString();
   await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)',
-    [req.user.uid, 'xp_gain', '���������� XP', `+${amount}${note ? ` (${note})` : ''}`, JSON.stringify({ amount }), ts]);
+    [req.user.uid, 'xp_gain', 'Получено XP', `+${amount}${note ? ` (${note})` : ''}`, JSON.stringify({ amount }), ts]);
   res.json({ xp: newXp, level });
 });
 
