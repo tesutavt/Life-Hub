@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
+import { Link } from 'react-router-dom';
 import Shell from '../components/Shell';
 import { api } from '../api';
 import { useAuth } from '../AuthContext';
@@ -29,11 +30,16 @@ import {
   Flame,
   Footprints,
   HeartPulse,
+  CloudRain,
+  Droplets,
   Moon,
   PieChart as PieChartIcon,
+  Loader2,
+  RefreshCcw,
   Plus,
   Target,
   TrendingUp,
+  Wind,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -192,6 +198,177 @@ type BankTransaction = {
 
 type FitnessMetrics = { steps: number; hr: number; sleepH: number };
 
+type WeatherTimeOfDay = 'morning' | 'day' | 'evening' | 'night';
+type WeatherMood = 'clear' | 'clouds' | 'rain' | 'snow' | 'storm' | 'mist' | 'default';
+
+type WeatherVisual = { gradient: string; overlay: string; accent: string };
+
+type WeatherInfo = {
+  city: string;
+  country?: string;
+  description: string;
+  condition: string;
+  temperature: number;
+  feelsLike: number;
+  humidity: number;
+  windSpeed: number;
+  precipitationChance: number;
+  precipitationVolume: number;
+  icon?: string;
+  localDate: Date;
+  localDateLabel: string;
+  localTimeLabel: string;
+  timeOfDay: WeatherTimeOfDay;
+  mood: WeatherMood;
+};
+
+type WeatherErrorState = 'profile' | 'missing-key' | 'not-found' | 'fetch' | null;
+
+const WEATHER_TIME_LABELS: Record<WeatherTimeOfDay, string> = {
+  morning: 'Утро',
+  day: 'День',
+  evening: 'Вечер',
+  night: 'Ночь',
+};
+
+const weatherDateFormatter = new Intl.DateTimeFormat('ru-RU', {
+  weekday: 'long',
+  day: 'numeric',
+  month: 'long',
+  timeZone: 'UTC',
+});
+
+const weatherTimeFormatter = new Intl.DateTimeFormat('ru-RU', {
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'UTC',
+});
+
+const WEATHER_VISUALS: Record<WeatherMood, Record<WeatherTimeOfDay, WeatherVisual>> = {
+  clear: {
+    morning: { gradient: 'linear-gradient(135deg, #fde68a 0%, #f97316 45%, #f472b6 100%)', overlay: 'rgba(15,23,42,0.18)', accent: '#fee2b3' },
+    day: { gradient: 'linear-gradient(135deg, #38bdf8 0%, #60a5fa 50%, #c4b5fd 100%)', overlay: 'rgba(15,23,42,0.22)', accent: '#fef3c7' },
+    evening: { gradient: 'linear-gradient(135deg, #c4b5fd 0%, #f472b6 55%, #fb7185 100%)', overlay: 'rgba(15,23,42,0.28)', accent: '#fee2b3' },
+    night: { gradient: 'linear-gradient(135deg, #312e81 0%, #1e3a8a 55%, #0f172a 100%)', overlay: 'rgba(8,47,73,0.45)', accent: '#facc15' },
+  },
+  clouds: {
+    morning: { gradient: 'linear-gradient(135deg, #cbd5f5 0%, #94a3b8 55%, #64748b 100%)', overlay: 'rgba(15,23,42,0.3)', accent: '#e0e7ff' },
+    day: { gradient: 'linear-gradient(135deg, #94a3b8 0%, #64748b 50%, #334155 100%)', overlay: 'rgba(15,23,42,0.32)', accent: '#e2e8f0' },
+    evening: { gradient: 'linear-gradient(135deg, #a5b4fc 0%, #818cf8 45%, #475569 100%)', overlay: 'rgba(15,23,42,0.34)', accent: '#e0e7ff' },
+    night: { gradient: 'linear-gradient(135deg, #1f2937 0%, #111827 60%, #0f172a 100%)', overlay: 'rgba(15,23,42,0.45)', accent: '#f8fafc' },
+  },
+  rain: {
+    morning: { gradient: 'linear-gradient(135deg, #60a5fa 0%, #4f46e5 55%, #312e81 100%)', overlay: 'rgba(15,23,42,0.36)', accent: '#c7d2fe' },
+    day: { gradient: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 55%, #1e3a8a 100%)', overlay: 'rgba(15,23,42,0.4)', accent: '#c7d2fe' },
+    evening: { gradient: 'linear-gradient(135deg, #4338ca 0%, #312e81 50%, #111827 100%)', overlay: 'rgba(15,23,42,0.45)', accent: '#c7d2fe' },
+    night: { gradient: 'linear-gradient(135deg, #1e1b4b 0%, #1e293b 50%, #0f172a 100%)', overlay: 'rgba(15,23,42,0.48)', accent: '#c7d2fe' },
+  },
+  snow: {
+    morning: { gradient: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 50%, #7dd3fc 100%)', overlay: 'rgba(15,23,42,0.18)', accent: '#0ea5e9' },
+    day: { gradient: 'linear-gradient(135deg, #bae6fd 0%, #7dd3fc 55%, #38bdf8 100%)', overlay: 'rgba(15,23,42,0.22)', accent: '#0ea5e9' },
+    evening: { gradient: 'linear-gradient(135deg, #bfdbfe 0%, #93c5fd 55%, #60a5fa 100%)', overlay: 'rgba(15,23,42,0.26)', accent: '#2563eb' },
+    night: { gradient: 'linear-gradient(135deg, #1d4ed8 0%, #1e40af 55%, #1e293b 100%)', overlay: 'rgba(15,23,42,0.45)', accent: '#bfdbfe' },
+  },
+  storm: {
+    morning: { gradient: 'linear-gradient(135deg, #7c3aed 0%, #4c1d95 55%, #312e81 100%)', overlay: 'rgba(15,23,42,0.38)', accent: '#c4b5fd' },
+    day: { gradient: 'linear-gradient(135deg, #4c1d95 0%, #312e81 55%, #111827 100%)', overlay: 'rgba(15,23,42,0.45)', accent: '#c4b5fd' },
+    evening: { gradient: 'linear-gradient(135deg, #3730a3 0%, #1e3a8a 55%, #0f172a 100%)', overlay: 'rgba(15,23,42,0.48)', accent: '#c7d2fe' },
+    night: { gradient: 'linear-gradient(135deg, #1e1b4b 0%, #1e293b 55%, #0b1120 100%)', overlay: 'rgba(15,23,42,0.52)', accent: '#facc15' },
+  },
+  mist: {
+    morning: { gradient: 'linear-gradient(135deg, #cbd5f5 0%, #a5b4fc 55%, #94a3b8 100%)', overlay: 'rgba(15,23,42,0.26)', accent: '#f1f5f9' },
+    day: { gradient: 'linear-gradient(135deg, #94a3b8 0%, #64748b 55%, #475569 100%)', overlay: 'rgba(15,23,42,0.32)', accent: '#e2e8f0' },
+    evening: { gradient: 'linear-gradient(135deg, #818cf8 0%, #6366f1 55%, #475569 100%)', overlay: 'rgba(15,23,42,0.34)', accent: '#ede9fe' },
+    night: { gradient: 'linear-gradient(135deg, #3730a3 0%, #312e81 55%, #1e293b 100%)', overlay: 'rgba(15,23,42,0.46)', accent: '#c7d2fe' },
+  },
+  default: {
+    morning: { gradient: 'linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #0f172a 100%)', overlay: 'rgba(15,23,42,0.32)', accent: '#fef3c7' },
+    day: { gradient: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #0f172a 100%)', overlay: 'rgba(15,23,42,0.34)', accent: '#fef3c7' },
+    evening: { gradient: 'linear-gradient(135deg, #8b5cf6 0%, #ec4899 55%, #312e81 100%)', overlay: 'rgba(15,23,42,0.36)', accent: '#fde68a' },
+    night: { gradient: 'linear-gradient(135deg, #312e81 0%, #1e293b 55%, #0b1120 100%)', overlay: 'rgba(15,23,42,0.5)', accent: '#facc15' },
+  },
+};
+
+const resolveWeatherMood = (input: string): WeatherMood => {
+  const normalized = input.toLowerCase();
+  if (normalized.includes('thunder')) return 'storm';
+  if (normalized.includes('storm')) return 'storm';
+  if (normalized.includes('snow') || normalized.includes('sleet') || normalized.includes('ice')) return 'snow';
+  if (normalized.includes('rain') || normalized.includes('drizzle')) return 'rain';
+  if (normalized.includes('mist') || normalized.includes('fog') || normalized.includes('haze') || normalized.includes('smoke')) return 'mist';
+  if (normalized.includes('cloud')) return 'clouds';
+  if (normalized.includes('clear')) return 'clear';
+  return 'default';
+};
+
+const getWeatherTimeOfDay = (date: Date): WeatherTimeOfDay => {
+  const hour = date.getUTCHours();
+  if (hour >= 5 && hour < 11) return 'morning';
+  if (hour >= 11 && hour < 17) return 'day';
+  if (hour >= 17 && hour < 21) return 'evening';
+  return 'night';
+};
+
+const normalizeWeatherResponse = (payload: any, requestedCity: string): WeatherInfo => {
+  const timezoneOffset = Number.isFinite(Number(payload?.timezone)) ? Number(payload.timezone) : 0;
+  const dt = Number.isFinite(Number(payload?.dt)) ? Number(payload.dt) : Math.floor(Date.now() / 1000);
+  const localDate = new Date((dt + timezoneOffset) * 1000);
+  const weatherEntry = Array.isArray(payload?.weather) && payload.weather.length > 0 ? payload.weather[0] : {};
+  const rawMain = typeof weatherEntry?.main === 'string' ? weatherEntry.main : '';
+  const rawDescription = typeof weatherEntry?.description === 'string' ? weatherEntry.description : rawMain;
+  const description = rawDescription ? rawDescription.charAt(0).toUpperCase() + rawDescription.slice(1) : '';
+  const mood = resolveWeatherMood(`${rawMain} ${rawDescription}`);
+  const temperatureRaw = Number(payload?.main?.temp);
+  const feelsLikeRaw = Number(payload?.main?.feels_like);
+  const humidityRaw = Number(payload?.main?.humidity);
+  const windRaw = Number(payload?.wind?.speed);
+  const rain1h = Number(payload?.rain?.['1h']);
+  const rain3h = Number(payload?.rain?.['3h']);
+  const snow1h = Number(payload?.snow?.['1h']);
+  const snow3h = Number(payload?.snow?.['3h']);
+  const precipitationVolumeRaw = [rain1h, rain3h, snow1h, snow3h].find((value) => Number.isFinite(value) && value > 0) ?? 0;
+  const precipitationChanceRaw = Number(payload?.clouds?.all);
+
+  const cityName = typeof payload?.name === 'string' && payload.name.trim().length > 0 ? payload.name : requestedCity;
+  const country = typeof payload?.sys?.country === 'string' ? payload.sys.country : undefined;
+
+  const humidity = Number.isFinite(humidityRaw) ? Math.max(0, Math.min(100, Math.round(humidityRaw))) : 0;
+  const windSpeed = Number.isFinite(windRaw) ? Math.max(0, windRaw) : 0;
+  const precipitationChance = Number.isFinite(precipitationChanceRaw)
+    ? Math.max(0, Math.min(100, Math.round(precipitationChanceRaw)))
+    : 0;
+
+  return {
+    city: cityName,
+    country,
+    description,
+    condition: rawMain,
+    temperature: Number.isFinite(temperatureRaw) ? Math.round(temperatureRaw) : 0,
+    feelsLike: Number.isFinite(feelsLikeRaw)
+      ? Math.round(feelsLikeRaw)
+      : Number.isFinite(temperatureRaw)
+      ? Math.round(temperatureRaw)
+      : 0,
+    humidity,
+    windSpeed: Math.round(windSpeed * 10) / 10,
+    precipitationChance,
+    precipitationVolume: Math.round(Math.max(0, precipitationVolumeRaw) * 10) / 10,
+    icon: typeof weatherEntry?.icon === 'string' ? weatherEntry.icon : undefined,
+    localDate,
+    localDateLabel: weatherDateFormatter.format(localDate),
+    localTimeLabel: weatherTimeFormatter.format(localDate),
+    timeOfDay: getWeatherTimeOfDay(localDate),
+    mood,
+  };
+};
+
+const getWeatherVisuals = (info?: WeatherInfo | null): WeatherVisual => {
+  const mood = info?.mood ?? 'default';
+  const time = info?.timeOfDay ?? 'day';
+  const palette = WEATHER_VISUALS[mood] ?? WEATHER_VISUALS.default;
+  return palette[time] ?? WEATHER_VISUALS.default.day;
+};
+
 const TopStat = ({
   icon: Icon,
   label,
@@ -286,6 +463,214 @@ const FitnessStatCard = ({
   </div>
 );
 
+const WeatherMetric = ({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: string;
+}) => (
+  <div className="rounded-2xl bg-white/15 px-3 py-2 backdrop-blur-sm">
+    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-white/70">
+      <Icon className="h-3.5 w-3.5" />
+      <span>{label}</span>
+    </div>
+    <div
+      className="mt-1 text-lg font-semibold text-white"
+      style={accent ? { color: accent } : undefined}
+    >
+      {value}
+    </div>
+    {sub && <div className="mt-0.5 text-[11px] text-white/75">{sub}</div>}
+  </div>
+);
+
+const WeatherCard = ({
+  weather,
+  status,
+  city,
+  error,
+  onRetry,
+}: {
+  weather: WeatherInfo | null;
+  status: 'idle' | 'loading' | 'error';
+  city: string;
+  error: WeatherErrorState;
+  onRetry: () => void;
+}) => {
+  const visuals = getWeatherVisuals(weather);
+  const locationLabel = weather
+    ? weather.country
+      ? `${weather.city}, ${weather.country}`
+      : weather.city
+    : city;
+
+  const precipitationFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+  const windFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 0 });
+
+  let content: React.ReactNode;
+
+  if (status === 'error') {
+    const showRetry = error === 'fetch' || error === 'profile';
+    const showProfileLink = error === 'not-found';
+    let message = 'Не удалось загрузить погоду. Попробуйте обновить страницу.';
+    if (error === 'missing-key') {
+      message = 'Не задан ключ API OpenWeather. Добавьте VITE_OPENWEATHER_API_KEY и перезапустите приложение.';
+    } else if (error === 'profile') {
+      message = 'Не удалось загрузить профиль пользователя. Попробуйте обновить страницу.';
+    } else if (error === 'not-found' && city) {
+      message = `Город «${city}» не найден. Проверьте название в настройках профиля.`;
+    }
+
+    content = (
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-white/70">Погода</div>
+          {locationLabel && (
+            <div className="text-lg font-semibold leading-tight text-white">{locationLabel}</div>
+          )}
+        </div>
+        <div className="text-sm text-white/80 leading-relaxed">{message}</div>
+        <div className="flex flex-wrap gap-2">
+          {showRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/30"
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Повторить
+            </button>
+          )}
+          {showProfileLink && (
+            <Link
+              to="/profile"
+              className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/30"
+            >
+              Настроить город
+            </Link>
+          )}
+        </div>
+      </div>
+    );
+  } else if (!city) {
+    content = (
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-white/70">Погода</div>
+          <div className="text-lg font-semibold leading-tight text-white">Добавьте город</div>
+        </div>
+        <div className="text-sm text-white/80 leading-relaxed">
+          Укажите ваш город в профиле, чтобы видеть актуальную погоду на дашборде.
+        </div>
+        <Link
+          to="/profile"
+          className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/30"
+        >
+          Перейти в профиль
+        </Link>
+      </div>
+    );
+  } else if (status === 'loading') {
+    content = (
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs uppercase tracking-wide text-white/70">Погода</div>
+          {locationLabel && (
+            <div className="text-lg font-semibold leading-tight text-white">{locationLabel}</div>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-sm text-white/80">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          <span>Загружаем погоду…</span>
+        </div>
+      </div>
+    );
+  } else if (weather) {
+    const precipitationValue = weather.precipitationVolume > 0
+      ? `${precipitationFormatter.format(weather.precipitationVolume)} мм`
+      : `${weather.precipitationChance}%`;
+    const precipitationSub = weather.precipitationVolume > 0
+      ? `Вероятность ~${weather.precipitationChance}%`
+      : weather.precipitationChance > 0
+      ? `Вероятность ~${weather.precipitationChance}%`
+      : 'Осадки не ожидаются';
+    const humidityValue = `${weather.humidity}%`;
+    const windValue = `${windFormatter.format(weather.windSpeed)} м/с`;
+
+    content = (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-white/70">Погода</div>
+            <div className="text-lg font-semibold leading-tight text-white">{locationLabel}</div>
+            {weather.description && (
+              <div className="text-sm text-white/80">{weather.description}</div>
+            )}
+          </div>
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wide text-white/70">{WEATHER_TIME_LABELS[weather.timeOfDay]}</div>
+            <div className="text-sm font-medium text-white/90">{weather.localDateLabel}</div>
+            <div className="text-xs text-white/70">{weather.localTimeLabel}</div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex items-center gap-3">
+            {weather.icon && (
+              <img
+                src={`https://openweathermap.org/img/wn/${weather.icon}@2x.png`}
+                alt={weather.description || weather.condition || 'Погодные условия'}
+                className="h-16 w-16 drop-shadow-xl"
+                loading="lazy"
+              />
+            )}
+            <div>
+              <div
+                className="text-5xl font-bold leading-none"
+                style={{ color: visuals.accent }}
+              >
+                {weather.temperature}°C
+              </div>
+              <div className="mt-1 text-sm text-white/80">
+                Ощущается как {weather.feelsLike}°C
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <WeatherMetric icon={CloudRain} label="Осадки" value={precipitationValue} sub={precipitationSub} accent={visuals.accent} />
+          <WeatherMetric icon={Droplets} label="Влажность" value={humidityValue} />
+          <WeatherMetric icon={Wind} label="Ветер" value={windValue} />
+        </div>
+      </div>
+    );
+  } else {
+    content = (
+      <div className="space-y-4">
+        <div className="text-xs uppercase tracking-wide text-white/70">Погода</div>
+        <div className="text-sm text-white/80">Нет данных о погоде.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-3xl border border-white/10 text-white shadow-xl shadow-black/30">
+      <div className="absolute inset-0" style={{ background: visuals.gradient }} />
+      <div className="absolute inset-0" style={{ background: visuals.overlay }} />
+      <div className="absolute -top-24 -right-20 h-56 w-56 rounded-full bg-white/25 opacity-20 blur-3xl" />
+      <div className="relative z-10 p-6">{content}</div>
+    </div>
+  );
+};
+
 const categorizeTransaction = (tx: BankTransaction) => {
   if (!tx || !Number.isFinite(Number(tx.amount)) || tx.amount >= 0) return null;
   if (typeof tx.mcc === 'number' && mccPresetMap.has(tx.mcc)) {
@@ -355,6 +740,7 @@ const mapLoan = (entry: any): LoanSummary => ({
 export default function Dashboard() {
   const { token } = useAuth();
 
+  const isMountedRef = useRef(true);
   const [languages, setLanguages] = useState<LanguageSummary[]>([]);
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [goals, setGoals] = useState<GoalSummary[]>([]);
@@ -373,6 +759,98 @@ export default function Dashboard() {
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [formTagIds, setFormTagIds] = useState<number[]>([]);
   const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
+  const [weather, setWeather] = useState<WeatherInfo | null>(null);
+  const [weatherCity, setWeatherCity] = useState('');
+  const [weatherStatus, setWeatherStatus] = useState<'idle' | 'loading' | 'error'>('loading');
+  const [weatherError, setWeatherError] = useState<WeatherErrorState>(null);
+
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
+
+  const weatherApiKey = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
+
+  const loadWeather = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    setWeatherError(null);
+    setWeatherStatus('loading');
+
+    let cityName = '';
+    try {
+      const profile = await api.get('/api/life/profile', { silentError: true });
+      if (!isMountedRef.current) return;
+      cityName = (profile?.user?.city || '').trim();
+      setWeatherCity(cityName);
+    } catch {
+      if (!isMountedRef.current) return;
+      setWeatherCity('');
+      setWeather(null);
+      setWeatherError('profile');
+      setWeatherStatus('error');
+      return;
+    }
+
+    if (!isMountedRef.current) return;
+
+    if (!cityName) {
+      setWeather(null);
+      setWeatherStatus('idle');
+      return;
+    }
+
+    if (!weatherApiKey) {
+      setWeather(null);
+      setWeatherError('missing-key');
+      setWeatherStatus('error');
+      return;
+    }
+
+    try {
+      const encodedCity = encodeURIComponent(cityName);
+      const response = await fetch(
+        `https://api.openweathermap.org/data/2.5/weather?q=${encodedCity}&appid=${weatherApiKey}&units=metric&lang=ru`,
+      );
+      if (!response.ok) {
+        let errorCode = 'fetch_failed';
+        try {
+          const payload = await response.clone().json();
+          const message = typeof payload?.message === 'string' ? payload.message.toLowerCase() : '';
+          if (message.includes('not found')) {
+            errorCode = 'not-found';
+          } else if (message.includes('invalid api key')) {
+            errorCode = 'missing-key';
+          }
+        } catch {
+          try {
+            const text = (await response.text()).toLowerCase();
+            if (text.includes('not found')) errorCode = 'not-found';
+            else if (text.includes('invalid api key')) errorCode = 'missing-key';
+          } catch {
+            // ignore text parse errors
+          }
+        }
+        throw new Error(errorCode);
+      }
+      const payload = await response.json();
+      if (!isMountedRef.current) return;
+      setWeather(normalizeWeatherResponse(payload, cityName));
+      setWeatherStatus('idle');
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      const code = error instanceof Error ? error.message : '';
+      if (code === 'missing-key') {
+        setWeatherError('missing-key');
+      } else if (code === 'not-found') {
+        setWeatherError('not-found');
+      } else if (code === 'profile') {
+        setWeatherError('profile');
+      } else {
+        setWeatherError('fetch');
+      }
+      setWeather(null);
+      setWeatherStatus('error');
+    }
+  }, [weatherApiKey]);
 
   const loadLanguages = async () => {
     try {
@@ -554,6 +1032,10 @@ export default function Dashboard() {
       } catch {}
     })();
   }, []);
+
+  useEffect(() => {
+    loadWeather();
+  }, [loadWeather]);
 
   useEffect(() => {
     loadCalendar(currentMonth);
@@ -944,6 +1426,13 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="space-y-6 xl:col-span-4">
+            <WeatherCard
+              weather={weather}
+              status={weatherStatus}
+              city={weatherCity}
+              error={weatherError}
+              onRetry={loadWeather}
+            />
             <div className="card">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
