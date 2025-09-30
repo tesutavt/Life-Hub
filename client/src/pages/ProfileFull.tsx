@@ -662,14 +662,14 @@ export default function ProfileFull() {
           <>
             <div className="font-medium mb-2">Значки</div>
             {badges.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {badges.map((b: any) => (
                   <div
                     key={b.id}
                     className="p-2 rounded-xl bg-white/5 border border-white/10 text-center"
                   >
-                    <div className="text-2xl">🏅</div>
-                    <div className="text-[11px] mt-1 truncate">{b.name}</div>
+                    <div className="text-xl leading-none">🏅</div>
+                    <div className="text-[11px] mt-1 truncate text-white/70">{b.name}</div>
                   </div>
                 ))}
               </div>
@@ -711,8 +711,8 @@ export default function ProfileFull() {
                     >
                       <div className="absolute inset-0" style={bannerStyle} />
                       <div className="absolute inset-0 bg-black/40" />
-                      <div className="relative p-3 flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg border border-white/20 bg-black/40 overflow-hidden flex items-center justify-center text-sm font-semibold uppercase tracking-wide">
+                      <div className="relative p-2.5 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg border border-white/15 bg-black/40 overflow-hidden flex items-center justify-center text-xs font-semibold uppercase tracking-wide">
                           {avatarUrl ? (
                             <img
                               src={avatarUrl}
@@ -725,8 +725,8 @@ export default function ProfileFull() {
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate">{language.name}</div>
-                          <div className="text-xs opacity-80">
+                          <div className="text-sm font-semibold truncate text-white/90">{language.name}</div>
+                          <div className="text-[11px] opacity-80">
                             {language.level ? `Уровень ${language.level}` : 'Уровень не указан'}
                           </div>
                         </div>
@@ -882,55 +882,73 @@ export default function ProfileFull() {
 
   return (
     <Shell>
-      <div className="rounded-2xl overflow-hidden border border-white/15 relative">
+      <div className="relative overflow-hidden rounded-3xl border border-brand-slate/40 bg-brand-night/85 shadow-brand-soft">
         <div
-          className="h-40 bg-gradient-to-r from-purple-600/40 to-blue-600/40"
+          className="relative h-40 bg-gradient-to-r from-purple-600/40 to-blue-600/40"
           style={{
             backgroundImage: data?.user?.banner_url
               ? `url(${resolveApiUrl(data.user.banner_url)})`
               : undefined,
-            backgroundSize: 'cover'
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
           }}
-        />
-        <div className="p-4 relative">
-          <img
-            src={
-              data?.user?.avatar_url
-                ? resolveApiUrl(data.user.avatar_url)
-                : 'https://api.dicebear.com/9.x/identicon/svg'
-            }
-            className="w-20 h-20 rounded-2xl border-4 border-black -mt-12"
-          />
-          <div className="mt-2 text-xl font-semibold">
-            {data?.user?.name || 'Мой профиль'}
-          </div>
-          {data?.user?.city && (
-            <div className="mt-1 flex items-center gap-2 text-sm text-white/70">
-              <MapPin className="h-4 w-4 opacity-70" />
-              <span>{data.user.city}</span>
+        >
+          <div className="absolute inset-0 bg-black/30" />
+        </div>
+        <div className="relative px-5 pb-5 pt-8 sm:pt-10">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between sm:gap-6">
+            <div className="flex items-end gap-4">
+              <div className="relative -mt-14 sm:-mt-16">
+                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl border-2 border-brand-mint/60 bg-brand-night/90 shadow-brand-glow overflow-hidden">
+                  <img
+                    src={
+                      data?.user?.avatar_url
+                        ? resolveApiUrl(data.user.avatar_url)
+                        : 'https://api.dicebear.com/9.x/identicon/svg'
+                    }
+                    alt={data?.user?.name || 'Аватар профиля'}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 sm:mt-0">
+                <div className="text-lg sm:text-xl font-semibold">
+                  {data?.user?.name || 'Мой профиль'}
+                </div>
+                {data?.user?.city && (
+                  <div className="mt-1 flex items-center gap-2 text-sm text-white/70">
+                    <MapPin className="h-4 w-4 opacity-70" />
+                    <span>{data.user.city}</span>
+                  </div>
+                )}
+                {data?.user?.bio && (
+                  <div className="text-sm opacity-70">{data.user.bio}</div>
+                )}
+              </div>
             </div>
-          )}
-          {data?.user?.bio && (
-            <div className="text-sm opacity-70">{data.user.bio}</div>
-          )}
-          <div className="mt-2">
-            Уровень {level} · XP {xp}
-            <div className="w-full h-2 bg-white/10 rounded mt-1">
-              <div className="h-2 bg-white rounded" style={{ width: `${prog}%` }} />
-            </div>
           </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div>
+              <div className="text-sm text-white/70">
+                Уровень {level} · XP {xp}
+              </div>
+              <div className="w-full h-2 bg-white/10 rounded mt-2 overflow-hidden">
+                <div className="h-2 bg-brand-mint" style={{ width: `${prog}%` }} />
+              </div>
+            </div>
 
-          <button
-            onClick={() => setOpenEdit(true)}
-            className="absolute top-4 right-4 px-3 py-1 rounded bg-white/10 border border-white/20 text-sm hover:bg-white/20"
-          >
-            ✎ Изменить профиль
-          </button>
+            <button
+              onClick={() => setOpenEdit(true)}
+              className="justify-self-end px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-xs font-medium uppercase tracking-wide text-white/80 transition hover:border-brand-mint/60 hover:text-brand-mint"
+            >
+              ✎ Изменить профиль
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ---------- Панель с тремя блоками ---------- */}
-      <div className="grid md:grid-cols-3 gap-6 mt-6" {...overviewBlocksLayout.getContainerProps()}>
+      <div className="grid md:grid-cols-3 gap-4 mt-6" {...overviewBlocksLayout.getContainerProps()}>
         {overviewBlocksLayout.items.map((block) => {
           const dragProps = overviewBlocksLayout.getDraggableProps(block.id);
           const isDragging = overviewBlocksLayout.activeId === String(block.id);
@@ -942,7 +960,7 @@ export default function ProfileFull() {
               data-dragging={isDragging ? 'true' : undefined}
               data-drop-target={isDropTarget ? 'true' : undefined}
               className={classNames(
-                'card transition-all duration-200 ease-out select-none',
+                'card px-4 py-3 sm:px-5 sm:py-4 transition-all duration-200 ease-out select-none',
                 { 'cursor-grab active:cursor-grabbing': dragProps.draggable },
                 {
                   'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-xl shadow-black/40': isDragging,

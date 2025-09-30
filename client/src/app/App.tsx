@@ -135,7 +135,7 @@ function Sidebar() {
   return (
     <aside className="p-4 border-r border-brand-slate/40 bg-brand-night/75 backdrop-blur-xl flex flex-col gap-4 shadow-brand-soft">
       {profile && (
-        <div className="rounded-3xl overflow-hidden border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft">
+        <div className="relative rounded-3xl border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft overflow-hidden">
           <div
             className="h-20 bg-brand-mint/10"
             style={{
@@ -147,14 +147,20 @@ function Sidebar() {
               filter: profile.banner_url ? 'saturate(80%)' : undefined,
             }}
           />
-          <div className="flex items-center p-3 gap-3 -mt-8">
-            <img
-              src={profile.avatar_url
-                ? resolveApiUrl(profile.avatar_url)
-                : 'https://api.dicebear.com/9.x/identicon/svg'}
-              className="w-12 h-12 rounded-xl border-2 border-brand-mint/50 shadow-brand-glow"
-            />
-            <div className="font-semibold leading-tight">{profile.name || '��� ��䨫�'}</div>
+          <div className="px-4 pb-4 pt-8 flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl border-2 border-brand-mint/60 bg-brand-night/90 shadow-brand-glow overflow-hidden">
+              <img
+                src={profile.avatar_url
+                  ? resolveApiUrl(profile.avatar_url)
+                  : 'https://api.dicebear.com/9.x/identicon/svg'}
+                alt={profile.name || 'Аватар пользователя'}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold leading-tight truncate">{profile.name || 'Без имени'}</div>
+              {profile.city && <div className="text-xs text-slate-200/60 truncate">{profile.city}</div>}
+            </div>
           </div>
         </div>
       )}
@@ -184,7 +190,7 @@ function Sidebar() {
         }}
         className="mt-auto text-sm text-slate-300/70 transition hover:text-brand-mint"
       >
-        ���
+        Выйти
       </button>
 
       <Modal
