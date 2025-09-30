@@ -25,6 +25,45 @@ CREATE TABLE IF NOT EXISTS fitness_daily(
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS fitness_activity(
+  user_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  steps INTEGER DEFAULT 0,
+  calories REAL DEFAULT 0,
+  distance REAL DEFAULT 0,
+  move_minutes INTEGER DEFAULT 0,
+  active_minutes INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, date),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fitness_heart_rate(
+  user_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  avg_bpm REAL,
+  min_bpm REAL,
+  max_bpm REAL,
+  samples INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, date),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS fitness_sleep(
+  user_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  duration_minutes REAL DEFAULT 0,
+  deep_minutes REAL DEFAULT 0,
+  light_minutes REAL DEFAULT 0,
+  rem_minutes REAL DEFAULT 0,
+  awake_minutes REAL DEFAULT 0,
+  sessions INTEGER DEFAULT 0,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, date),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS loans(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,

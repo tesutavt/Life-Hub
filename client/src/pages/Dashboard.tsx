@@ -940,25 +940,65 @@ export default function Dashboard() {
   const loadFitness = async () => {
     try {
       const today = new Date();
-      const days = [...Array(7)].map((_, i) => {
-        const d = new Date(today);
-        d.setDate(d.getDate() - (6 - i));
-        return d;
+      const start = new Date(today);
+      start.setDate(start.getDate() - 6);
+      const startIso = start.toISOString().slice(0, 10);
+      const endIso = today.toISOString().slice(0, 10);
+
+      const [activityRes, heartRes, sleepRes] = await Promise.all([
+        api.get(`/api/fitness/activity?start=${startIso}&end=${endIso}`, { silentError: true }),
+        api.get(`/api/fitness/heart_rate?start=${startIso}&end=${endIso}`, { silentError: true }),
+        api.get(`/api/fitness/sleep?start=${startIso}&end=${endIso}`, { silentError: true }),
+      ]);
+
+      const activityMap = new Map<string, any>();
+      const heartMap = new Map<string, any>();
+      const sleepMap = new Map<string, any>();
+
+      const activityItems = Array.isArray(activityRes?.items) ? activityRes.items : [];
+      const heartItems = Array.isArray(heartRes?.items) ? heartRes.items : [];
+      const sleepItems = Array.isArray(sleepRes?.items) ? sleepRes.items : [];
+
+      activityItems.forEach((item: any) => {
+        if (item?.date) activityMap.set(item.date, item);
       });
-      const history: FitnessPoint[] = [];
-      for (const d of days) {
-        const iso = d.toISOString().slice(0, 10);
-        const data = await api.get(`/api/fitness/metrics?day=${iso}`, { silentError: true });
-        history.push({
-          date: fmtDateKey(d),
-          steps: Number(data.steps || 0),
-          hr: Number(data.hr || 0),
-          sleep: Number(data.sleepH || 0),
-          activeCalories: Number(
-            data.activeCalories ?? data.active_calories ?? data.active_cal ?? 0
-          ),
-        });
+      heartItems.forEach((item: any) => {
+        if (item?.date) heartMap.set(item.date, item);
+      });
+      sleepItems.forEach((item: any) => {
+        if (item?.date) sleepMap.set(item.date, item);
+      });
+
+      const rangeDates: string[] = [];
+      const cursor = new Date(`${startIso}T00:00:00Z`);
+      const end = new Date(`${endIso}T00:00:00Z`);
+      while (cursor.getTime() <= end.getTime()) {
+        rangeDates.push(cursor.toISOString().slice(0, 10));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
+
+      const history: FitnessPoint[] = rangeDates.map((iso) => {
+        const dateObj = new Date(`${iso}T00:00:00Z`);
+        const activity = activityMap.get(iso) || {};
+        const heart = heartMap.get(iso) || {};
+        const sleep = sleepMap.get(iso) || {};
+        const sleepHours =
+          typeof sleep.duration_hours === 'number'
+            ? Number(sleep.duration_hours)
+            : sleep.duration_minutes
+            ? Number((Number(sleep.duration_minutes) / 60).toFixed(2))
+            : 0;
+        return {
+          date: fmtDateKey(dateObj),
+          steps: Number(activity.steps || 0),
+          hr: Number(heart.avg_bpm || 0),
+          sleep: Number(sleepHours || 0),
+          activeCalories: Number(
+            activity.calories ?? activity.calories_kcal ?? activity.active_calories ?? 0
+          ),
+        };
+      });
+
       setSeries(history);
       const latest = history[history.length - 1];
       if (latest) {

@@ -2346,6 +2346,21 @@ const formatSigned = (value) => {
   return '0';
 };
 
+const formatDecimal = (value, digits = 1) => {
+  const multiplier = 10 ** digits;
+  const rounded = Math.round(clampNumber(value) * multiplier) / multiplier;
+  return numberFormatter.format(rounded);
+};
+
+const formatSignedDecimal = (value, digits = 1) => {
+  const multiplier = 10 ** digits;
+  const rounded = Math.round(clampNumber(value) * multiplier) / multiplier;
+  const formatted = numberFormatter.format(Math.abs(rounded));
+  if (rounded > 0) return `+${formatted}`;
+  if (rounded < 0) return `-${formatted}`;
+  return '0';
+};
+
 const startOfUtcDay = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 
 const addDaysUtc = (date, amount) => {
@@ -2554,6 +2569,321 @@ const buildTimelineFromEvents = (buckets, events) =>
       value: total
     };
   });
+
+const buildFitnessSection = async (db, userId, context) => {
+  const rangeStart = context.rangeStartString;
+  const rangeEnd = context.rangeEndString;
+  const previousStart = context.previousStartString;
+  const previousEnd = context.previousEndString;
+
+  const timelineStartIso = context.timelineBuckets.length
+    ? context.timelineStart.toISOString().slice(0, 10)
+    : null;
+  const timelineEndIso = context.timelineBuckets.length
+    ? addDaysUtc(context.timelineEndExclusive, -1).toISOString().slice(0, 10)
+    : null;
+
+  const timelinePromise = timelineStartIso && timelineEndIso
+    ? db.all(
+        'SELECT date, steps FROM fitness_activity WHERE user_id=? AND date BETWEEN ? AND ?',
+        [userId, timelineStartIso, timelineEndIso]
+      )
+    : Promise.resolve([]);
+
+  const [
+    currentActivityRows,
+    previousActivityRows,
+    currentHeartRows,
+    previousHeartRows,
+    currentSleepRows,
+    previousSleepRows,
+    timelineActivityRows
+  ] = await Promise.all([
+    db.all(
+      'SELECT date, steps, calories, distance, move_minutes, active_minutes FROM fitness_activity WHERE user_id=? AND date BETWEEN ? AND ?',
+      [userId, rangeStart, rangeEnd]
+    ),
+    db.all(
+      'SELECT date, steps, calories, distance, move_minutes, active_minutes FROM fitness_activity WHERE user_id=? AND date BETWEEN ? AND ?',
+      [userId, previousStart, previousEnd]
+    ),
+    db.all(
+      'SELECT date, avg_bpm, min_bpm, max_bpm FROM fitness_heart_rate WHERE user_id=? AND date BETWEEN ? AND ?',
+      [userId, rangeStart, rangeEnd]
+    ),
+    db.all(
+      'SELECT date, avg_bpm, min_bpm, max_bpm FROM fitness_heart_rate WHERE user_id=? AND date BETWEEN ? AND ?',
+      [userId, previousStart, previousEnd]
+    ),
+    db.all(
+      'SELECT date, duration_minutes, deep_minutes, light_minutes, rem_minutes, awake_minutes FROM fitness_sleep WHERE user_id=? AND date BETWEEN ? AND ?',
+      [userId, rangeStart, rangeEnd]
+    ),
+    db.all(
+      'SELECT date, duration_minutes, deep_minutes, light_minutes, rem_minutes, awake_minutes FROM fitness_sleep WHERE user_id=? AND date BETWEEN ? AND ?',
+      [userId, previousStart, previousEnd]
+    ),
+    timelinePromise
+  ]);
+
+  const sumColumn = (rows, column) =>
+    rows.reduce((acc, row) => acc + (Number(row?.[column]) || 0), 0);
+
+  const avgHeartFromRows = (rows) => {
+    const values = rows
+      .map((row) => Number(row?.avg_bpm))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (!values.length) return 0;
+    return values.reduce((acc, value) => acc + value, 0) / values.length;
+  };
+
+  const heartValuesCurrent = currentHeartRows
+    .map((row) => Number(row?.avg_bpm))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  const daysCurrent = Math.max(
+    1,
+    Math.round((context.endExclusive.getTime() - context.start.getTime()) / MS_DAY)
+  );
+  const daysPrevious = Math.max(
+    1,
+    Math.round(
+      (context.previousEndExclusive.getTime() - context.previousStart.getTime()) / MS_DAY
+    )
+  );
+
+  const totalStepsCurrent = sumColumn(currentActivityRows, 'steps');
+  const totalStepsPrevious = sumColumn(previousActivityRows, 'steps');
+  const avgStepsCurrent = totalStepsCurrent / daysCurrent;
+  const avgStepsPrevious = totalStepsPrevious / daysPrevious;
+
+  const totalCaloriesCurrent = sumColumn(currentActivityRows, 'calories');
+  const totalCaloriesPrevious = sumColumn(previousActivityRows, 'calories');
+  const avgCaloriesCurrent = totalCaloriesCurrent / daysCurrent;
+  const avgCaloriesPrevious = totalCaloriesPrevious / daysPrevious;
+
+  const totalDistanceCurrent = sumColumn(currentActivityRows, 'distance');
+  const totalDistancePrevious = sumColumn(previousActivityRows, 'distance');
+  const avgDistanceCurrent = totalDistanceCurrent / daysCurrent;
+  const avgDistancePrevious = totalDistancePrevious / daysPrevious;
+
+  const totalSleepMinutesCurrent = sumColumn(currentSleepRows, 'duration_minutes');
+  const totalSleepMinutesPrevious = sumColumn(previousSleepRows, 'duration_minutes');
+  const avgSleepMinutesCurrent = totalSleepMinutesCurrent / daysCurrent;
+  const avgSleepMinutesPrevious = totalSleepMinutesPrevious / daysPrevious;
+  const avgSleepHoursCurrent = avgSleepMinutesCurrent / 60;
+  const avgSleepHoursPrevious = avgSleepMinutesPrevious / 60;
+
+  const deepMinutesCurrent = sumColumn(currentSleepRows, 'deep_minutes');
+  const remMinutesCurrent = sumColumn(currentSleepRows, 'rem_minutes');
+
+  const avgHeartCurrent = avgHeartFromRows(currentHeartRows);
+  const avgHeartPrevious = avgHeartFromRows(previousHeartRows);
+  const minHeartCurrent = heartValuesCurrent.length
+    ? Math.min(...heartValuesCurrent)
+    : null;
+  const maxHeartCurrent = heartValuesCurrent.length
+    ? Math.max(...heartValuesCurrent)
+    : null;
+
+  const avgMoveMinutesCurrent = sumColumn(currentActivityRows, 'move_minutes') / daysCurrent;
+
+  const stepsDiff = avgStepsCurrent - avgStepsPrevious;
+  const caloriesDiff = avgCaloriesCurrent - avgCaloriesPrevious;
+  const sleepDiffHours = avgSleepHoursCurrent - avgSleepHoursPrevious;
+  const heartDiff = avgHeartCurrent - avgHeartPrevious;
+  const distanceDiff = avgDistanceCurrent - avgDistancePrevious;
+
+  const summaryParts = [];
+  if (avgStepsCurrent > 0) {
+    summaryParts.push(
+      `Шаги: ${formatNumber(avgStepsCurrent)} в день (${formatSigned(stepsDiff)} шагов).`
+    );
+  }
+  if (avgCaloriesCurrent > 0) {
+    summaryParts.push(
+      `Калории: ${formatNumber(avgCaloriesCurrent)} ккал/день (${formatSigned(caloriesDiff)} ккал).`
+    );
+  }
+  if (avgSleepMinutesCurrent > 0) {
+    summaryParts.push(
+      `Сон: ${formatDecimal(avgSleepHoursCurrent)} ч (${formatSignedDecimal(sleepDiffHours)} ч).`
+    );
+  }
+  if (avgHeartCurrent > 0) {
+    summaryParts.push(
+      `Пульс: ${formatNumber(avgHeartCurrent)} уд./мин (${formatSigned(heartDiff)}).`
+    );
+  }
+  const summaryMessage = summaryParts.length
+    ? summaryParts.join(' ')
+    : 'Данные Google Fit за период отсутствуют.';
+
+  const stepsMessage = avgStepsCurrent > 0
+    ? `Среднее значение ${formatNumber(avgStepsCurrent)} шагов/день (${formatSigned(stepsDiff)}). ` +
+      (avgDistanceCurrent > 0
+        ? `Дистанция ~${formatDecimal(avgDistanceCurrent, 1)} км/день.`
+        : '')
+    : 'Шаги не записаны.';
+
+  const caloriesMessage = avgCaloriesCurrent > 0
+    ? `Калории ${formatNumber(avgCaloriesCurrent)} ккал/день (${formatSigned(caloriesDiff)}).`
+    : 'Расход калорий не фиксировался.';
+
+  const deepHoursAvg = deepMinutesCurrent > 0 ? deepMinutesCurrent / daysCurrent / 60 : 0;
+  const remHoursAvg = remMinutesCurrent > 0 ? remMinutesCurrent / daysCurrent / 60 : 0;
+
+  const sleepFragments = [];
+  if (deepHoursAvg > 0) sleepFragments.push(`глубокий ${formatDecimal(deepHoursAvg, 1)} ч`);
+  if (remHoursAvg > 0) sleepFragments.push(`REM ${formatDecimal(remHoursAvg, 1)} ч`);
+
+  const sleepMessage = avgSleepMinutesCurrent > 0
+    ? `Сон ${formatDecimal(avgSleepHoursCurrent)} ч/ночь (${formatSignedDecimal(sleepDiffHours)} ч)` +
+      (sleepFragments.length ? ` (${sleepFragments.join(', ')})` : '')
+    : 'Сон не отслеживался.';
+
+  const heartMessage = avgHeartCurrent > 0
+    ? `Средний пульс ${formatNumber(avgHeartCurrent)} уд./мин (${formatSigned(heartDiff)}).` +
+      (minHeartCurrent !== null && maxHeartCurrent !== null
+        ? ` Диапазон ${formatNumber(minHeartCurrent)}–${formatNumber(maxHeartCurrent)}.`
+        : '')
+    : 'Пульс не зафиксирован.';
+
+  const distanceMessage = avgDistanceCurrent > 0
+    ? `Дистанция ${formatDecimal(avgDistanceCurrent, 1)} км/день (${formatSignedDecimal(distanceDiff, 1)} км).`
+    : 'Дистанция не фиксировалась.';
+
+  const items = [
+    {
+      id: 'steps',
+      name: 'Шаги',
+      current: Math.round(avgStepsCurrent),
+      previous: Math.round(avgStepsPrevious),
+      difference: Math.round(stepsDiff),
+      trend: determineTrend(avgStepsCurrent, avgStepsPrevious),
+      unit: 'шагов/день',
+      message: stepsMessage.trim()
+    },
+    {
+      id: 'calories',
+      name: 'Активные калории',
+      current: Math.round(avgCaloriesCurrent),
+      previous: Math.round(avgCaloriesPrevious),
+      difference: Math.round(caloriesDiff),
+      trend: determineTrend(avgCaloriesCurrent, avgCaloriesPrevious),
+      unit: 'ккал/день',
+      message: caloriesMessage.trim()
+    },
+    {
+      id: 'sleep',
+      name: 'Сон',
+      current: Math.round(avgSleepMinutesCurrent),
+      previous: Math.round(avgSleepMinutesPrevious),
+      difference: Math.round(avgSleepMinutesCurrent - avgSleepMinutesPrevious),
+      trend: determineTrend(avgSleepMinutesCurrent, avgSleepMinutesPrevious),
+      unit: 'мин/ночь',
+      message: sleepMessage.trim()
+    }
+  ];
+
+  if (avgHeartCurrent > 0 || avgHeartPrevious > 0) {
+    items.push({
+      id: 'heart',
+      name: 'Пульс',
+      current: Math.round(avgHeartCurrent),
+      previous: Math.round(avgHeartPrevious),
+      difference: Math.round(heartDiff),
+      trend: determineTrend(avgHeartCurrent, avgHeartPrevious),
+      unit: 'уд./мин',
+      message: heartMessage.trim()
+    });
+  }
+
+  if (avgDistanceCurrent > 0 || avgDistancePrevious > 0) {
+    items.push({
+      id: 'distance',
+      name: 'Дистанция',
+      current: Math.round(avgDistanceCurrent),
+      previous: Math.round(avgDistancePrevious),
+      difference: Math.round(distanceDiff),
+      trend: determineTrend(avgDistanceCurrent, avgDistancePrevious),
+      unit: 'км/день',
+      message: distanceMessage.trim()
+    });
+  }
+
+  const bestStepsDay = currentActivityRows.reduce((best, row) => {
+    const steps = Number(row?.steps || 0);
+    if (!best || steps > best.steps) return { date: row.date, steps };
+    return best;
+  }, null);
+
+  const longestSleep = currentSleepRows.reduce((best, row) => {
+    const minutes = Number(row?.duration_minutes || 0);
+    if (!best || minutes > best.minutes) return { date: row.date, minutes };
+    return best;
+  }, null);
+
+  const insights = [];
+  if (Math.abs(stepsDiff) >= 100) {
+    insights.push(
+      stepsDiff > 0
+        ? `Шаги выросли на ${formatNumber(stepsDiff)} в день.`
+        : `Шагов стало меньше на ${formatNumber(Math.abs(stepsDiff))} в день.`
+    );
+  }
+  if (Math.abs(sleepDiffHours) >= 0.25) {
+    insights.push(
+      sleepDiffHours > 0
+        ? `Сон увеличился на ${formatDecimal(sleepDiffHours, 1)} ч за ночь.`
+        : `Сон сократился на ${formatDecimal(Math.abs(sleepDiffHours), 1)} ч за ночь.`
+    );
+  }
+  if (avgMoveMinutesCurrent > 0) {
+    insights.push(
+      `Активность: ${formatNumber(avgMoveMinutesCurrent)} мин/день движения.`
+    );
+  }
+  if (bestStepsDay && bestStepsDay.steps > 0) {
+    const label = shortDateFormatter.format(
+      new Date(`${bestStepsDay.date}T00:00:00Z`)
+    );
+    insights.push(`Рекорд по шагам — ${label}: ${formatNumber(bestStepsDay.steps)}.`);
+  }
+  if (longestSleep && longestSleep.minutes > 0) {
+    const label = shortDateFormatter.format(
+      new Date(`${longestSleep.date}T00:00:00Z`)
+    );
+    insights.push(
+      `Самый долгий сон — ${label}: ${formatDecimal(longestSleep.minutes / 60, 1)} ч.`
+    );
+  }
+
+  const timelineEvents = [];
+  for (const row of timelineActivityRows) {
+    const ts = parseTimestamp(`${row.date}T00:00:00Z`);
+    if (ts === null) continue;
+    timelineEvents.push({ ts, value: Number(row?.steps || 0) });
+  }
+  const timeline = buildTimelineFromEvents(context.timelineBuckets, timelineEvents);
+
+  return {
+    key: 'fitness',
+    title: 'Фитнес',
+    subtitle: 'Активность, сон и пульс',
+    unit: 'шагов/день',
+    summary: {
+      current: Math.round(avgStepsCurrent),
+      previous: Math.round(avgStepsPrevious),
+      difference: Math.round(stepsDiff),
+      trend: determineTrend(avgStepsCurrent, avgStepsPrevious),
+      message: summaryMessage
+    },
+    items,
+    timeline,
+    insights: insights.filter((line) => line && line.trim().length > 0).slice(0, 6)
+  };
+};
 
 const buildLanguageSection = async (db, userId, context) => {
   const languages = await db.all(
@@ -2992,16 +3322,19 @@ const buildGoalsSection = async (db, userId, context) => {
 };
 
 const generateReportData = async (db, userId, context) => {
-  const [languages, courses, goals] = await Promise.all([
+  const [fitness, languages, courses, goals] = await Promise.all([
+    buildFitnessSection(db, userId, context),
     buildLanguageSection(db, userId, context),
     buildCourseSection(db, userId, context),
     buildGoalsSection(db, userId, context)
   ]);
 
   const highlights = [
+    fitness.summary.message,
     languages.summary.message,
     courses.summary.message,
     goals.summary.message,
+    ...fitness.insights.slice(0, 2),
     ...languages.insights.slice(0, 2),
     ...courses.insights.slice(0, 2),
     ...goals.insights.slice(0, 2)
@@ -3027,6 +3360,7 @@ const generateReportData = async (db, userId, context) => {
     },
     highlights: highlights.slice(0, 8),
     sections: {
+      fitness,
       languages,
       courses,
       goals
@@ -3050,8 +3384,12 @@ const normalizeStoredReport = (raw, context, fallbackGeneratedAt, reportId) => {
   };
   if (!Array.isArray(report.highlights)) report.highlights = [];
   if (!report.sections || typeof report.sections !== 'object') {
-    report.sections = { languages: null, courses: null, goals: null };
+    report.sections = { fitness: null, languages: null, courses: null, goals: null };
   }
+  if (!('languages' in report.sections)) report.sections.languages = null;
+  if (!('courses' in report.sections)) report.sections.courses = null;
+  if (!('goals' in report.sections)) report.sections.goals = null;
+  if (!('fitness' in report.sections)) report.sections.fitness = null;
   return report;
 };
 

@@ -7,7 +7,7 @@ import { openDB, requireAuth } from './utils.js';
 import authRouter from './routes-auth.js';
 import loansRouter from './routes-loans.js';
 import banksRouter from './routes-banks.js';
-import fitness from './routes-fitness.js';
+import fitness, { scheduleFitnessSync } from './routes-fitness.js';
 import lifeRouter from './routes-life.js';
 import socialsRouter from './routes-socials.js';
 import pagesRouter from './routes-pages.js';
@@ -48,6 +48,7 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
 
 await openDB();
+scheduleFitnessSync();
 
 // Public
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'))); // <- тут

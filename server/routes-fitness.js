@@ -3,9 +3,11 @@ import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { getDB } from './utils.js';
 
-const CLIENT_ID     = process.env.GF_CLIENT_ID     || '750363365159-qlt6h7hsa5h3k0fqt459k52r4ehgfl8v.apps.googleusercontent.com';
+const CLIENT_ID =
+  process.env.GF_CLIENT_ID ||
+  '750363365159-qlt6h7hsa5h3k0fqt459k52r4ehgfl8v.apps.googleusercontent.com';
 const CLIENT_SECRET = process.env.GF_CLIENT_SECRET || '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';
-const REDIRECT      = process.env.GF_REDIRECT      || 'http://localhost:4000/api/fitness/google/callback';
+const REDIRECT = process.env.GF_REDIRECT || 'http://localhost:4000/api/fitness/google/callback';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/fitness.activity.read',
@@ -13,29 +15,54 @@ const SCOPES = [
   'https://www.googleapis.com/auth/fitness.sleep.read'
 ].join(' ');
 
+const DAY_MS = 86400000;
+const DEFAULT_RANGE_DAYS = 7;
+const MAX_RANGE_DAYS = 90;
+const REFRESH_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+const SLEEP_STAGE = {
+  1: 'awake',
+  2: 'sleep',
+  3: 'out',
+  4: 'light',
+  5: 'deep',
+  6: 'rem'
+};
+
 const publicRouter = express.Router();
 const protectedRouter = express.Router();
 
 publicRouter.get('/google/auth', (req, res) => {
   const token = req.query.token || '';
   let uid = '';
-  try { uid = jwt.decode(token)?.uid || ''; } catch {}
+  try {
+    uid = jwt.decode(token)?.uid || '';
+  } catch {
+    uid = '';
+  }
   if (!uid) return res.status(400).json({ error: 'no_uid' });
-  const url = 'https://accounts.google.com/o/oauth2/v2/auth'
-    + `?response_type=code&client_id=${encodeURIComponent(CLIENT_ID)}`
-    + `&redirect_uri=${encodeURIComponent(REDIRECT)}`
-    + `&scope=${encodeURIComponent(SCOPES)}`
-    + `&access_type=offline&prompt=consent`
-    + `&state=${encodeURIComponent(uid)}`;
+  const url =
+    'https://accounts.google.com/o/oauth2/v2/auth' +
+    `?response_type=code&client_id=${encodeURIComponent(CLIENT_ID)}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT)}` +
+    `&scope=${encodeURIComponent(SCOPES)}` +
+    `&access_type=offline&prompt=consent` +
+    `&state=${encodeURIComponent(uid)}`;
   res.redirect(url);
 });
 
 publicRouter.get('/google/callback', async (req, res) => {
   const { code, state: uid } = req.query;
   try {
-    const token = await axios.post('https://oauth2.googleapis.com/token', {
-      code, client_id: CLIENT_ID, client_secret: CLIENT_SECRET, redirect_uri: REDIRECT, grant_type: 'authorization_code'
-    }).then(r => r.data);
+    const token = await axios
+      .post('https://oauth2.googleapis.com/token', {
+        code,
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        redirect_uri: REDIRECT,
+        grant_type: 'authorization_code'
+      })
+      .then((r) => r.data);
     const refreshToken = token.refresh_token;
     if (!refreshToken) {
       console.warn('Google Fit callback: refresh_token not returned by Google.');
@@ -70,7 +97,12 @@ async function getAccessToken(refresh_token) {
       .sort();
     console.log('Google Fit access token scopes:', scopes);
   } catch (infoError) {
-    console.warn('Google Fit tokeninfo failed:', infoError.response?.status, infoError.response?.statusText, infoError.response?.data || infoError.message);
+    console.warn(
+      'Google Fit tokeninfo failed:',
+      infoError.response?.status,
+      infoError.response?.statusText,
+      infoError.response?.data || infoError.message
+    );
   }
 
   return access_token;
@@ -79,12 +111,10 @@ async function getAccessToken(refresh_token) {
 function pickDataSource(sources, dataType, preferences = []) {
   const matches = sources.filter((ds) => ds?.dataType?.name === dataType);
   if (!matches.length) return null;
-
   for (const preferred of preferences) {
     const byPreference = matches.find((ds) => ds.dataStreamId?.includes(preferred));
     if (byPreference) return byPreference;
   }
-
   return matches[0];
 }
 
@@ -99,105 +129,682 @@ function logAxiosError(label, error) {
   }
 }
 
-protectedRouter.get('/metrics', async (req, res) => {
-  try {
-    if (!req.user?.uid) return res.status(401).json({ error: 'no token' });
-    const day   = req.query.day || new Date().toISOString().slice(0, 10);
-    const dayDate = new Date(`${day}T00:00:00Z`);
-    if (Number.isNaN(dayDate.getTime())) {
-      return res.status(400).json({ error: 'invalid_day' });
-    }
+const toDateISO = (date) => date.toISOString().slice(0, 10);
+const startOfUtcDay = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+const addDaysUtc = (date, amount) => {
+  const result = new Date(date.getTime());
+  result.setUTCDate(result.getUTCDate() + amount);
+  return result;
+};
 
-    const endTimeMillis = Date.now();
-    const startTimeMillis = endTimeMillis - 24 * 60 * 60 * 1000;
-    const db = await getDB();
-    const u = await db.get('SELECT google_refresh_token FROM users WHERE id=?', [req.user.uid]);
-    if (!u?.google_refresh_token) {
-      return res.json({ steps: 0, hr: 0, sleepH: 0, activeCalories: 0, source: 'local' });
+function parseDateOnly(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Date.parse(`${trimmed}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed);
+}
+
+function clampRangeDays(startDate, endDate) {
+  if (startDate.getTime() > endDate.getTime()) {
+    return clampRangeDays(endDate, startDate);
+  }
+  const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / DAY_MS) + 1;
+  if (diffDays > MAX_RANGE_DAYS) {
+    const clampedStart = addDaysUtc(endDate, -(MAX_RANGE_DAYS - 1));
+    return { start: clampedStart, end: endDate };
+  }
+  return { start: startDate, end: endDate };
+}
+
+function parseRangeParams(query) {
+  const now = startOfUtcDay(new Date());
+  let endDate = parseDateOnly(query?.end) || now;
+  let startDate = parseDateOnly(query?.start);
+  if (!startDate) {
+    startDate = addDaysUtc(endDate, -(DEFAULT_RANGE_DAYS - 1));
+  }
+  if (startDate.getTime() > endDate.getTime()) {
+    const tmp = startDate;
+    startDate = endDate;
+    endDate = tmp;
+  }
+  const { start, end } = clampRangeDays(startDate, endDate);
+  return {
+    start,
+    end,
+    startIso: toDateISO(start),
+    endIso: toDateISO(end)
+  };
+}
+
+function buildDateList(startIso, endIso) {
+  const start = parseDateOnly(startIso);
+  const end = parseDateOnly(endIso);
+  if (!start || !end) return [];
+  const dates = [];
+  let cursor = start;
+  while (cursor.getTime() <= end.getTime()) {
+    dates.push(toDateISO(cursor));
+    cursor = addDaysUtc(cursor, 1);
+  }
+  return dates;
+}
+
+async function aggregateBuckets(headers, dataTypeName, dataSource, startTimeMillis, endTimeMillis, label) {
+  const aggregateBy = [];
+  if (dataSource?.dataStreamId) {
+    aggregateBy.push({ dataSourceId: dataSource.dataStreamId });
+  } else if (dataTypeName) {
+    aggregateBy.push({ dataTypeName });
+  }
+  if (!aggregateBy.length) return [];
+  try {
+    const response = await axios.post(
+      'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate',
+      {
+        aggregateBy,
+        bucketByTime: { durationMillis: DAY_MS },
+        startTimeMillis,
+        endTimeMillis
+      },
+      { headers }
+    );
+    return response.data?.bucket || [];
+  } catch (error) {
+    logAxiosError(`Google Fit aggregate ${label}`, error);
+    return [];
+  }
+}
+
+function ensureActivityEntry(map, date) {
+  if (!map.has(date)) {
+    map.set(date, {
+      steps: 0,
+      calories: 0,
+      distance: 0,
+      moveMinutes: 0,
+      activeMinutes: 0
+    });
+  }
+  return map.get(date);
+}
+
+function ensureHeartEntry(map, date) {
+  if (!map.has(date)) {
+    map.set(date, { sum: 0, samples: 0, min: null, max: null });
+  }
+  return map.get(date);
+}
+
+function ensureSleepEntry(map, date) {
+  if (!map.has(date)) {
+    map.set(date, {
+      duration: 0,
+      deep: 0,
+      light: 0,
+      rem: 0,
+      awake: 0
+    });
+  }
+  return map.get(date);
+}
+
+function nanosToMinutes(nanos) {
+  if (!nanos) return 0;
+  return Number(nanos) / 1e9 / 60;
+}
+
+function bucketStartIso(bucket) {
+  if (!bucket) return null;
+  if (bucket.startTimeMillis) {
+    const ms = Number(bucket.startTimeMillis);
+    if (!Number.isNaN(ms)) {
+      return toDateISO(new Date(ms));
     }
-    const AT = await getAccessToken(u.google_refresh_token);
-    const headers = { Authorization: `Bearer ${AT}` };
+  }
+  if (bucket.startTimeNanos) {
+    const ms = Number(bucket.startTimeNanos) / 1e6;
+    if (!Number.isNaN(ms)) {
+      return toDateISO(new Date(ms));
+    }
+  }
+  return null;
+}
+
+async function syncGoogleFitDataForUser(db, userId, refreshToken, startIso, endIso) {
+  if (!refreshToken) return;
+  const start = parseDateOnly(startIso);
+  const end = parseDateOnly(endIso);
+  if (!start || !end) return;
+  const startTimeMillis = start.getTime();
+  const endTimeMillis = addDaysUtc(end, 1).getTime();
+  try {
+    const accessToken = await getAccessToken(refreshToken);
+    const headers = { Authorization: `Bearer ${accessToken}` };
 
     let dataSources = [];
     try {
-      const dataSourcesResponse = await axios.get('https://www.googleapis.com/fitness/v1/users/me/dataSources', { headers });
+      const dataSourcesResponse = await axios.get(
+        'https://www.googleapis.com/fitness/v1/users/me/dataSources',
+        { headers }
+      );
       dataSources = dataSourcesResponse.data?.dataSource || [];
     } catch (error) {
       logAxiosError('Google Fit dataSources', error);
-      throw error;
     }
-
-    console.log('Google Fit data sources available:', dataSources.map((ds) => ({
-      id: ds.dataStreamId,
-      dataType: ds.dataType?.name,
-      app: ds.application?.packageName || ds.dataStreamName || ds.dataStreamId
-    })));
 
     const stepsSource = pickDataSource(dataSources, 'com.google.step_count.delta', [
       'merge_step_deltas',
       'estimated_steps'
     ]);
-    const hrSource = pickDataSource(dataSources, 'com.google.heart_rate.bpm', [
-      'merge_heart_rate_bpm'
-    ]);
-    const sleepSource = pickDataSource(dataSources, 'com.google.sleep.segment', [
-      'merge_sleep_segments'
-    ]);
     const caloriesSource = pickDataSource(dataSources, 'com.google.active_energy.burned', [
       'merge_active_energy_burned'
     ]);
+    const distanceSource = pickDataSource(dataSources, 'com.google.distance.delta', [
+      'merge_distance_delta'
+    ]);
+    const moveSource = pickDataSource(dataSources, 'com.google.move_minutes', [
+      'merge_move_minutes'
+    ]);
+    const activeMinutesSource = pickDataSource(dataSources, 'com.google.active_minutes', [
+      'merge_active_minutes'
+    ]);
+    const hrSource = pickDataSource(dataSources, 'com.google.heart_rate.bpm', ['merge_heart_rate_bpm']);
+    const sleepSource = pickDataSource(dataSources, 'com.google.sleep.segment', ['merge_sleep_segments']);
 
-    const base = 'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate';
-    const agg = async (label, dataSource) => {
-      if (!dataSource?.dataStreamId) {
-        console.warn(`Google Fit: no data source found for ${label}`);
-        return null;
+    const [
+      stepsBuckets,
+      caloriesBuckets,
+      distanceBuckets,
+      moveBuckets,
+      activeMinutesBuckets,
+      hrBuckets,
+      sleepBuckets
+    ] = await Promise.all([
+      aggregateBuckets(headers, 'com.google.step_count.delta', stepsSource, startTimeMillis, endTimeMillis, 'steps'),
+      aggregateBuckets(
+        headers,
+        'com.google.active_energy.burned',
+        caloriesSource,
+        startTimeMillis,
+        endTimeMillis,
+        'active_calories'
+      ),
+      aggregateBuckets(
+        headers,
+        'com.google.distance.delta',
+        distanceSource,
+        startTimeMillis,
+        endTimeMillis,
+        'distance'
+      ),
+      aggregateBuckets(headers, 'com.google.move_minutes', moveSource, startTimeMillis, endTimeMillis, 'move_minutes'),
+      aggregateBuckets(
+        headers,
+        'com.google.active_minutes',
+        activeMinutesSource,
+        startTimeMillis,
+        endTimeMillis,
+        'active_minutes'
+      ),
+      aggregateBuckets(headers, 'com.google.heart_rate.bpm', hrSource, startTimeMillis, endTimeMillis, 'heart_rate'),
+      aggregateBuckets(headers, 'com.google.sleep.segment', sleepSource, startTimeMillis, endTimeMillis, 'sleep')
+    ]);
+
+    const activityMap = new Map();
+    const heartMap = new Map();
+    const sleepMap = new Map();
+
+    for (const bucket of stepsBuckets) {
+      const date = bucketStartIso(bucket);
+      if (!date) continue;
+      const points = bucket?.dataset?.[0]?.point || [];
+      let total = 0;
+      for (const point of points) {
+        const value = Number(point?.value?.[0]?.intVal ?? point?.value?.[0]?.fpVal ?? 0);
+        if (Number.isFinite(value)) total += value;
       }
+      const entry = ensureActivityEntry(activityMap, date);
+      entry.steps += Math.round(total);
+    }
 
-      try {
-        const response = await axios.post(base, {
-          aggregateBy: [{ dataSourceId: dataSource.dataStreamId }],
-          bucketByTime: { durationMillis: 86400000 },
-          startTimeMillis,
-          endTimeMillis
-        }, { headers });
-        return response.data;
-      } catch (error) {
-        logAxiosError(`Google Fit aggregate ${label}`, error);
-        throw error;
+    for (const bucket of caloriesBuckets) {
+      const date = bucketStartIso(bucket);
+      if (!date) continue;
+      const points = bucket?.dataset?.[0]?.point || [];
+      let total = 0;
+      for (const point of points) {
+        const value = Number(point?.value?.[0]?.fpVal ?? point?.value?.[0]?.intVal ?? 0);
+        if (Number.isFinite(value)) total += value;
       }
-    };
+      const entry = ensureActivityEntry(activityMap, date);
+      entry.calories += Number(total.toFixed(2));
+    }
 
-    const stepsAgg = stepsSource ? await agg('steps', stepsSource) : null;
-    const steps = stepsAgg
-      ? (stepsAgg.bucket?.[0]?.dataset?.[0]?.point || []).reduce((s, p) => s + (p.value?.[0]?.intVal || 0), 0)
-      : 0;
+    for (const bucket of distanceBuckets) {
+      const date = bucketStartIso(bucket);
+      if (!date) continue;
+      const points = bucket?.dataset?.[0]?.point || [];
+      let total = 0;
+      for (const point of points) {
+        const value = Number(point?.value?.[0]?.fpVal ?? point?.value?.[0]?.intVal ?? 0);
+        if (Number.isFinite(value)) total += value;
+      }
+      const entry = ensureActivityEntry(activityMap, date);
+      entry.distance += Number((total / 1000).toFixed(3));
+    }
 
-    const hrAgg = hrSource ? await agg('heart_rate', hrSource) : null;
-    const hrs = hrAgg?.bucket?.[0]?.dataset?.[0]?.point || [];
-    const hr = hrs.length ? Math.round(hrs.reduce((a, p) => a + (p.value?.[0]?.fpVal || 0), 0) / hrs.length) : 0;
+    for (const bucket of moveBuckets) {
+      const date = bucketStartIso(bucket);
+      if (!date) continue;
+      const points = bucket?.dataset?.[0]?.point || [];
+      let total = 0;
+      for (const point of points) {
+        const value = Number(point?.value?.[0]?.intVal ?? point?.value?.[0]?.fpVal ?? 0);
+        if (Number.isFinite(value)) total += value;
+      }
+      const entry = ensureActivityEntry(activityMap, date);
+      entry.moveMinutes += Math.round(total);
+    }
 
-    const sleepAgg = sleepSource ? await agg('sleep', sleepSource) : null;
-    const ms = (sleepAgg?.bucket?.[0]?.dataset?.[0]?.point || [])
-      .map((p) => (p.endTimeNanos - p.startTimeNanos) / 1e6)
-      .reduce((a, b) => a + b, 0);
-    const sleepH = +(ms / 3600000).toFixed(1);
-    const caloriesAgg = caloriesSource ? await agg('active_calories', caloriesSource) : null;
-    const caloriesPoints = caloriesAgg?.bucket?.[0]?.dataset?.[0]?.point || [];
-    const activeCalories = +caloriesPoints
-      .reduce((total, point) => total + (point.value?.[0]?.fpVal || 0), 0)
-      .toFixed(1);
+    for (const bucket of activeMinutesBuckets) {
+      const date = bucketStartIso(bucket);
+      if (!date) continue;
+      const points = bucket?.dataset?.[0]?.point || [];
+      let total = 0;
+      for (const point of points) {
+        const value = Number(point?.value?.[0]?.intVal ?? point?.value?.[0]?.fpVal ?? 0);
+        if (Number.isFinite(value)) total += value;
+      }
+      const entry = ensureActivityEntry(activityMap, date);
+      entry.activeMinutes += Math.round(total);
+    }
 
-    await db.run(
-      'INSERT OR REPLACE INTO fitness_daily(user_id,date,steps,hr_rest,sleep_hours,active_calories) VALUES(?,?,?,?,?,?)',
-      [req.user.uid, day, steps, hr || null, sleepH || null, activeCalories || null]
+    for (const bucket of hrBuckets) {
+      const date = bucketStartIso(bucket);
+      if (!date) continue;
+      const points = bucket?.dataset?.[0]?.point || [];
+      if (!points.length) continue;
+      const entry = ensureHeartEntry(heartMap, date);
+      for (const point of points) {
+        const value = Number(point?.value?.[0]?.fpVal ?? point?.value?.[0]?.intVal ?? 0);
+        if (!Number.isFinite(value) || value <= 0) continue;
+        entry.sum += value;
+        entry.samples += 1;
+        entry.min = entry.min === null ? value : Math.min(entry.min, value);
+        entry.max = entry.max === null ? value : Math.max(entry.max, value);
+      }
+    }
+
+    for (const bucket of sleepBuckets) {
+      const date = bucketStartIso(bucket);
+      if (!date) continue;
+      const points = bucket?.dataset?.[0]?.point || [];
+      if (!points.length) continue;
+      const entry = ensureSleepEntry(sleepMap, date);
+      for (const point of points) {
+        const stageValue = Number(point?.value?.[0]?.intVal ?? 0);
+        const stage = SLEEP_STAGE[stageValue] || 'unknown';
+        const durationMinutes = nanosToMinutes(point.endTimeNanos - point.startTimeNanos);
+        if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue;
+        entry.duration += durationMinutes;
+        if (stage === 'deep') entry.deep += durationMinutes;
+        else if (stage === 'light' || stage === 'sleep') entry.light += durationMinutes;
+        else if (stage === 'rem') entry.rem += durationMinutes;
+        else entry.awake += durationMinutes;
+      }
+      if (entry.duration > 0) {
+        entry.sessions = 1;
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const dateList = buildDateList(startIso, endIso);
+    await db.exec('BEGIN');
+    try {
+      for (const date of dateList) {
+        const activity = activityMap.get(date) || {
+          steps: 0,
+          calories: 0,
+          distance: 0,
+          moveMinutes: 0,
+          activeMinutes: 0
+        };
+        const heart = heartMap.get(date) || { sum: 0, samples: 0, min: null, max: null };
+        const sleep = sleepMap.get(date) || {
+          duration: 0,
+          deep: 0,
+          light: 0,
+          rem: 0,
+          awake: 0,
+          sessions: 0
+        };
+        const avgBpm = heart.samples > 0 ? heart.sum / heart.samples : null;
+        const minBpm = heart.samples > 0 ? heart.min : null;
+        const maxBpm = heart.samples > 0 ? heart.max : null;
+        const sleepMinutes = Number(sleep.duration?.toFixed(2) || 0);
+        const deepMinutes = Number((sleep.deep || 0).toFixed(2));
+        const lightMinutes = Number((sleep.light || 0).toFixed(2));
+        const remMinutes = Number((sleep.rem || 0).toFixed(2));
+        const awakeMinutes = Number((sleep.awake || 0).toFixed(2));
+
+        await db.run(
+          'INSERT INTO fitness_activity(user_id,date,steps,calories,distance,move_minutes,active_minutes,updated_at) VALUES(?,?,?,?,?,?,?,?) ' +
+            'ON CONFLICT(user_id,date) DO UPDATE SET steps=excluded.steps, calories=excluded.calories, distance=excluded.distance, move_minutes=excluded.move_minutes, active_minutes=excluded.active_minutes, updated_at=excluded.updated_at',
+          [
+            userId,
+            date,
+            Math.max(0, Math.round(activity.steps || 0)),
+            Number((activity.calories || 0).toFixed(2)),
+            Number((activity.distance || 0).toFixed(3)),
+            Math.max(0, Math.round(activity.moveMinutes || 0)),
+            Math.max(0, Math.round(activity.activeMinutes || 0)),
+            nowIso
+          ]
+        );
+
+        await db.run(
+          'INSERT INTO fitness_heart_rate(user_id,date,avg_bpm,min_bpm,max_bpm,samples,updated_at) VALUES(?,?,?,?,?,?,?) ' +
+            'ON CONFLICT(user_id,date) DO UPDATE SET avg_bpm=excluded.avg_bpm, min_bpm=excluded.min_bpm, max_bpm=excluded.max_bpm, samples=excluded.samples, updated_at=excluded.updated_at',
+          [
+            userId,
+            date,
+            avgBpm !== null ? Number(avgBpm.toFixed(1)) : null,
+            minBpm !== null ? Number(minBpm.toFixed(1)) : null,
+            maxBpm !== null ? Number(maxBpm.toFixed(1)) : null,
+            heart.samples || 0,
+            nowIso
+          ]
+        );
+
+        await db.run(
+          'INSERT INTO fitness_sleep(user_id,date,duration_minutes,deep_minutes,light_minutes,rem_minutes,awake_minutes,sessions,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ' +
+            'ON CONFLICT(user_id,date) DO UPDATE SET duration_minutes=excluded.duration_minutes, deep_minutes=excluded.deep_minutes, light_minutes=excluded.light_minutes, rem_minutes=excluded.rem_minutes, awake_minutes=excluded.awake_minutes, sessions=excluded.sessions, updated_at=excluded.updated_at',
+          [
+            userId,
+            date,
+            sleepMinutes,
+            deepMinutes,
+            lightMinutes,
+            remMinutes,
+            awakeMinutes,
+            sleepMinutes > 0 ? 1 : 0,
+            nowIso
+          ]
+        );
+
+        await db.run(
+          'INSERT INTO fitness_daily(user_id,date,steps,hr_rest,sleep_hours,active_calories) VALUES(?,?,?,?,?,?) ' +
+            'ON CONFLICT(user_id,date) DO UPDATE SET steps=excluded.steps, hr_rest=excluded.hr_rest, sleep_hours=excluded.sleep_hours, active_calories=excluded.active_calories',
+          [
+            userId,
+            date,
+            Math.max(0, Math.round(activity.steps || 0)),
+            avgBpm !== null ? Math.round(avgBpm) : null,
+            sleepMinutes ? Number((sleepMinutes / 60).toFixed(2)) : null,
+            Number((activity.calories || 0).toFixed(2)) || null
+          ]
+        );
+      }
+      await db.exec('COMMIT');
+    } catch (error) {
+      await db.exec('ROLLBACK');
+      throw error;
+    }
+  } catch (error) {
+    logAxiosError(`Google Fit sync user ${userId}`, error);
+  }
+}
+
+async function countTableRows(db, table, userId, startIso, endIso) {
+  const row = await db.get(
+    `SELECT COUNT(*) AS count FROM ${table} WHERE user_id=? AND date BETWEEN ? AND ?`,
+    [userId, startIso, endIso]
+  );
+  return Number(row?.count || 0);
+}
+
+async function latestUpdatedAt(db, table, userId, startIso, endIso) {
+  const row = await db.get(
+    `SELECT MAX(updated_at) AS updated_at FROM ${table} WHERE user_id=? AND date BETWEEN ? AND ?`,
+    [userId, startIso, endIso]
+  );
+  const ts = row?.updated_at ? Date.parse(row.updated_at) : NaN;
+  return Number.isNaN(ts) ? null : ts;
+}
+
+async function ensureRangeSynced(userId, startIso, endIso, force = false) {
+  const db = await getDB();
+  const user = await db.get('SELECT google_refresh_token FROM users WHERE id=?', [userId]);
+  if (!user?.google_refresh_token) return false;
+  const expectedDays = buildDateList(startIso, endIso).length;
+  if (expectedDays === 0) return false;
+
+  let shouldSync = force;
+  if (!shouldSync) {
+    const [activityCount, hrCount, sleepCount] = await Promise.all([
+      countTableRows(db, 'fitness_activity', userId, startIso, endIso),
+      countTableRows(db, 'fitness_heart_rate', userId, startIso, endIso),
+      countTableRows(db, 'fitness_sleep', userId, startIso, endIso)
+    ]);
+    if (
+      activityCount < expectedDays ||
+      hrCount < expectedDays ||
+      sleepCount < expectedDays
+    ) {
+      shouldSync = true;
+    }
+  }
+
+  if (!shouldSync) {
+    const latest = await latestUpdatedAt(db, 'fitness_activity', userId, startIso, endIso);
+    if (!latest || Date.now() - latest > REFRESH_THRESHOLD_MS) {
+      shouldSync = true;
+    }
+  }
+
+  if (shouldSync) {
+    await syncGoogleFitDataForUser(db, userId, user.google_refresh_token, startIso, endIso);
+    return true;
+  }
+  return false;
+}
+
+function mapActivityRow(row) {
+  return {
+    date: row.date,
+    steps: Number(row.steps || 0),
+    calories: Number(row.calories || 0),
+    distance_km: Number(row.distance || 0),
+    move_minutes: Number(row.move_minutes || 0),
+    active_minutes: Number(row.active_minutes || 0)
+  };
+}
+
+function mapHeartRow(row) {
+  return {
+    date: row.date,
+    avg_bpm: row.avg_bpm !== null && row.avg_bpm !== undefined ? Number(row.avg_bpm) : null,
+    min_bpm: row.min_bpm !== null && row.min_bpm !== undefined ? Number(row.min_bpm) : null,
+    max_bpm: row.max_bpm !== null && row.max_bpm !== undefined ? Number(row.max_bpm) : null,
+    samples: Number(row.samples || 0)
+  };
+}
+
+function mapSleepRow(row) {
+  const duration = Number(row.duration_minutes || 0);
+  const deep = Number(row.deep_minutes || 0);
+  const light = Number(row.light_minutes || 0);
+  const rem = Number(row.rem_minutes || 0);
+  const awake = Number(row.awake_minutes || 0);
+  return {
+    date: row.date,
+    duration_minutes: duration,
+    duration_hours: Number((duration / 60).toFixed(2)),
+    deep_minutes: deep,
+    deep_hours: Number((deep / 60).toFixed(2)),
+    light_minutes: light,
+    light_hours: Number((light / 60).toFixed(2)),
+    rem_minutes: rem,
+    rem_hours: Number((rem / 60).toFixed(2)),
+    awake_minutes: awake,
+    awake_hours: Number((awake / 60).toFixed(2)),
+    sessions: Number(row.sessions || (duration > 0 ? 1 : 0))
+  };
+}
+
+protectedRouter.get('/activity', async (req, res) => {
+  try {
+    if (!req.user?.uid) return res.status(401).json({ error: 'no token' });
+    const range = parseRangeParams(req.query || {});
+    const force = req.query?.refresh === '1' || req.query?.refresh === 'true';
+    await ensureRangeSynced(req.user.uid, range.startIso, range.endIso, force);
+    const db = await getDB();
+    const rows = await db.all(
+      'SELECT date, steps, calories, distance, move_minutes, active_minutes FROM fitness_activity WHERE user_id=? AND date BETWEEN ? AND ? ORDER BY date ASC',
+      [req.user.uid, range.startIso, range.endIso]
+    );
+    res.json({
+      range: { start: range.startIso, end: range.endIso },
+      items: rows.map(mapActivityRow)
+    });
+  } catch (error) {
+    console.error('fitness activity', error.message || error);
+    res.status(500).json({ error: 'activity_failed' });
+  }
+});
+
+protectedRouter.get('/heart_rate', async (req, res) => {
+  try {
+    if (!req.user?.uid) return res.status(401).json({ error: 'no token' });
+    const range = parseRangeParams(req.query || {});
+    const force = req.query?.refresh === '1' || req.query?.refresh === 'true';
+    await ensureRangeSynced(req.user.uid, range.startIso, range.endIso, force);
+    const db = await getDB();
+    const rows = await db.all(
+      'SELECT date, avg_bpm, min_bpm, max_bpm, samples FROM fitness_heart_rate WHERE user_id=? AND date BETWEEN ? AND ? ORDER BY date ASC',
+      [req.user.uid, range.startIso, range.endIso]
+    );
+    res.json({
+      range: { start: range.startIso, end: range.endIso },
+      items: rows.map(mapHeartRow)
+    });
+  } catch (error) {
+    console.error('fitness heart_rate', error.message || error);
+    res.status(500).json({ error: 'heart_rate_failed' });
+  }
+});
+
+protectedRouter.get('/sleep', async (req, res) => {
+  try {
+    if (!req.user?.uid) return res.status(401).json({ error: 'no token' });
+    const range = parseRangeParams(req.query || {});
+    const force = req.query?.refresh === '1' || req.query?.refresh === 'true';
+    await ensureRangeSynced(req.user.uid, range.startIso, range.endIso, force);
+    const db = await getDB();
+    const rows = await db.all(
+      'SELECT date, duration_minutes, deep_minutes, light_minutes, rem_minutes, awake_minutes, sessions FROM fitness_sleep WHERE user_id=? AND date BETWEEN ? AND ? ORDER BY date ASC',
+      [req.user.uid, range.startIso, range.endIso]
+    );
+    res.json({
+      range: { start: range.startIso, end: range.endIso },
+      items: rows.map(mapSleepRow)
+    });
+  } catch (error) {
+    console.error('fitness sleep', error.message || error);
+    res.status(500).json({ error: 'sleep_failed' });
+  }
+});
+
+protectedRouter.get('/metrics', async (req, res) => {
+  try {
+    if (!req.user?.uid) return res.status(401).json({ error: 'no token' });
+    const dayParam = typeof req.query?.day === 'string' ? req.query.day.slice(0, 10) : null;
+    const dayDate = parseDateOnly(dayParam) || startOfUtcDay(new Date());
+    const dayIso = toDateISO(dayDate);
+    await ensureRangeSynced(req.user.uid, dayIso, dayIso, req.query?.refresh === '1');
+    const db = await getDB();
+    const activity = await db.get(
+      'SELECT steps, calories FROM fitness_activity WHERE user_id=? AND date=?',
+      [req.user.uid, dayIso]
+    );
+    const heart = await db.get(
+      'SELECT avg_bpm FROM fitness_heart_rate WHERE user_id=? AND date=?',
+      [req.user.uid, dayIso]
+    );
+    const sleep = await db.get(
+      'SELECT duration_minutes FROM fitness_sleep WHERE user_id=? AND date=?',
+      [req.user.uid, dayIso]
     );
 
-    res.json({ steps, hr, sleepH, activeCalories, source: 'googlefit' });
-  } catch (e) {
-    logAxiosError('Google Fit metrics', e);
+    const steps = Number(activity?.steps || 0);
+    const hr = heart?.avg_bpm ? Math.round(Number(heart.avg_bpm)) : 0;
+    const sleepHours = sleep?.duration_minutes
+      ? Number((Number(sleep.duration_minutes) / 60).toFixed(1))
+      : 0;
+    const activeCalories = activity?.calories ? Number(activity.calories) : 0;
+
+    res.json({ steps, hr, sleepH: sleepHours, activeCalories, source: 'database' });
+  } catch (error) {
+    console.error('fitness metrics', error.message || error);
     res.status(500).json({ error: 'metrics_failed' });
   }
 });
+
+let intervalHandle = null;
+let syncInProgress = false;
+
+async function runFitnessSync(rangeDays = 30) {
+  const db = await getDB();
+  const users = await db.all(
+    "SELECT id, google_refresh_token FROM users WHERE google_refresh_token IS NOT NULL AND TRIM(google_refresh_token) <> ''"
+  );
+  if (!users.length) return;
+  const end = startOfUtcDay(new Date());
+  const start = addDaysUtc(end, -(Math.max(1, rangeDays) - 1));
+  const startIso = toDateISO(start);
+  const endIso = toDateISO(end);
+  for (const user of users) {
+    try {
+      await syncGoogleFitDataForUser(db, user.id, user.google_refresh_token, startIso, endIso);
+    } catch (error) {
+      console.error('Scheduled Google Fit sync failed for user', user.id, error?.message || error);
+    }
+  }
+}
+
+async function queueFitnessSync(rangeDays = 30) {
+  if (syncInProgress) {
+    return;
+  }
+  syncInProgress = true;
+  try {
+    await runFitnessSync(rangeDays);
+  } catch (error) {
+    console.error('Google Fit scheduled sync error', error?.message || error);
+  } finally {
+    syncInProgress = false;
+  }
+}
+
+export async function triggerFitnessSync(rangeDays = 30) {
+  await queueFitnessSync(rangeDays);
+}
+
+export function scheduleFitnessSync({ intervalHours = 3, rangeDays = 30 } = {}) {
+  if (intervalHandle) return intervalHandle;
+  const hours = Math.max(1, Number(intervalHours) || 3);
+  const intervalMs = hours * 60 * 60 * 1000;
+  const runner = () => {
+    queueFitnessSync(rangeDays).catch((error) => {
+      console.error('Google Fit scheduled sync failed', error?.message || error);
+    });
+  };
+  intervalHandle = setInterval(runner, intervalMs);
+  runner();
+  return intervalHandle;
+}
 
 export default { public: publicRouter, protected: protectedRouter };

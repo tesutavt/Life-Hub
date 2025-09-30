@@ -46,34 +46,37 @@ const ReportHistoryCard = ({ report, onOpen }: { report: ReportData; onOpen: (re
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3 text-sm text-white/80">
-        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-          <div className="text-xs uppercase tracking-wide text-white/50">Языки</div>
-          <div className="font-semibold text-white mt-1">
-            {formatNumber(report.sections.languages.summary.current)} курсов
-          </div>
-          <div className="text-xs text-white/50">
-            {formatSigned(report.sections.languages.summary.difference)} курсов vs прошлый период
-          </div>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-          <div className="text-xs uppercase tracking-wide text-white/50">Курсы</div>
-          <div className="font-semibold text-white mt-1">
-            {formatNumber(report.sections.courses.summary.current)} п.п.
-          </div>
-          <div className="text-xs text-white/50">
-            {formatSigned(report.sections.courses.summary.difference)} vs прошлый период
-          </div>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-          <div className="text-xs uppercase tracking-wide text-white/50">Цели</div>
-          <div className="font-semibold text-white mt-1">
-            {formatNumber(report.sections.goals.summary.current)} отметок
-          </div>
-          <div className="text-xs text-white/50">
-            {formatSigned(report.sections.goals.summary.difference)} vs прошлый период
-          </div>
-        </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm text-white/80">
+        {[
+          {
+            key: 'fitness',
+            label: report.sections.fitness?.title || 'Фитнес',
+            section: report.sections.fitness,
+          },
+          { key: 'languages', label: 'Языки', section: report.sections.languages },
+          { key: 'courses', label: 'Курсы', section: report.sections.courses },
+          { key: 'goals', label: 'Цели', section: report.sections.goals },
+        ]
+          .filter((entry) => entry.section)
+          .map((entry) => {
+            const unitSuffix = entry.section?.unit ? ` ${entry.section.unit}` : '';
+            return (
+              <div
+                key={entry.key}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+              >
+                <div className="text-xs uppercase tracking-wide text-white/50">
+                  {entry.label}
+                </div>
+                <div className="font-semibold text-white mt-1">
+                  {formatNumber(entry.section!.summary.current)}{unitSuffix}
+                </div>
+                <div className="text-xs text-white/50">
+                  {formatSigned(entry.section!.summary.difference)}{unitSuffix} vs прошлый период
+                </div>
+              </div>
+            );
+          })}
       </div>
     </div>
   );
