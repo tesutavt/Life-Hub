@@ -3,8 +3,8 @@ import axios from 'axios';
 import jwt from 'jsonwebtoken';
 import { getDB } from './utils.js';
 
-const CLIENT_ID     = process.env.GF_CLIENT_ID     || '';
-const CLIENT_SECRET = process.env.GF_CLIENT_SECRET || '';
+const CLIENT_ID     = process.env.GF_CLIENT_ID     || '750363365159-qlt6h7hsa5h3k0fqt459k52r4ehgfl8v.apps.googleusercontent.com';
+const CLIENT_SECRET = process.env.GF_CLIENT_SECRET || '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';
 const REDIRECT      = process.env.GF_REDIRECT      || 'http://localhost:4000/api/fitness/google/callback';
 
 const SCOPES = [
