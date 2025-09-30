@@ -121,7 +121,7 @@ function attachGoalMeta(goal, logs) {
 }
 router.get('/profile', async (req, res) => {
   const db = await getDB();
-  const user = await db.get('SELECT id,name,avatar_url,banner_url,bio FROM users WHERE id=?', [req.user.uid]);
+  const user = await db.get('SELECT id,name,avatar_url,banner_url,bio,city FROM users WHERE id=?', [req.user.uid]);
   const xp = await db.get('SELECT xp, level FROM user_xp WHERE user_id=?', [req.user.uid]) || { xp: 0, level: 1 };
   const badges = await db.all('SELECT b.*, ub.earned_at FROM user_badges ub JOIN badges b ON b.id=ub.badge_id WHERE ub.user_id=?', [req.user.uid]);
   res.json({ user, xp, badges });
