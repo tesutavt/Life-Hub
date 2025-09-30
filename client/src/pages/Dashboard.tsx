@@ -777,6 +777,7 @@ export default function Dashboard() {
     isMountedRef.current = false;
   }, []);
 
+
   const fallbackWeatherKey = useMemo(() => {
     const raw = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
     if (typeof raw !== 'string') return '';
