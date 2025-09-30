@@ -551,7 +551,7 @@ const WeatherCard = ({
           )}
           {showProfileLink && (
             <Link
-              to="/profile"
+              to="/profile-full"
               className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/30"
             >
               Настроить город
@@ -579,7 +579,7 @@ const WeatherCard = ({
           Укажите ваш город в профиле, чтобы видеть актуальную погоду на дашборде.
         </div>
         <Link
-          to="/profile"
+          to="/profile-full"
           className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/30"
         >
           Перейти в профиль
@@ -773,10 +773,12 @@ export default function Dashboard() {
   const [weatherStatus, setWeatherStatus] = useState<'idle' | 'loading' | 'error'>('loading');
   const [weatherError, setWeatherError] = useState<WeatherErrorState>(null);
 
-  useEffect(() => () => {
-    isMountedRef.current = false;
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
-
 
   const fallbackWeatherKey = useMemo(() => {
     const raw = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
