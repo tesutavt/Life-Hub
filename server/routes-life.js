@@ -872,7 +872,7 @@ router.get('/search', async (req, res) => {
 
 router.get('/profile', async (req, res) => {
   const db = await getDB();
-  const user = await db.get('SELECT id,name,avatar_url,banner_url,bio FROM users WHERE id=?', [req.user.uid]);
+  const user = await db.get('SELECT id,name,avatar_url,banner_url,bio,city,weather_api_key FROM users WHERE id=?', [req.user.uid]);
   const xp = await db.get('SELECT xp, level FROM user_xp WHERE user_id=?', [req.user.uid]) || { xp: 0, level: 1 };
   const storedBadges = await db.all(
     'SELECT b.*, ub.earned_at FROM user_badges ub JOIN badges b ON b.id=ub.badge_id WHERE ub.user_id=?',
@@ -908,6 +908,12 @@ router.post(
         params.push(bioRaw);
       }
 
+      const cityRaw = req.body?.city;
+      if (typeof cityRaw === 'string') {
+        updates.push('city=?');
+        params.push(cityRaw);
+      }
+
       let avatarToRemove = null;
       const avatarFile = Array.isArray(req.files?.avatar) ? req.files.avatar[0] : null;
       if (avatarFile) {
@@ -935,7 +941,7 @@ router.post(
         await db.run(`UPDATE users SET ${updates.join(', ')} WHERE id=?`, params);
       }
 
-      const user = await db.get('SELECT id,name,avatar_url,banner_url,bio FROM users WHERE id=?', [req.user.uid]);
+      const user = await db.get('SELECT id,name,avatar_url,banner_url,bio,city FROM users WHERE id=?', [req.user.uid]);
       res.json({ user });
 
       if (avatarToRemove) await removeLocalUpload(avatarToRemove);
@@ -1033,6 +1039,20 @@ router.post('/settings/google', async (req, res) => {
   const { refresh_token = null } = req.body || {};
   await db.run('UPDATE users SET google_refresh_token=? WHERE id=?', [refresh_token || null, req.user.uid]);
   res.json({ ok: true });
+});
+
+router.get('/settings/weather', async (req, res) => {
+  const db = await getDB();
+  const row = await db.get('SELECT weather_api_key FROM users WHERE id=?', [req.user.uid]);
+  res.json({ api_key: row?.weather_api_key || null });
+});
+
+router.post('/settings/weather', async (req, res) => {
+  const db = await getDB();
+  const rawKey = typeof req.body?.api_key === 'string' ? req.body.api_key : '';
+  const apiKey = sanitizeOptionalText(rawKey, 128);
+  await db.run('UPDATE users SET weather_api_key=? WHERE id=?', [apiKey, req.user.uid]);
+  res.json({ ok: true, api_key: apiKey });
 });
 
 const isLikelyJson = (value) => {
