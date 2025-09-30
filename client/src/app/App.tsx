@@ -54,7 +54,7 @@ const EMPTY_COUNTERS: MenuCounters = { languages: 0, courses: 0, goals: 0 };
 
 export default function App() {
   return (
-    <div className="min-h-screen grid grid-cols-[240px_1fr]">
+    <div className="min-h-screen grid grid-cols-[240px_1fr] text-slate-100">
       <Sidebar />
       <main className="p-6">
         <ReportReminders />
@@ -133,17 +133,18 @@ function Sidebar() {
   }, []);
 
   return (
-    <aside className="p-4 border-r border-white/10 bg-white/5 flex flex-col gap-4">
+    <aside className="p-4 border-r border-brand-slate/40 bg-brand-night/75 backdrop-blur-xl flex flex-col gap-4 shadow-brand-soft">
       {profile && (
-        <div className="rounded-xl overflow-hidden border border-white/10">
+        <div className="rounded-3xl overflow-hidden border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft">
           <div
-            className="h-16 bg-gradient-to-r from-purple-600/40 to-blue-600/40"
+            className="h-20 bg-brand-mint/10"
             style={{
               backgroundImage: profile.banner_url
                 ? `url(${resolveApiUrl(profile.banner_url)})`
                 : undefined,
               backgroundSize: 'cover',
-              backgroundPosition: 'center'
+              backgroundPosition: 'center',
+              filter: profile.banner_url ? 'saturate(80%)' : undefined,
             }}
           />
           <div className="flex items-center p-3 gap-3 -mt-8">
@@ -151,7 +152,7 @@ function Sidebar() {
               src={profile.avatar_url
                 ? resolveApiUrl(profile.avatar_url)
                 : 'https://api.dicebear.com/9.x/identicon/svg'}
-              className="w-12 h-12 rounded-xl border-2 border-black"
+              className="w-12 h-12 rounded-xl border-2 border-brand-mint/50 shadow-brand-glow"
             />
             <div className="font-semibold leading-tight">{profile.name || '��� ��䨫�'}</div>
           </div>
@@ -161,14 +162,14 @@ function Sidebar() {
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
-        className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-white/70 hover:bg-white/10 hover:text-white transition"
+        className="flex items-center gap-2 rounded-2xl border border-brand-slate/40 bg-brand-night/70 px-3 py-2 text-sm text-slate-200/80 transition hover:border-brand-mint/60 hover:bg-brand-night/60 hover:text-brand-mint"
       >
         <Search size={16} className="opacity-80" />
         <span className="truncate">Поиск по сайту…</span>
       </button>
 
       <div>
-        <div className="text-lg font-semibold mb-2">Life Hub</div>
+        <div className="text-lg font-semibold mb-2 text-brand-mint">Life Hub</div>
         <nav className="space-y-1">
           {MENU_ITEMS.map(item => (
             <NavItem key={item.to} item={item} counters={counters} showCounters={showCounters} />
@@ -181,7 +182,7 @@ function Sidebar() {
           setToken(null);
           navigate('/login');
         }}
-        className="mt-auto text-sm opacity-80 hover:opacity-100"
+        className="mt-auto text-sm text-slate-300/70 transition hover:text-brand-mint"
       >
         ���
       </button>
@@ -189,7 +190,7 @@ function Sidebar() {
       <Modal
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        overlayClassName="bg-black/70 backdrop-blur-sm"
+        overlayClassName="bg-brand-deep/80 backdrop-blur-xl"
         containerClassName="items-start justify-center overflow-y-auto pt-10 sm:pt-20"
         contentClassName="relative w-full max-w-3xl"
       >
@@ -197,13 +198,13 @@ function Sidebar() {
           <button
             type="button"
             onClick={() => setSearchOpen(false)}
-            className="rounded-full bg-white/10 px-4 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/20"
+            className="rounded-full border border-brand-mint/40 bg-brand-night/70 px-4 py-1 text-xs uppercase tracking-wide text-slate-200/80 transition hover:border-brand-mint/70 hover:text-brand-mint"
           >
             Закрыть
           </button>
         </div>
         <SiteSearch
-          className="bg-black/60 border-white/20 shadow-xl"
+          className="bg-brand-night/80 border-brand-slate/40 shadow-brand-soft"
           autoFocus
           onSelectPage={(page) => {
             navigate(`/pages/${page.id}`);
@@ -224,15 +225,17 @@ function NavItem({ item, counters, showCounters }: { item: MenuItem; counters: M
     <NavLink
       to={item.to}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2 rounded-xl transition-colors ${
-          isActive ? 'bg-white/10 text-white' : 'hover:bg-white/5 text-white/80'
+        `flex items-center gap-3 px-3 py-2 rounded-2xl border transition ${
+          isActive
+            ? 'border-brand-mint/60 bg-brand-mint/15 text-brand-mint shadow-brand-glow'
+            : 'border-transparent text-slate-300/80 hover:border-brand-slate/50 hover:bg-brand-night/60'
         }`
       }
     >
       <Icon size={18} className="shrink-0" />
       <span className="flex-1 truncate">{item.label}</span>
       {shouldShowCounter && (
-        <span className="ml-auto px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-[10px] font-semibold">
+        <span className="ml-auto px-2 py-0.5 rounded-full border border-brand-mint/40 bg-brand-mint/10 text-[10px] font-semibold text-brand-mint">
           {count}
         </span>
       )}

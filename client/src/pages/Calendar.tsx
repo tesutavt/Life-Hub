@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Shell from '../components/Shell';
 import { api, resolveApiUrl } from '../api';
 import CalendarMaster from '../components/master/CalendarMaster';
+import { palette } from '../theme';
 
 const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 
@@ -247,7 +248,7 @@ export default function CalendarPage() {
                             <button
                               type="button"
                               onClick={() => numericId !== null && handleDeleteEvent(numericId)}
-                              className={`text-xs text-white/40 hover:text-red-400 transition ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
+                              className={`text-xs text-white/40 hover:text-brand-mint transition ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
                               aria-label="Удалить событие"
                             >
                               ×
@@ -260,7 +261,7 @@ export default function CalendarPage() {
                               <span
                                 key={`tag-${tag.id}`}
                                 className="h-1.5 w-1.5 rounded-full"
-                                style={{ backgroundColor: tag.color || '#ffffff' }}
+                                style={{ backgroundColor: tag.color || palette.mint }}
                                 title={tag.label}
                                 aria-label={tag.label}
                               />
@@ -278,7 +279,7 @@ export default function CalendarPage() {
                           <button
                             type="button"
                             onClick={() => numericId !== null && handleDeleteEvent(numericId)}
-                            className={`text-xs text-white/40 hover:text-red-400 transition ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
+                            className={`text-xs text-white/40 hover:text-brand-mint transition ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}
                             aria-label="Удалить событие"
                           >
                             ×
@@ -291,7 +292,7 @@ export default function CalendarPage() {
                             <span
                               key={`tag-${tag.id}`}
                               className="h-1.5 w-1.5 rounded-full"
-                              style={{ backgroundColor: tag.color || '#ffffff' }}
+                              style={{ backgroundColor: tag.color || palette.mint }}
                               title={tag.label}
                               aria-label={tag.label}
                             />

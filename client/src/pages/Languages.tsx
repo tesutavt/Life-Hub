@@ -62,10 +62,10 @@ const getInitials = (value: string) => {
 };
 
 const BANNER_FALLBACKS = [
-  "from-rose-500/40 via-orange-500/30 to-amber-400/40",
-  "from-indigo-500/40 via-sky-500/30 to-emerald-400/40",
-  "from-purple-500/40 via-pink-500/30 to-red-400/40",
-  "from-sky-500/40 via-cyan-500/30 to-blue-500/40",
+  'from-brand-mint/40 via-brand-slate/30 to-brand-night/70',
+  'from-brand-slate/40 via-brand-night/35 to-brand-deep/80',
+  'from-brand-mint/30 via-brand-mint/10 to-brand-night/80',
+  'from-brand-night/45 via-brand-slate/25 to-brand-mint/35',
 ];
 
 const clampProgress = (value: number | null | undefined) => {

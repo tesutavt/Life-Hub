@@ -967,7 +967,7 @@ export default function ProfileFull() {
               return (
                 <div
                   key={j.id || `${j.type}_${j.ts}`}
-                  className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d10]/80 backdrop-blur-sm"
+                  className="relative overflow-hidden rounded-3xl border border-white/10 bg-brand-night/75 backdrop-blur"
                 >
                   <div className="relative z-10 flex items-start gap-3 p-3 sm:p-4 pr-4 sm:pr-40">
                     <div

@@ -302,7 +302,7 @@ export default function Settings() {
         onClose={() => setManualOpen(false)}
         closeOnOverlayClick
         overlayClassName="bg-black/70 backdrop-blur-sm"
-        contentClassName="w-full max-w-6xl max-h-[85vh] overflow-y-auto rounded-3xl border border-white/10 bg-[#0b0b0f] px-6 py-6"
+        contentClassName="w-full max-w-6xl max-h-[85vh] overflow-y-auto rounded-3xl border border-white/10 bg-brand-night/80 px-6 py-6"
       >
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-3">
