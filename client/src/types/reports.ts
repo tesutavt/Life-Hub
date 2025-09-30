@@ -16,6 +16,7 @@ export type ReportItem = {
   trend: ReportTrend;
   message: string;
   total?: number;
+  unit?: string;
 };
 
 export type ReportSection = {
@@ -46,9 +47,10 @@ export type ReportData = {
   previous_range: { start: string; end: string; label?: string };
   highlights: string[];
   sections: {
-    languages: ReportSection;
-    courses: ReportSection;
-    goals: ReportSection;
+    fitness: ReportSection | null;
+    languages: ReportSection | null;
+    courses: ReportSection | null;
+    goals: ReportSection | null;
   };
 };
 

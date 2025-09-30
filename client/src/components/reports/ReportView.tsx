@@ -73,24 +73,30 @@ const SectionItems = ({ section }: { section: ReportSection }) => {
   );
 };
 
-const ItemRow = ({ item, unit }: { item: ReportItem; unit: string }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2">
-        <div className="font-medium text-white truncate">{item.name}</div>
-        <TrendBadge trend={item.trend} />
+const ItemRow = ({ item, unit }: { item: ReportItem; unit: string }) => {
+  const resolvedUnit = item.unit ?? unit;
+  const suffix = resolvedUnit ? ` ${resolvedUnit}` : "";
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <div className="font-medium text-white truncate">{item.name}</div>
+          <TrendBadge trend={item.trend} />
+        </div>
+        <div className="text-xs opacity-70 mt-1 leading-snug">{item.message}</div>
       </div>
-      <div className="text-xs opacity-70 mt-1 leading-snug">{item.message}</div>
+      <div className="text-sm text-right min-w-[120px]">
+        <div className="font-semibold text-white">{formatNumber(item.current)}{suffix}</div>
+        <div className="text-xs opacity-60">
+          Было: {formatNumber(item.previous)}{suffix}
+        </div>
+        {typeof item.total === "number" && (
+          <div className="text-xs opacity-60">Итого: {formatNumber(item.total)}%</div>
+        )}
+      </div>
     </div>
-    <div className="text-sm text-right min-w-[120px]">
-      <div className="font-semibold text-white">{formatNumber(item.current)} {unit}</div>
-      <div className="text-xs opacity-60">Было: {formatNumber(item.previous)}</div>
-      {typeof item.total === "number" && (
-        <div className="text-xs opacity-60">Итого: {formatNumber(item.total)}%</div>
-      )}
-    </div>
-  </div>
-);
+  );
+};
 
 const SectionChart = ({ section }: { section: ReportSection }) => {
   if (!section.timeline || section.timeline.length === 0) {
@@ -159,9 +165,19 @@ const ReportSectionView = ({ section }: { section: ReportSection }) => (
     </div>
 
     <div className="grid gap-3 sm:grid-cols-3">
-      <SummaryStat label="Текущий период" value={`${formatNumber(section.summary.current)} ${section.unit}`} accent />
-      <SummaryStat label="Прошлый период" value={`${formatNumber(section.summary.previous)} ${section.unit}`} />
-      <SummaryStat label="Разница" value={`${formatNumber(section.summary.difference)} ${section.unit}`} />
+      <SummaryStat
+        label="Текущий период"
+        value={`${formatNumber(section.summary.current)}${section.unit ? ` ${section.unit}` : ''}`}
+        accent
+      />
+      <SummaryStat
+        label="Прошлый период"
+        value={`${formatNumber(section.summary.previous)}${section.unit ? ` ${section.unit}` : ''}`}
+      />
+      <SummaryStat
+        label="Разница"
+        value={`${formatNumber(section.summary.difference)}${section.unit ? ` ${section.unit}` : ''}`}
+      />
     </div>
 
     <div className="text-sm text-white/80 leading-relaxed">{section.summary.message}</div>
@@ -215,9 +231,16 @@ export default function ReportView({ report }: ReportViewProps) {
         </div>
       )}
 
-      <ReportSectionView section={report.sections.languages} />
-      <ReportSectionView section={report.sections.courses} />
-      <ReportSectionView section={report.sections.goals} />
+      {[
+        report.sections.fitness,
+        report.sections.languages,
+        report.sections.courses,
+        report.sections.goals,
+      ]
+        .filter((section): section is ReportSection => !!section)
+        .map((section) => (
+          <ReportSectionView key={section.key} section={section} />
+        ))}
     </div>
   );
 }
