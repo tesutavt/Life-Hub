@@ -60,7 +60,9 @@ protectedRouter.get('/metrics', async (req, res) => {
     const end   = new Date(day + 'T23:59:59Z').getTime();
     const db = await getDB();
     const u = await db.get('SELECT google_refresh_token FROM users WHERE id=?', [req.user.uid]);
-    if (!u?.google_refresh_token) return res.json({ steps: 0, hr: 0, sleepH: 0, source: 'local' });
+    if (!u?.google_refresh_token) {
+      return res.json({ steps: 0, hr: 0, sleepH: 0, activeCalories: 0, source: 'local' });
+    }
     const AT = await getAccessToken(u.google_refresh_token);
     const headers = { Authorization: `Bearer ${AT}` };
     const base = 'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate';
@@ -70,9 +72,10 @@ protectedRouter.get('/metrics', async (req, res) => {
       startTimeMillis: start, endTimeMillis: end
     }, { headers }).then(r => r.data);
 
-    const DS_STEPS = 'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps';
-    const DS_HR    = 'derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm';
-    const DS_SLEEP = 'derived:com.google.sleep.segment:com.google.android.gms:merge_sleep_segments';
+    const DS_STEPS    = 'derived:com.google.step_count.delta:com.google.android.gms:estimated_steps';
+    const DS_HR       = 'derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm';
+    const DS_SLEEP    = 'derived:com.google.sleep.segment:com.google.android.gms:merge_sleep_segments';
+    const DS_CALORIES = 'derived:com.google.active_energy.burned:com.google.android.gms:merge_active_energy_burned';
 
     const stepsAgg = await agg(DS_STEPS);
     const steps = (stepsAgg.bucket?.[0]?.dataset?.[0]?.point || []).reduce((s,p)=> s + (p.value?.[0]?.intVal || 0), 0);
@@ -82,13 +85,23 @@ protectedRouter.get('/metrics', async (req, res) => {
     const hr = hrs.length ? Math.round(hrs.reduce((a,p)=>a+(p.value?.[0]?.fpVal||0),0)/hrs.length) : 0;
 
     const sleepAgg = await agg(DS_SLEEP);
-    const ms = (sleepAgg.bucket?.[0]?.dataset?.[0]?.point || []).map(p => (p.endTimeNanos - p.startTimeNanos)/1e6).reduce((a,b)=>a+b,0);
-    const sleepH = +(ms/3600000).toFixed(1);
+    const ms = (sleepAgg.bucket?.[0]?.dataset?.[0]?.point || [])
+      .map(p => (p.endTimeNanos - p.startTimeNanos) / 1e6)
+      .reduce((a, b) => a + b, 0);
+    const sleepH = +(ms / 3600000).toFixed(1);
 
-    await db.run('INSERT OR REPLACE INTO fitness_daily(user_id,date,steps,hr_rest,sleep_hours) VALUES(?,?,?,?,?)',
-      [req.user.uid, day, steps, hr || null, sleepH || null]);
+    const caloriesAgg = await agg(DS_CALORIES);
+    const caloriesPoints = caloriesAgg.bucket?.[0]?.dataset?.[0]?.point || [];
+    const activeCalories = +caloriesPoints
+      .reduce((total, point) => total + (point.value?.[0]?.fpVal || 0), 0)
+      .toFixed(1);
 
-    res.json({ steps, hr, sleepH, source: 'googlefit' });
+    await db.run(
+      'INSERT OR REPLACE INTO fitness_daily(user_id,date,steps,hr_rest,sleep_hours,active_calories) VALUES(?,?,?,?,?,?)',
+      [req.user.uid, day, steps, hr || null, sleepH || null, activeCalories || null]
+    );
+
+    res.json({ steps, hr, sleepH, activeCalories, source: 'googlefit' });
   } catch (e) {
     console.error('metrics', e);
     res.status(500).json({ error: 'metrics_failed' });
