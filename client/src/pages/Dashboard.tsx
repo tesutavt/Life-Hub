@@ -174,7 +174,7 @@ type GoalSummary = {
   streak_current: number;
 };
 
-type FitnessPoint = { date: string; steps: number; hr: number; sleep: number };
+type FitnessPoint = { date: string; steps: number; hr: number; sleep: number; activeCalories: number };
 
 type SpendPoint = { date: string; out: number };
 
@@ -196,7 +196,7 @@ type BankTransaction = {
   ts: number;
 };
 
-type FitnessMetrics = { steps: number; hr: number; sleepH: number };
+type FitnessMetrics = { steps: number; hr: number; sleepH: number; activeCalories: number };
 
 type WeatherTimeOfDay = 'morning' | 'day' | 'evening' | 'night';
 type WeatherMood = 'clear' | 'clouds' | 'rain' | 'snow' | 'storm' | 'mist' | 'default';
@@ -755,7 +755,7 @@ export default function Dashboard() {
   const [goals, setGoals] = useState<GoalSummary[]>([]);
   const [loans, setLoans] = useState<LoanSummary[]>([]);
   const [monthly, setMonthly] = useState(0);
-  const [metrics, setMetrics] = useState<FitnessMetrics>({ steps: 0, hr: 0, sleepH: 0 });
+  const [metrics, setMetrics] = useState<FitnessMetrics>({ steps: 0, hr: 0, sleepH: 0, activeCalories: 0 });
   const [series, setSeries] = useState<FitnessPoint[]>([]);
   const [spend, setSpend] = useState<SpendPoint[]>([]);
   const [categorySpend, setCategorySpend] = useState<CategorySpend[]>([]);
@@ -954,16 +954,24 @@ export default function Dashboard() {
           steps: Number(data.steps || 0),
           hr: Number(data.hr || 0),
           sleep: Number(data.sleepH || 0),
+          activeCalories: Number(
+            data.activeCalories ?? data.active_calories ?? data.active_cal ?? 0
+          ),
         });
       }
       setSeries(history);
       const latest = history[history.length - 1];
       if (latest) {
-        setMetrics({ steps: latest.steps, hr: latest.hr, sleepH: latest.sleep });
+        setMetrics({
+          steps: latest.steps,
+          hr: latest.hr,
+          sleepH: latest.sleep,
+          activeCalories: latest.activeCalories,
+        });
       }
     } catch {
       setSeries([]);
-      setMetrics({ steps: 0, hr: 0, sleepH: 0 });
+      setMetrics({ steps: 0, hr: 0, sleepH: 0, activeCalories: 0 });
     }
   };
 
@@ -1123,7 +1131,7 @@ export default function Dashboard() {
   const stepsSpark = useMemo(() => series.map((point) => ({ value: point.steps })), [series]);
   const sleepSpark = useMemo(() => series.map((point) => ({ value: point.sleep })), [series]);
   const caloriesSpark = useMemo(
-    () => series.map((point) => ({ value: Math.round(point.steps * 0.04) })),
+    () => series.map((point) => ({ value: Math.round(point.activeCalories) })),
     [series]
   );
   const activitySpark = useMemo(
@@ -1131,7 +1139,7 @@ export default function Dashboard() {
     [series]
   );
 
-  const estimatedCalories = Math.round(metrics.steps * 0.04);
+  const activeCaloriesToday = metrics.activeCalories;
   const estimatedActiveMinutes = Math.round(metrics.steps / 100);
 
   const weeks = useMemo(() => monthMatrix(currentMonth), [currentMonth]);
@@ -1352,7 +1360,7 @@ export default function Dashboard() {
               <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <FitnessStatCard icon={Footprints} label="Шаги" value={formatNumber(metrics.steps)} data={stepsSpark} color="#38bdf8" />
                 <FitnessStatCard icon={Moon} label="Сон" value={metrics.sleepH.toFixed(1)} unit="ч" data={sleepSpark} color="#a855f7" />
-                <FitnessStatCard icon={Flame} label="Калории" value={formatNumber(estimatedCalories)} data={caloriesSpark} color="#f97316" />
+                <FitnessStatCard icon={Flame} label="Калории" value={formatNumber(activeCaloriesToday)} data={caloriesSpark} color="#f97316" />
                 <FitnessStatCard icon={TrendingUp} label="Активность" value={formatNumber(estimatedActiveMinutes)} unit="мин" data={activitySpark} color="#34d399" />
               </div>
 

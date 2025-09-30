@@ -59,6 +59,14 @@ async function runMigrations(database) {
     }
   }
 
+  const fitnessInfo = await database.all('PRAGMA table_info(fitness_daily)').catch(() => []);
+  if (fitnessInfo.length) {
+    const hasFitnessColumn = (name) => fitnessInfo.some((col) => col.name === name);
+    if (!hasFitnessColumn('active_calories')) {
+      await database.exec('ALTER TABLE fitness_daily ADD COLUMN active_calories REAL;');
+    }
+  }
+
   const pagesInfo = await database.all('PRAGMA table_info(journal_pages)').catch(() => []);
   if (pagesInfo.length) {
     if (!pagesInfo.some(col => col.name === 'blocks_json')) {
