@@ -56,8 +56,17 @@ protectedRouter.get('/metrics', async (req, res) => {
   try {
     if (!req.user?.uid) return res.status(401).json({ error: 'no token' });
     const day   = req.query.day || new Date().toISOString().slice(0, 10);
-    const start = new Date(day + 'T00:00:00Z').getTime();
-    const end   = new Date(day + 'T23:59:59Z').getTime();
+    const dayDate = new Date(`${day}T00:00:00Z`);
+    if (Number.isNaN(dayDate.getTime())) {
+      return res.status(400).json({ error: 'invalid_day' });
+    }
+    const start = dayDate.getTime();
+    const endOfDay = start + 86400000;
+    const now = Date.now();
+    const end = Math.min(endOfDay, now);
+    if (end <= start) {
+      return res.json({ steps: 0, hr: 0, sleepH: 0, activeCalories: 0, source: 'googlefit' });
+    }
     const db = await getDB();
     const u = await db.get('SELECT google_refresh_token FROM users WHERE id=?', [req.user.uid]);
     if (!u?.google_refresh_token) {
