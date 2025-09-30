@@ -4,6 +4,7 @@ import { api, resolveApiUrl } from '../api';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CalendarDays, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
 import PdfReader from '../components/pdf/PdfReader';
+import { gradients, palette } from '../theme';
 
 
 const uuid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2));
@@ -66,16 +67,26 @@ const RICH_TEXT_TYPES: BlockType[] = ['text', 'heading1', 'heading2', 'heading3'
 const BASE_EDITABLE_CLASS = 'min-h-[24px] w-full whitespace-pre-wrap leading-relaxed focus:outline-none';
 const LTR_STYLE: React.CSSProperties = { direction: 'ltr', unicodeBidi: 'plaintext', textAlign: 'left' };
 
-const DEFAULT_BANNER_GRADIENT = 'linear-gradient(135deg, rgba(59, 130, 246, 0.65) 0%, rgba(236, 72, 153, 0.6) 100%)';
+const DEFAULT_BANNER_GRADIENT = gradients.hero;
 
 const BANNER_GRADIENT_PRESETS = [
-  { label: 'Сумерки', value: 'linear-gradient(135deg, rgba(236, 72, 153, 0.7) 0%, rgba(245, 158, 11, 0.65) 100%)' },
-  { label: 'Океан', value: 'linear-gradient(135deg, rgba(14, 165, 233, 0.7) 0%, rgba(59, 130, 246, 0.7) 100%)' },
-  { label: 'Лес', value: 'linear-gradient(135deg, rgba(34, 197, 94, 0.7) 0%, rgba(16, 185, 129, 0.65) 100%)' },
-  { label: 'Полночь', value: 'linear-gradient(135deg, rgba(79, 70, 229, 0.75) 0%, rgba(129, 140, 248, 0.65) 100%)' }
+  { label: 'Глубина', value: 'linear-gradient(135deg, rgba(5, 24, 36, 0.92) 0%, rgba(22, 41, 54, 0.88) 100%)' },
+  { label: 'Атмосфера', value: 'linear-gradient(135deg, rgba(22, 41, 54, 0.92) 0%, rgba(59, 82, 101, 0.85) 100%)' },
+  { label: 'Мята', value: 'linear-gradient(135deg, rgba(39, 233, 181, 0.3) 0%, rgba(39, 233, 181, 0.05) 100%)' },
+  { label: 'Сияние', value: 'linear-gradient(135deg, rgba(5, 24, 36, 0.92) 0%, rgba(39, 233, 181, 0.25) 100%)' }
 ];
 
-const FORMAT_COLORS = ['#f97316', '#14b8a6', '#0ea5e9', '#6366f1', '#ec4899', '#facc15', '#e11d48', '#22c55e', '#ffffff'];
+const FORMAT_COLORS = [
+  palette.mint,
+  '#5ef0c9',
+  '#93f5dc',
+  palette.steel,
+  '#1f3a4a',
+  palette.midnight,
+  '#0b1d29',
+  palette.deep,
+  '#162936'
+];
 const FONT_FAMILIES = [
   { label: 'Системный', value: 'inherit' },
   { label: 'Serif', value: 'Georgia, Times, serif' },

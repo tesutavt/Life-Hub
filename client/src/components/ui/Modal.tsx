@@ -13,10 +13,10 @@ type ModalProps = {
 
 
 type ModalPhase = "idle" | "entering" | "open" | "exiting";
-const DEFAULT_OVERLAY = "bg-black/60 backdrop-blur-sm";
+const DEFAULT_OVERLAY = "bg-brand-deep/80 backdrop-blur-sm";
 const DEFAULT_CONTAINER = "items-center justify-center";
 const DEFAULT_CONTENT =
-  "w-full max-w-lg rounded-2xl border border-white/10 bg-black/90 p-6 shadow-2xl";
+  "w-full max-w-lg rounded-3xl border border-brand-slate/40 bg-brand-night/95 p-6 shadow-brand-soft";
 
 const ENTER_DURATION = 420;
 const EXIT_DURATION = 320;
