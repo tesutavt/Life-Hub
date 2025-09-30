@@ -12,6 +12,14 @@ const defaultSocialTemplates = {
   video: "Новое видео: {video_title}\n{video_url}",
 };
 
+const FALLBACK_OPENWEATHER_KEY = (() => {
+  const raw = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  const lowered = trimmed.toLowerCase();
+  return lowered === "undefined" || lowered === "null" ? "" : trimmed;
+})();
+
 type SocialSettings = {
   tg_bot_token?: string | null;
   tg_chat_id?: string | null;
@@ -27,10 +35,12 @@ export default function Settings() {
   const { token } = useAuth();
   const [socialForm, setSocialForm] = useState<SocialSettings>({});
   const [google, setGoogle] = useState<GoogleSettings>({ refresh_token: null });
+  const [weatherApiKey, setWeatherApiKey] = useState('');
   const [showMenuCounters, setShowMenuCounters] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingGoogle, setSavingGoogle] = useState(false);
+  const [savingWeather, setSavingWeather] = useState(false);
   const [savingUi, setSavingUi] = useState(false);
 
   const [manualOpen, setManualOpen] = useState(false);
@@ -65,6 +75,19 @@ export default function Settings() {
         setGoogle({ refresh_token: g.refresh_token || "" });
       } catch {
         setGoogle({ refresh_token: "" });
+      }
+      try {
+        const weather = await api.get("/api/life/settings/weather");
+        const rawKey =
+          typeof weather?.api_key === "string"
+            ? weather.api_key
+            : typeof weather?.weather_api_key === "string"
+            ? weather.weather_api_key
+            : "";
+        const trimmed = (rawKey || "").trim();
+        setWeatherApiKey(trimmed || FALLBACK_OPENWEATHER_KEY);
+      } catch {
+        setWeatherApiKey(FALLBACK_OPENWEATHER_KEY);
       }
       try {
         const ui = await api.get("/api/life/ui-settings");
@@ -117,6 +140,22 @@ export default function Settings() {
       });
     } finally {
       setSavingGoogle(false);
+    }
+  };
+
+  const saveWeather = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingWeather(true);
+    try {
+      await api.post(
+        "/api/life/settings/weather",
+        { api_key: weatherApiKey.trim() },
+        {
+          notifySuccess: "Ключ OpenWeather сохранён",
+        },
+      );
+    } finally {
+      setSavingWeather(false);
     }
   };
 
@@ -242,6 +281,30 @@ export default function Settings() {
               Подключить к Google
             </a>
             <span className="text-xs opacity-70">После авторизации OAuth появится новый токен.</span>
+          </div>
+        </form>
+
+        <form onSubmit={saveWeather} className="card space-y-4">
+          <div>
+            <div className="text-lg font-semibold mb-1">OpenWeather</div>
+            <p className="text-xs opacity-70">
+              Добавьте персональный API-ключ, чтобы показывать погоду в&nbsp;дашборде.
+            </p>
+          </div>
+          <input
+            placeholder="API key"
+            value={weatherApiKey}
+            onChange={(e) => setWeatherApiKey(e.target.value)}
+            className="px-3 py-2 rounded bg-white/10"
+            autoComplete="off"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <button disabled={savingWeather} className="px-4 py-2 rounded bg-white text-black">
+              {savingWeather ? "Сохраняем..." : "Сохранить"}
+            </button>
+            <span className="text-xs opacity-70">
+              Ключ можно получить на&nbsp;openweathermap.org в&nbsp;разделе API keys.
+            </span>
           </div>
         </form>
 

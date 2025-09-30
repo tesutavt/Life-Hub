@@ -519,9 +519,10 @@ const WeatherCard = ({
   if (status === 'error') {
     const showRetry = error === 'fetch' || error === 'profile';
     const showProfileLink = error === 'not-found';
+    const showSettingsLink = error === 'missing-key';
     let message = 'Не удалось загрузить погоду. Попробуйте обновить страницу.';
     if (error === 'missing-key') {
-      message = 'Не задан ключ API OpenWeather. Добавьте VITE_OPENWEATHER_API_KEY и перезапустите приложение.';
+      message = 'Не задан ключ API OpenWeather. Добавьте его в настройках или задайте переменную VITE_OPENWEATHER_API_KEY.';
     } else if (error === 'profile') {
       message = 'Не удалось загрузить профиль пользователя. Попробуйте обновить страницу.';
     } else if (error === 'not-found' && city) {
@@ -554,6 +555,14 @@ const WeatherCard = ({
               className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/30"
             >
               Настроить город
+            </Link>
+          )}
+          {showSettingsLink && (
+            <Link
+              to="/settings"
+              className="inline-flex items-center gap-2 rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/30"
+            >
+              Добавить ключ
             </Link>
           )}
         </div>
@@ -768,7 +777,16 @@ export default function Dashboard() {
     isMountedRef.current = false;
   }, []);
 
-  const weatherApiKey = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
+
+  const fallbackWeatherKey = useMemo(() => {
+    const raw = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
+    if (typeof raw !== 'string') return '';
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'undefined' || lowered === 'null') return '';
+    return trimmed;
+  }, []);
 
   const loadWeather = useCallback(async () => {
     if (!isMountedRef.current) return;
@@ -776,10 +794,17 @@ export default function Dashboard() {
     setWeatherStatus('loading');
 
     let cityName = '';
+    let apiKey = '';
     try {
       const profile = await api.get('/api/life/profile', { silentError: true });
       if (!isMountedRef.current) return;
       cityName = (profile?.user?.city || '').trim();
+      const rawKey =
+        typeof profile?.user?.weather_api_key === 'string'
+          ? profile.user.weather_api_key
+          : '';
+      const trimmedKey = (rawKey || '').trim();
+      apiKey = trimmedKey || fallbackWeatherKey;
       setWeatherCity(cityName);
     } catch {
       if (!isMountedRef.current) return;
@@ -798,7 +823,7 @@ export default function Dashboard() {
       return;
     }
 
-    if (!weatherApiKey) {
+    if (!apiKey) {
       setWeather(null);
       setWeatherError('missing-key');
       setWeatherStatus('error');
@@ -808,7 +833,7 @@ export default function Dashboard() {
     try {
       const encodedCity = encodeURIComponent(cityName);
       const response = await fetch(
-        `https://api.openweathermap.org/data/2.5/weather?q=${encodedCity}&appid=${weatherApiKey}&units=metric&lang=ru`,
+        `https://api.openweathermap.org/data/2.5/weather?q=${encodedCity}&appid=${apiKey}&units=metric&lang=ru`,
       );
       if (!response.ok) {
         let errorCode = 'fetch_failed';
@@ -850,7 +875,7 @@ export default function Dashboard() {
       setWeather(null);
       setWeatherStatus('error');
     }
-  }, [weatherApiKey]);
+  }, [fallbackWeatherKey]);
 
   const loadLanguages = async () => {
     try {

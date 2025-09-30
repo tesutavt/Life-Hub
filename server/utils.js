@@ -54,6 +54,9 @@ async function runMigrations(database) {
     if (!hasUserColumn('city')) {
       await database.exec('ALTER TABLE users ADD COLUMN city TEXT;');
     }
+    if (!hasUserColumn('weather_api_key')) {
+      await database.exec('ALTER TABLE users ADD COLUMN weather_api_key TEXT;');
+    }
   }
 
   const pagesInfo = await database.all('PRAGMA table_info(journal_pages)').catch(() => []);

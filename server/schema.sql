@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users(
   avatar_url TEXT,
   banner_url TEXT,
   city TEXT,
+  weather_api_key TEXT,
   google_refresh_token TEXT,
   tg_bot_token TEXT,
   tg_chat_id TEXT
