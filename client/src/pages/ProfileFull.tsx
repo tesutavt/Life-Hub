@@ -1,6 +1,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
+import { MapPin } from 'lucide-react';
 import Shell from '../components/Shell';
 import { Modal } from '../components/ui/Modal';
 import { api, resolveApiUrl } from '../api';
@@ -637,6 +638,7 @@ export default function ProfileFull() {
 
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
+  const [city, setCity] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [openEdit, setOpenEdit] = useState(false);
@@ -768,6 +770,7 @@ export default function ProfileFull() {
     setData(d);
     setDisplayName(d?.user?.name || '');
     setBio(d?.user?.bio || '');
+    setCity(d?.user?.city || '');
 
     // ✅ Лента (только feed, без страниц)
     const feed = await api.get('/api/life/feed');
@@ -861,6 +864,7 @@ export default function ProfileFull() {
     const fd = new FormData();
     fd.append('display_name', displayName);
     fd.append('bio', bio);
+    fd.append('city', city.trim());
     if (avatarFile) fd.append('avatar', avatarFile);
     if (bannerFile) fd.append('banner', bannerFile);
 
@@ -900,6 +904,12 @@ export default function ProfileFull() {
           <div className="mt-2 text-xl font-semibold">
             {data?.user?.name || 'Мой профиль'}
           </div>
+          {data?.user?.city && (
+            <div className="mt-1 flex items-center gap-2 text-sm text-white/70">
+              <MapPin className="h-4 w-4 opacity-70" />
+              <span>{data.user.city}</span>
+            </div>
+          )}
           {data?.user?.bio && (
             <div className="text-sm opacity-70">{data.user.bio}</div>
           )}
@@ -1030,6 +1040,12 @@ export default function ProfileFull() {
           placeholder="Имя"
           value={displayName}
           onChange={e => setDisplayName(e.target.value)}
+          className="w-full px-3 py-2 rounded bg-white/10"
+        />
+        <input
+          placeholder="Город"
+          value={city}
+          onChange={e => setCity(e.target.value)}
           className="w-full px-3 py-2 rounded bg-white/10"
         />
         <textarea
