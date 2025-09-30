@@ -14,6 +14,17 @@ CREATE TABLE IF NOT EXISTS users(
   tg_chat_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS fitness_daily(
+  user_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  steps INTEGER DEFAULT 0,
+  hr_rest INTEGER,
+  sleep_hours REAL,
+  active_calories REAL,
+  PRIMARY KEY(user_id, date),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS loans(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER,
