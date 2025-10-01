@@ -17,7 +17,7 @@ import {
   Search,
   BarChart3
 } from 'lucide-react';
-import { onMenuCountersRefresh, onMenuVisibilityChange } from '../menuBus';
+import { onHiddenMenuItemsChange, onMenuCountersRefresh, onMenuVisibilityChange, notifyHiddenMenuItems } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
 import { Modal } from '../components/ui/Modal';
 import ReportReminders from '../components/reports/ReportReminders';
@@ -28,14 +28,14 @@ type MenuCounters = {
   goals: number;
 };
 
-type MenuItem = {
+export type MenuItem = {
   to: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   counterKey?: keyof MenuCounters;
 };
 
-const MENU_ITEMS: MenuItem[] = [
+export const MENU_ITEMS: MenuItem[] = [
   { to: '/profile-full', label: 'Профиль', icon: UserCircle },
   { to: '/dashboard', label: 'Дэшборд', icon: LayoutDashboard },
   { to: '/calendar', label: 'Календарь', icon: CalendarDays },
@@ -71,6 +71,7 @@ function Sidebar() {
   const [profile, setProfile] = useState<any>(null);
   const [counters, setCounters] = useState<MenuCounters>(EMPTY_COUNTERS);
   const [showCounters, setShowCounters] = useState(true);
+  const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
@@ -109,9 +110,20 @@ function Sidebar() {
     const loadVisibility = async () => {
       try {
         const data = await api.get('/api/life/ui-settings');
-        if (!cancelled) setShowCounters(data?.show_menu_counters !== false);
+        if (!cancelled) {
+          setShowCounters(data?.show_menu_counters !== false);
+          const hidden = Array.isArray(data?.hidden_menu_items)
+            ? data.hidden_menu_items.filter((entry: unknown): entry is string => typeof entry === 'string')
+            : [];
+          setHiddenMenuItems(hidden);
+          notifyHiddenMenuItems(hidden);
+        }
       } catch {
-        if (!cancelled) setShowCounters(true);
+        if (!cancelled) {
+          setShowCounters(true);
+          setHiddenMenuItems([]);
+          notifyHiddenMenuItems([]);
+        }
       }
     };
 
@@ -124,11 +136,15 @@ function Sidebar() {
     const disposeVisibility = onMenuVisibilityChange((show) => {
       setShowCounters(show);
     });
+    const disposeHidden = onHiddenMenuItemsChange(hidden => {
+      setHiddenMenuItems(hidden);
+    });
 
     return () => {
       cancelled = true;
       disposeCounters();
       disposeVisibility();
+      disposeHidden();
     };
   }, []);
 
@@ -177,7 +193,7 @@ function Sidebar() {
       <div>
         <div className="text-lg font-semibold mb-2 text-brand-mint">Life Hub</div>
         <nav className="space-y-1">
-          {MENU_ITEMS.map(item => (
+          {MENU_ITEMS.filter(item => !hiddenMenuItems.includes(item.to)).map(item => (
             <NavItem key={item.to} item={item} counters={counters} showCounters={showCounters} />
           ))}
         </nav>

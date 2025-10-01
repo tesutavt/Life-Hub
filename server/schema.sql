@@ -259,6 +259,8 @@ CREATE TABLE IF NOT EXISTS social_settings(
 CREATE TABLE IF NOT EXISTS ui_settings(
   user_id INTEGER PRIMARY KEY,
   show_menu_counters INTEGER DEFAULT 1,
+  hidden_menu_items TEXT,
+  notification_preferences TEXT,
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 

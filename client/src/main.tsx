@@ -31,8 +31,8 @@ function PrivateRoute({ children }: { children: JSX.Element }){
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <NotificationProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <NotificationProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login/>} />
@@ -56,8 +56,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             </Route>
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
-    </NotificationProvider>
+      </NotificationProvider>
+    </AuthProvider>
   </React.StrictMode>
 )
 

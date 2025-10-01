@@ -59,6 +59,17 @@ async function runMigrations(database) {
     }
   }
 
+  const uiSettingsInfo = await database.all('PRAGMA table_info(ui_settings)').catch(() => []);
+  if (uiSettingsInfo.length) {
+    const hasUiColumn = (name) => uiSettingsInfo.some((col) => col.name === name);
+    if (!hasUiColumn('hidden_menu_items')) {
+      await database.exec('ALTER TABLE ui_settings ADD COLUMN hidden_menu_items TEXT;');
+    }
+    if (!hasUiColumn('notification_preferences')) {
+      await database.exec('ALTER TABLE ui_settings ADD COLUMN notification_preferences TEXT;');
+    }
+  }
+
   const fitnessInfo = await database.all('PRAGMA table_info(fitness_daily)').catch(() => []);
   if (fitnessInfo.length) {
     const hasFitnessColumn = (name) => fitnessInfo.some((col) => col.name === name);

@@ -30,6 +30,46 @@ const storage = multer.diskStorage({
 const MAX_PDF_FILE_SIZE = 512 * 1024 * 1024; // 512MB limit to allow 200MB+ uploads
 const upload = multer({ storage, limits: { fileSize: MAX_PDF_FILE_SIZE } });
 
+const DEFAULT_NOTIFICATION_PREFS = {
+  disabled_types: [],
+  mute_sound: false,
+  text_enabled: true,
+};
+
+const parseJsonSafe = (value, fallback) => {
+  if (typeof value !== 'string') return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed === undefined || parsed === null ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+};
+
+const normalizeHiddenMenuItems = (value) => {
+  const source = Array.isArray(value) ? value : parseJsonSafe(value, []);
+  if (!Array.isArray(source)) return [];
+  return source.filter((entry) => typeof entry === 'string');
+};
+
+const normalizeNotificationPreferences = (value) => {
+  const sourceRaw = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : parseJsonSafe(value, {});
+  const source = sourceRaw && typeof sourceRaw === 'object' ? sourceRaw : {};
+  const disabledRaw = source.disabled_types ?? source.disabledTypes ?? [];
+  const muteRaw = source.mute_sound ?? source.muteSound;
+  const textRaw = source.text_enabled ?? source.textEnabled;
+  const disabled = Array.isArray(disabledRaw)
+    ? disabledRaw.filter((entry) => typeof entry === 'string')
+    : [];
+  return {
+    disabled_types: Array.from(new Set(disabled)),
+    mute_sound: typeof muteRaw === 'boolean' ? muteRaw : DEFAULT_NOTIFICATION_PREFS.mute_sound,
+    text_enabled: typeof textRaw === 'boolean' ? textRaw : DEFAULT_NOTIFICATION_PREFS.text_enabled,
+  };
+};
+
 async function removeLocalUpload(url) {
   if (!url || typeof url !== 'string') return;
   if (!url.startsWith('/uploads/')) return;
@@ -1332,16 +1372,63 @@ router.get('/menu-counters', async (req, res) => {
 
 router.get('/ui-settings', async (req, res) => {
   const db = await getDB();
-  const row = await db.get('SELECT show_menu_counters FROM ui_settings WHERE user_id=?', [req.user.uid]);
-  res.json({ show_menu_counters: row ? !!row.show_menu_counters : true });
+  const row = await db.get(
+    'SELECT show_menu_counters, hidden_menu_items, notification_preferences FROM ui_settings WHERE user_id=?',
+    [req.user.uid],
+  );
+  const hiddenMenuItems = normalizeHiddenMenuItems(row?.hidden_menu_items);
+  const notificationPreferences = normalizeNotificationPreferences(row?.notification_preferences);
+  res.json({
+    show_menu_counters: row ? !!row.show_menu_counters : true,
+    hidden_menu_items: hiddenMenuItems,
+    notification_preferences: notificationPreferences,
+  });
 });
 
 router.put('/ui-settings', async (req, res) => {
   const db = await getDB();
-  const showMenuCounters = req.body?.show_menu_counters !== false;
-  const flag = showMenuCounters ? 1 : 0;
-  await db.run('INSERT INTO ui_settings(user_id, show_menu_counters) VALUES(?, ?) ON CONFLICT(user_id) DO UPDATE SET show_menu_counters=?', [req.user.uid, flag, flag]);
-  res.json({ show_menu_counters: !!flag });
+  const existing = await db.get(
+    'SELECT show_menu_counters, hidden_menu_items, notification_preferences FROM ui_settings WHERE user_id=?',
+    [req.user.uid],
+  );
+
+  const hasShowFlag = Object.prototype.hasOwnProperty.call(req.body || {}, 'show_menu_counters');
+  const showMenuCounters = hasShowFlag
+    ? req.body?.show_menu_counters !== false
+    : existing?.show_menu_counters !== 0 && existing?.show_menu_counters !== false;
+
+  const hiddenMenuItems = normalizeHiddenMenuItems(
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'hidden_menu_items')
+      ? req.body.hidden_menu_items
+      : existing?.hidden_menu_items,
+  );
+
+  const notificationPreferences = normalizeNotificationPreferences(
+    Object.prototype.hasOwnProperty.call(req.body || {}, 'notification_preferences')
+      ? req.body.notification_preferences
+      : existing?.notification_preferences,
+  );
+
+  await db.run(
+    `INSERT INTO ui_settings(user_id, show_menu_counters, hidden_menu_items, notification_preferences)
+     VALUES(?, ?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       show_menu_counters=excluded.show_menu_counters,
+       hidden_menu_items=excluded.hidden_menu_items,
+       notification_preferences=excluded.notification_preferences`,
+    [
+      req.user.uid,
+      showMenuCounters ? 1 : 0,
+      hiddenMenuItems.length ? JSON.stringify(hiddenMenuItems) : null,
+      notificationPreferences ? JSON.stringify(notificationPreferences) : JSON.stringify(DEFAULT_NOTIFICATION_PREFS),
+    ],
+  );
+
+  res.json({
+    show_menu_counters: !!showMenuCounters,
+    hidden_menu_items: hiddenMenuItems,
+    notification_preferences: notificationPreferences,
+  });
 });
 
 function crud(table) {
