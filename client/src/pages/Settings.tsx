@@ -1,12 +1,21 @@
-﻿import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
-import { notifyMenuCountersVisibility } from "../menuBus";
+import { notifyHiddenMenuItems, notifyMenuCountersVisibility } from "../menuBus";
 
 import { Modal } from "../components/ui/Modal";
 import ReportView from "../components/reports/ReportView";
 import { ReportData, ReportPeriodResponse } from "../types/reports";
+import MenuMaster from "../components/master/MenuMaster";
+import NotificationMaster from "../components/master/NotificationMaster";
+import { MENU_ITEMS } from "../app/App";
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  NotificationPreferences,
+  normalizeNotificationPreferences,
+} from "../types/ui";
+import { notifyNotificationSettingsChange } from "../notifications/settingsBus";
 const defaultSocialTemplates = {
   stream: "Привет! В эфире: {stream_title}\nhttps://twitch.tv/{channel}",
   video: "Новое видео: {video_title}\n{video_url}",
@@ -37,11 +46,19 @@ export default function Settings() {
   const [google, setGoogle] = useState<GoogleSettings>({ refresh_token: null });
   const [weatherApiKey, setWeatherApiKey] = useState('');
   const [showMenuCounters, setShowMenuCounters] = useState(true);
+  const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([]);
+  const hiddenMenuItemsRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingGoogle, setSavingGoogle] = useState(false);
   const [savingWeather, setSavingWeather] = useState(false);
   const [savingUi, setSavingUi] = useState(false);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>({
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+  });
+  const notificationPreferencesRef = useRef<NotificationPreferences>({
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+  });
 
   const [manualOpen, setManualOpen] = useState(false);
   const [manualPeriod, setManualPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
@@ -94,13 +111,37 @@ export default function Settings() {
         const visible = ui?.show_menu_counters !== false;
         setShowMenuCounters(visible);
         notifyMenuCountersVisibility(visible);
+        const hidden = Array.isArray(ui?.hidden_menu_items)
+          ? ui.hidden_menu_items.filter((entry: unknown): entry is string => typeof entry === "string")
+          : [];
+        setHiddenMenuItems(hidden);
+        hiddenMenuItemsRef.current = hidden;
+        notifyHiddenMenuItems(hidden);
+        const prefs = normalizeNotificationPreferences(ui?.notification_preferences);
+        setNotificationPreferences(prefs);
+        notificationPreferencesRef.current = prefs;
+        notifyNotificationSettingsChange(prefs);
       } catch {
         setShowMenuCounters(true);
         notifyMenuCountersVisibility(true);
+        setHiddenMenuItems([]);
+        hiddenMenuItemsRef.current = [];
+        notifyHiddenMenuItems([]);
+        setNotificationPreferences({ ...DEFAULT_NOTIFICATION_PREFERENCES });
+        notificationPreferencesRef.current = { ...DEFAULT_NOTIFICATION_PREFERENCES };
+        notifyNotificationSettingsChange({ ...DEFAULT_NOTIFICATION_PREFERENCES });
       }
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    hiddenMenuItemsRef.current = hiddenMenuItems;
+  }, [hiddenMenuItems]);
+
+  useEffect(() => {
+    notificationPreferencesRef.current = notificationPreferences;
+  }, [notificationPreferences]);
 
   const loadManualReport = async (period: 'daily' | 'weekly' | 'monthly') => {
     setManualLoading(true);
@@ -178,6 +219,97 @@ export default function Settings() {
       setSavingUi(false);
     }
   };
+
+  const applyHiddenMenuItems = async (hidden: string[]) => {
+    const previous = hiddenMenuItemsRef.current;
+    setHiddenMenuItems(hidden);
+    notifyHiddenMenuItems(hidden);
+    try {
+      const response = await api.put(
+        "/api/life/ui-settings",
+        { hidden_menu_items: hidden },
+        { silentSuccess: true },
+      );
+      const normalized = Array.isArray(response?.hidden_menu_items)
+        ? response.hidden_menu_items.filter((entry: unknown): entry is string => typeof entry === "string")
+        : hidden;
+      setHiddenMenuItems(normalized);
+      hiddenMenuItemsRef.current = normalized;
+      notifyHiddenMenuItems(normalized);
+    } catch (error) {
+      setHiddenMenuItems(previous);
+      hiddenMenuItemsRef.current = previous;
+      notifyHiddenMenuItems(previous);
+      throw error;
+    }
+  };
+
+  const applyNotificationPreferences = async (prefs: NotificationPreferences) => {
+    const previous = notificationPreferencesRef.current;
+    setNotificationPreferences(prefs);
+    notificationPreferencesRef.current = prefs;
+    notifyNotificationSettingsChange(prefs);
+    try {
+      const response = await api.put(
+        "/api/life/ui-settings",
+        {
+          notification_preferences: {
+            disabled_types: prefs.disabledTypes,
+            mute_sound: prefs.muteSound,
+            text_enabled: prefs.textEnabled,
+          },
+        },
+        { silentSuccess: true },
+      );
+      const normalized = normalizeNotificationPreferences(response?.notification_preferences);
+      setNotificationPreferences(normalized);
+      notificationPreferencesRef.current = normalized;
+      notifyNotificationSettingsChange(normalized);
+    } catch (error) {
+      setNotificationPreferences(previous);
+      notificationPreferencesRef.current = previous;
+      notifyNotificationSettingsChange(previous);
+      throw error;
+    }
+  };
+
+  const hiddenMenuSummary = useMemo(() => {
+    if (hiddenMenuItems.length === 0) return "Все пункты меню отображаются.";
+    const labels = hiddenMenuItems
+      .map(value => MENU_ITEMS.find(item => item.to === value)?.label)
+      .filter((label): label is string => Boolean(label));
+    if (labels.length === 0) return "Все пункты меню отображаются.";
+    const preview = labels.slice(0, 3).join(', ');
+    const rest = labels.length > 3 ? ` и ещё ${labels.length - 3}` : '';
+    return `Скрыто: ${preview}${rest}.`;
+  }, [hiddenMenuItems]);
+
+  const notificationSummary = useMemo(() => {
+    const disabled = notificationPreferences.disabledTypes.length;
+    const parts: string[] = [];
+    if (disabled === 0) {
+      parts.push('Все категории уведомлений включены.');
+    } else {
+      const labels = notificationPreferences.disabledTypes
+        .map(type =>
+          ({
+            system: 'системные',
+            progress: 'прогресс',
+            event: 'события',
+            reminder: 'напоминания',
+          } as Record<string, string>)[type] || type,
+        )
+        .join(', ');
+      parts.push(`Отключены: ${labels}.`);
+    }
+    parts.push(notificationPreferences.muteSound ? 'Звук отключён.' : 'Звук включён.');
+    parts.push(
+      notificationPreferences.textEnabled
+        ? 'Текстовые уведомления показываются.'
+        : 'Текстовые уведомления скрыты.',
+    );
+    return parts.join(' ');
+  }, [notificationPreferences]);
 
   const googleAuthUrl = token
     ? `/api/fitness/google/auth?token=${encodeURIComponent(token)}`
@@ -345,7 +477,9 @@ export default function Settings() {
         <div className="card space-y-3">
           <div>
             <div className="text-lg font-semibold mb-1">Интерфейс</div>
-            <p className="text-xs opacity-70">Управляйте отображением счетчиков рядом с пунктами меню.</p>
+            <p className="text-xs opacity-70">
+              Управляйте отображением элементов меню и настройками уведомлений.
+            </p>
           </div>
           <label className="flex items-center gap-3 text-sm">
             <input
@@ -358,6 +492,14 @@ export default function Settings() {
             <span>Показывать индикаторы активных блоков в меню</span>
           </label>
           {savingUi && <div className="text-xs opacity-60">Сохраняем...</div>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <MenuMaster hiddenItems={hiddenMenuItems} onApply={applyHiddenMenuItems} menuItems={MENU_ITEMS} />
+            <NotificationMaster preferences={notificationPreferences} onApply={applyNotificationPreferences} />
+          </div>
+          <div className="text-xs text-white/60 space-y-1">
+            <div>{hiddenMenuSummary}</div>
+            <div>{notificationSummary}</div>
+          </div>
         </div>
       </div>
       <Modal

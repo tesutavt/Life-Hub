@@ -1,4 +1,6 @@
-﻿export type NotificationVariant = 'info' | 'success' | 'warning' | 'error';
+import { NotificationCategory } from '../types/ui';
+
+export type NotificationVariant = 'info' | 'success' | 'warning' | 'error';
 
 export type NotificationInput = {
   id?: number;
@@ -7,10 +9,19 @@ export type NotificationInput = {
   variant?: NotificationVariant;
   duration?: number;
   meta?: Record<string, unknown>;
+  category?: NotificationCategory;
+  sound?: boolean;
+  text?: boolean;
 };
 
 export type NotificationItem = Required<Pick<NotificationInput, 'id' | 'message'>> &
-  Omit<NotificationInput, 'id' | 'message'> & { variant: NotificationVariant; duration: number };
+  Omit<NotificationInput, 'id' | 'message'> & {
+    variant: NotificationVariant;
+    duration: number;
+    category: NotificationCategory;
+    sound: boolean;
+    text: boolean;
+  };
 
 type Listener = (notification: NotificationItem) => void;
 
@@ -28,6 +39,9 @@ function normalize(payload: NotificationInput): NotificationItem {
     variant: payload.variant ?? 'info',
     duration: payload.duration ?? DEFAULT_DURATION,
     meta: payload.meta,
+    category: payload.category ?? 'system',
+    sound: payload.sound !== false,
+    text: payload.text !== false,
   };
 }
 

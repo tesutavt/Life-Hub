@@ -16,6 +16,10 @@ import {
   pushNotification,
   subscribe,
 } from './notificationBus';
+import { DEFAULT_NOTIFICATION_PREFERENCES, NotificationPreferences, NotificationCategory, normalizeNotificationPreferences } from '../types/ui';
+import { onNotificationSettingsChange, notifyNotificationSettingsChange } from './settingsBus';
+import { api } from '../api';
+import { useAuth } from '../AuthContext';
 
 type NotificationContextValue = {
   push: (notification: NotificationInput) => NotificationItem;
@@ -42,15 +46,103 @@ const variantStyles: Record<NotificationVariant, string> = {
   error: 'border-rose-400/40 bg-rose-500/15 text-rose-50',
 };
 
+const CATEGORY_LABELS: Record<NotificationCategory, string> = {
+  system: 'Система',
+  progress: 'Прогресс',
+  event: 'События',
+  reminder: 'Напоминания',
+};
+
 const NOTIFICATION_EXIT_TIMEOUT = 360;
-const NOTIFICATION_EASE = "ease-[cubic-bezier(0.16,1,0.3,1)]";
+const NOTIFICATION_EASE = 'ease-[cubic-bezier(0.16,1,0.3,1)]';
 
 const createKey = (notification: NotificationItem) =>
-  `${notification.variant}::${notification.title ?? ''}::${notification.message}`;
+  `${notification.category}::${notification.variant}::${notification.title ?? ''}::${notification.message}`;
+
+let audioContext: AudioContext | null = null;
+
+function playNotificationSound() {
+  if (typeof window === 'undefined') return;
+  const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioCtx) return;
+  try {
+    if (!audioContext) {
+      audioContext = new AudioCtx();
+    }
+    if (audioContext.state === 'suspended') {
+      void audioContext.resume().catch(() => undefined);
+    }
+    const ctx = audioContext;
+    const now = ctx.currentTime;
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(660, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.2, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.34);
+  } catch {
+    // Ignore playback errors (e.g. autoplay restrictions)
+  }
+}
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
+  const { token } = useAuth();
   const [items, setItems] = useState<DisplayNotification[]>([]);
   const timersRef = useRef<Map<number, number>>(new Map());
+  const [preferences, setPreferences] = useState<NotificationPreferences>({
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+  });
+  const preferencesRef = useRef(preferences);
+
+  useEffect(() => {
+    preferencesRef.current = preferences;
+  }, [preferences]);
+
+  useEffect(() => {
+    const unsubscribe = onNotificationSettingsChange(newPreferences => {
+      setPreferences({ ...newPreferences });
+    });
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!token) {
+      const defaults = { ...DEFAULT_NOTIFICATION_PREFERENCES };
+      setPreferences(defaults);
+      notifyNotificationSettingsChange(defaults);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    (async () => {
+      try {
+        const response = await api.get('/api/life/ui-settings', {
+          silentError: true,
+        });
+        if (cancelled) return;
+        const normalized = normalizeNotificationPreferences(response?.notification_preferences);
+        setPreferences(normalized);
+        notifyNotificationSettingsChange(normalized);
+      } catch {
+        if (!cancelled) {
+          const defaults = { ...DEFAULT_NOTIFICATION_PREFERENCES };
+          setPreferences(defaults);
+          notifyNotificationSettingsChange(defaults);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const clearTimer = useCallback((baseId: number) => {
     const timers = timersRef.current;
@@ -98,6 +190,19 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const unsubscribe = subscribe(notification => {
+      const currentPreferences = preferencesRef.current;
+      if (currentPreferences.disabledTypes.includes(notification.category)) {
+        return;
+      }
+
+      if (notification.sound && !currentPreferences.muteSound) {
+        playNotificationSound();
+      }
+
+      if (!notification.text || !currentPreferences.textEnabled) {
+        return;
+      }
+
       let timerBaseId: number | null = null;
       const timerDuration = notification.duration;
 
@@ -199,9 +304,16 @@ function NotificationCard({
       } ${variantClass}`}
     >
       <div className="flex-1 space-y-1">
-        {(item.title || item.count > 1) && (
+        {(item.title || item.count > 1 || item.category) && (
           <div className="flex items-center justify-between gap-2">
-            {item.title && <div className="text-sm font-semibold leading-tight">{item.title}</div>}
+            <div className="flex items-center gap-2">
+              {item.category && (
+                <span className="shrink-0 rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
+                  {CATEGORY_LABELS[item.category]}
+                </span>
+              )}
+              {item.title && <div className="text-sm font-semibold leading-tight">{item.title}</div>}
+            </div>
             {item.count > 1 && (
               <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
                 ×{item.count}
