@@ -28,6 +28,9 @@ GF_REDIRECT=http://localhost:4000/api/fitness/google/callback
 - `https://www.googleapis.com/auth/fitness.activity.read`
 - `https://www.googleapis.com/auth/fitness.heart_rate.read`
 - `https://www.googleapis.com/auth/fitness.sleep.read`
+- `https://www.googleapis.com/auth/fitness.blood_pressure.read`
+- `https://www.googleapis.com/auth/fitness.oxygen_saturation.read`
+- `https://www.googleapis.com/auth/fitness.location.read`
 
 После подключения приложение автоматически обновляет access token по refresh token и проверяет, что указанные скоупы присутствуют у полученного токена.
 
