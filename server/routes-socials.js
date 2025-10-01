@@ -145,7 +145,7 @@ router.post('/test/telegram', async (req, res) => {
   const { type='stream' } = req.body || {};
   const sample = type === 'video'
     ? { video_title: 'Demo video', video_url: 'https://youtube.com/watch?v=demo', published_at: new Date().toISOString() }
-    : { stream_title: 'Demo stream', channel: s.twitch_channel || 'channel', game: 'Just Chatting', viewers: 777 };
+    : { stream_title: 'Demo stream', channel: normalizeTwitchChannel(s.twitch_channel) || 'channel', game: 'Just Chatting', viewers: 777 };
   const t = type === 'video' ? s.tg_video_template : s.tg_stream_template;
   const text = tpl(t || (type==='video' ? '🎬 {video_title}\n{video_url}' : '🔴 Стрим: {stream_title}\nhttps://twitch.tv/{channel}'), sample);
   const r = await sendTelegram(s.tg_bot_token, s.tg_chat_id, text);
@@ -161,11 +161,44 @@ async function getTwitchAppToken() {
   return r?.access_token || null;
 }
 
+function normalizeTwitchChannel(input) {
+  if (!input) return null;
+  let value = String(input).trim();
+  if (!value) return null;
+  const urlMatch = value.match(/twitch\.tv\/([^/?#]+)/i);
+  if (urlMatch) {
+    value = urlMatch[1];
+  }
+  if (value.startsWith('@')) {
+    value = value.slice(1);
+  }
+  value = value.replace(/[^a-zA-Z0-9_]/g, '');
+  return value ? value.toLowerCase() : null;
+}
+
+function coerceNumber(value, fallback = null) {
+  if (value == null) return fallback;
+  const num = Number(value);
+  if (!Number.isFinite(num) || Number.isNaN(num)) return fallback;
+  return Math.max(0, Math.trunc(num));
+}
+
 async function twitchPoll(userId, settings) {
-  if (!settings?.twitch_channel) return null;
-  const channel = String(settings.twitch_channel).trim();
-  if (!channel) return null;
-  const channelLower = channel.toLowerCase();
+  const channelRaw = String(settings.twitch_channel || '').trim();
+  const channelLower = normalizeTwitchChannel(channelRaw);
+  if (!channelLower) return null;
+  let channelLabel = channelRaw || channelLower;
+  if (/twitch\.tv/i.test(channelLabel)) {
+    channelLabel = channelLower;
+  }
+  let channelDisplay = channelLabel;
+  const channel = channelLower;
+
+  const db = await getDB();
+  const latestMetric = await db.get(
+    "SELECT followers, avg_viewers, active_chatters, top_chatter FROM social_metrics WHERE user_id=? AND platform='twitch' ORDER BY id DESC LIMIT 1",
+    [userId]
+  );
 
   let headers = null;
   let user = null;
@@ -183,6 +216,9 @@ async function twitchPoll(userId, settings) {
         .then((r) => r.data?.data?.[0])
         .catch(() => null);
       broadcasterId = user?.id || null;
+      if (user?.display_name) {
+        channelDisplay = user.display_name;
+      }
     }
   }
 
@@ -196,6 +232,7 @@ async function twitchPoll(userId, settings) {
   if (followers == null) {
     followers = parseDecapiNumber(await fetchDecapi(`followers/${channelLower}`));
   }
+  followers = coerceNumber(followers, latestMetric?.followers ?? 0);
 
   let streamInfo = null;
   if (headers && broadcasterId) {
@@ -217,9 +254,9 @@ async function twitchPoll(userId, settings) {
   }
 
   const isLive = !!streamInfo?.live;
-  const viewers = streamInfo?.viewers ?? null;
+    const fallbackViewers = streamInfo ? 0 : (latestMetric?.avg_viewers ?? 0);
+    const viewers = coerceNumber(streamInfo?.viewers, fallbackViewers);
 
-  const db = await getDB();
   const prev = await db.get('SELECT last_stream_live FROM social_settings WHERE user_id=?', [userId]);
 
   let activeChatters = null;
@@ -230,7 +267,7 @@ async function twitchPoll(userId, settings) {
       .then((r) => r.data)
       .catch(() => null);
     if (chatData) {
-      activeChatters = typeof chatData.chatter_count === 'number' ? chatData.chatter_count : null;
+      activeChatters = coerceNumber(chatData.chatter_count, null);
       const groups = chatData.chatters || {};
       const unique = Array.from(
         new Set(
@@ -262,12 +299,18 @@ async function twitchPoll(userId, settings) {
     // ignore chatters fetch errors
   }
 
+  activeChatters = coerceNumber(activeChatters, latestMetric?.active_chatters ?? 0);
+  if (!topChatter && latestMetric?.top_chatter) {
+    topChatter = latestMetric.top_chatter;
+  }
+
   if (isLive && !prev?.last_stream_live && settings.tg_bot_token && settings.tg_chat_id) {
     const text = (settings.tg_stream_template || '🔴 Стрим: {stream_title}\nhttps://twitch.tv/{channel}')
       .replace('{stream_title}', streamInfo?.title || 'Стрим')
       .replace('{channel}', channel)
+      .replace('{channel_name}', channelDisplay)
       .replace('{game}', streamInfo?.game || '')
-      .replace('{viewers}', String(streamInfo?.viewers || 0));
+      .replace('{viewers}', String(viewers));
     await sendTelegram(settings.tg_bot_token, settings.tg_chat_id, text).catch(() => {});
     const today = new Date().toISOString().slice(0, 10);
     await db.run(`INSERT INTO social_logs(user_id,type,title,url,event_date,created_at) VALUES(?,?,?,?,?,?)`, [
@@ -282,7 +325,7 @@ async function twitchPoll(userId, settings) {
       userId,
       'stream',
       `Начал стрим: ${streamInfo?.title || ''}`,
-      JSON.stringify({ channel }),
+      JSON.stringify({ channel, display: channelDisplay }),
       new Date().toISOString()
     ]);
   }
@@ -294,7 +337,7 @@ async function twitchPoll(userId, settings) {
     [userId, 'twitch', followers, null, viewers, activeChatters, topChatter, new Date().toISOString()]
   );
 
-  return { live: isLive, viewers, followers, activeChatters, topChatter };
+  return { live: isLive, viewers, followers, activeChatters, topChatter, channel: channel, displayName: channelDisplay };
 }
 
 async function youtubePoll(userId, settings) {
