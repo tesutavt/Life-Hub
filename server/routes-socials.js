@@ -58,6 +58,45 @@ function tpl(str, data) {
   return str.replace(/\{(\w+)\}/g, (_, k) => (data?.[k] ?? ''));
 }
 
+const TWITCH_DECAPI_BASE = 'https://decapi.me/twitch';
+
+async function fetchDecapi(endpoint) {
+  try {
+    const response = await axios.get(`${TWITCH_DECAPI_BASE}/${endpoint}`, {
+      responseType: 'text',
+      timeout: 5000
+    });
+    return typeof response.data === 'string' ? response.data : String(response.data ?? '');
+  } catch {
+    return null;
+  }
+}
+
+function parseDecapiNumber(text) {
+  if (!text) return null;
+  const digits = String(text).replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  const value = parseInt(digits, 10);
+  return Number.isNaN(value) ? null : value;
+}
+
+async function fallbackTwitchStream(channel) {
+  const uptimeText = await fetchDecapi(`uptime/${channel}`);
+  const live = uptimeText ? !/offline/i.test(uptimeText) : null;
+  if (!live) {
+    return { live: false, viewers: null, title: null, game: null };
+  }
+  const titleText = await fetchDecapi(`status/${channel}`);
+  const gameText = await fetchDecapi(`game/${channel}`);
+  const viewerText = await fetchDecapi(`viewercount/${channel}`);
+  return {
+    live: true,
+    viewers: parseDecapiNumber(viewerText),
+    title: titleText && !/offline/i.test(titleText) ? titleText : null,
+    game: gameText && !/not playing/i.test(gameText) ? gameText : null
+  };
+}
+
 async function sendTelegram(botToken, chatId, text) {
   if (!botToken || !chatId || !text) return { ok:false, reason: 'missing data' };
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
@@ -124,36 +163,61 @@ async function getTwitchAppToken() {
 
 async function twitchPoll(userId, settings) {
   if (!settings?.twitch_channel) return null;
-  const token = await getTwitchAppToken();
-  if (!token) return null;
-  const headers = { 'Client-ID': process.env.TWITCH_CLIENT_ID, 'Authorization': `Bearer ${token}` };
+  const channel = String(settings.twitch_channel).trim();
+  if (!channel) return null;
+  const channelLower = channel.toLowerCase();
 
-  // user info
-  const user = await axios.get('https://api.twitch.tv/helix/users', { params: { login: settings.twitch_channel }, headers })
-    .then(r => r.data?.data?.[0]).catch(()=>null);
-  if (!user) return null;
-  const broadcaster_id = user.id;
+  let headers = null;
+  let user = null;
+  let broadcasterId = null;
 
-  // followers endpoint requires user token now; skip to avoid 410 with app token
-  let followers = null;
-  try {
-    const rawFollowers = await axios.get(`https://decapi.me/twitch/followers/${settings.twitch_channel}`).then(r => String(r.data)).catch(() => null);
-    if (rawFollowers) {
-      const digits = rawFollowers.replace(/[^0-9]/g, '');
-      if (digits) {
-        const parsed = parseInt(digits, 10);
-        if (!Number.isNaN(parsed)) followers = parsed;
-      }
+  if (process.env.TWITCH_CLIENT_ID && process.env.TWITCH_CLIENT_SECRET) {
+    const token = await getTwitchAppToken();
+    if (token) {
+      headers = {
+        'Client-ID': process.env.TWITCH_CLIENT_ID,
+        Authorization: `Bearer ${token}`
+      };
+      user = await axios
+        .get('https://api.twitch.tv/helix/users', { params: { login: channelLower }, headers })
+        .then((r) => r.data?.data?.[0])
+        .catch(() => null);
+      broadcasterId = user?.id || null;
     }
-  } catch {
-    followers = null;
   }
 
-  // stream status
-  const stream = await axios.get('https://api.twitch.tv/helix/streams', { params: { user_id: broadcaster_id }, headers })
-    .then(r => r.data?.data?.[0] || null).catch(()=>null);
-  const isLive = !!stream;
-  const viewers = stream?.viewer_count || null;
+  let followers = null;
+  if (headers && broadcasterId) {
+    followers = await axios
+      .get('https://api.twitch.tv/helix/users/follows', { params: { to_id: broadcasterId }, headers })
+      .then((r) => (typeof r.data?.total === 'number' ? r.data.total : null))
+      .catch(() => null);
+  }
+  if (followers == null) {
+    followers = parseDecapiNumber(await fetchDecapi(`followers/${channelLower}`));
+  }
+
+  let streamInfo = null;
+  if (headers && broadcasterId) {
+    const stream = await axios
+      .get('https://api.twitch.tv/helix/streams', { params: { user_id: broadcasterId }, headers })
+      .then((r) => r.data?.data?.[0] || null)
+      .catch(() => null);
+    if (stream) {
+      streamInfo = {
+        live: true,
+        viewers: typeof stream.viewer_count === 'number' ? stream.viewer_count : null,
+        title: stream.title || null,
+        game: stream.game_name || null
+      };
+    }
+  }
+  if (!streamInfo) {
+    streamInfo = await fallbackTwitchStream(channelLower);
+  }
+
+  const isLive = !!streamInfo?.live;
+  const viewers = streamInfo?.viewers ?? null;
 
   const db = await getDB();
   const prev = await db.get('SELECT last_stream_live FROM social_settings WHERE user_id=?', [userId]);
@@ -161,50 +225,74 @@ async function twitchPoll(userId, settings) {
   let activeChatters = null;
   let topChatter = null;
   try {
-    const chatData = await axios.get(`https://tmi.twitch.tv/group/user/${settings.twitch_channel}/chatters`).then(r => r.data).catch(() => null);
+    const chatData = await axios
+      .get(`https://tmi.twitch.tv/group/user/${channelLower}/chatters`)
+      .then((r) => r.data)
+      .catch(() => null);
     if (chatData) {
       activeChatters = typeof chatData.chatter_count === 'number' ? chatData.chatter_count : null;
       const groups = chatData.chatters || {};
-      const lowerChannel = String(settings.twitch_channel || '').toLowerCase();
-      const unique = Array.from(new Set(Object.values(groups)
-        .flat()
-        .filter(Boolean)
-        .map(name => String(name).toLowerCase())
-        .filter(name => name && name !== lowerChannel)));
+      const unique = Array.from(
+        new Set(
+          Object.values(groups)
+            .flat()
+            .filter(Boolean)
+            .map((name) => String(name).toLowerCase())
+            .filter((name) => name && name !== channelLower)
+        )
+      );
       if (unique.length) {
         const nowIso = new Date().toISOString();
-        await Promise.all(unique.map(name => db.run(
-          `INSERT INTO social_chatters(user_id, platform, chatter, hits, last_seen) VALUES(?,?,?,?,?) ON CONFLICT(user_id, platform, chatter) DO UPDATE SET hits = social_chatters.hits + 1, last_seen = excluded.last_seen`,
-          [userId, 'twitch', name, 1, nowIso]
-        )));
+        await Promise.all(
+          unique.map((name) =>
+            db.run(
+              `INSERT INTO social_chatters(user_id, platform, chatter, hits, last_seen) VALUES(?,?,?,?,?) ON CONFLICT(user_id, platform, chatter) DO UPDATE SET hits = social_chatters.hits + 1, last_seen = excluded.last_seen`,
+              [userId, 'twitch', name, 1, nowIso]
+            )
+          )
+        );
       }
-      const topRow = await db.get('SELECT chatter FROM social_chatters WHERE user_id=? AND platform=? ORDER BY hits DESC, last_seen DESC LIMIT 1', [userId, 'twitch']);
+      const topRow = await db.get(
+        'SELECT chatter FROM social_chatters WHERE user_id=? AND platform=? ORDER BY hits DESC, last_seen DESC LIMIT 1',
+        [userId, 'twitch']
+      );
       topChatter = topRow?.chatter || null;
     }
   } catch {
     // ignore chatters fetch errors
   }
 
-  // When goes live -> feed + social_log
   if (isLive && !prev?.last_stream_live && settings.tg_bot_token && settings.tg_chat_id) {
     const text = (settings.tg_stream_template || '🔴 Стрим: {stream_title}\nhttps://twitch.tv/{channel}')
-      .replace('{stream_title}', stream?.title || 'Стрим')
-      .replace('{channel}', settings.twitch_channel)
-      .replace('{game}', stream?.game_name || '')
-      .replace('{viewers}', String(stream?.viewer_count || 0));
-    await sendTelegram(settings.tg_bot_token, settings.tg_chat_id, text).catch(()=>{});
-    const today = new Date().toISOString().slice(0,10);
-    await db.run(`INSERT INTO social_logs(user_id,type,title,url,event_date,created_at) VALUES(?,?,?,?,?,?)`,
-      [userId, 'stream_live', stream?.title || 'Стрим', `https://twitch.tv/${settings.twitch_channel}`, today, new Date().toISOString()]);
-    await db.run(`INSERT INTO life_feed(user_id,type,text,meta,ts) VALUES(?,?,?,?,?)`,
-      [userId, 'stream', `Начал стрим: ${stream?.title||''}`, JSON.stringify({ channel: settings.twitch_channel }), new Date().toISOString()]);
+      .replace('{stream_title}', streamInfo?.title || 'Стрим')
+      .replace('{channel}', channel)
+      .replace('{game}', streamInfo?.game || '')
+      .replace('{viewers}', String(streamInfo?.viewers || 0));
+    await sendTelegram(settings.tg_bot_token, settings.tg_chat_id, text).catch(() => {});
+    const today = new Date().toISOString().slice(0, 10);
+    await db.run(`INSERT INTO social_logs(user_id,type,title,url,event_date,created_at) VALUES(?,?,?,?,?,?)`, [
+      userId,
+      'stream_live',
+      streamInfo?.title || 'Стрим',
+      `https://twitch.tv/${channel}`,
+      today,
+      new Date().toISOString()
+    ]);
+    await db.run(`INSERT INTO life_feed(user_id,type,text,meta,ts) VALUES(?,?,?,?,?)`, [
+      userId,
+      'stream',
+      `Начал стрим: ${streamInfo?.title || ''}`,
+      JSON.stringify({ channel }),
+      new Date().toISOString()
+    ]);
   }
   await db.run('UPDATE social_settings SET last_stream_live=? WHERE user_id=?', [isLive ? 1 : 0, userId]);
 
-  // metrics snapshot
-  await db.run(`INSERT INTO social_metrics(user_id, platform, followers, subscribers, avg_viewers, active_chatters, top_chatter, snapshot_at)
-                VALUES(?,?,?,?,?,?,?,?)`,
-                [userId, 'twitch', followers, null, viewers, activeChatters, topChatter, new Date().toISOString()]);
+  await db.run(
+    `INSERT INTO social_metrics(user_id, platform, followers, subscribers, avg_viewers, active_chatters, top_chatter, snapshot_at)` +
+      ' VALUES(?,?,?,?,?,?,?,?)',
+    [userId, 'twitch', followers, null, viewers, activeChatters, topChatter, new Date().toISOString()]
+  );
 
   return { live: isLive, viewers, followers, activeChatters, topChatter };
 }
