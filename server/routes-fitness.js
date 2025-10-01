@@ -251,7 +251,8 @@ function ensureSleepEntry(map, date) {
       deep: 0,
       light: 0,
       rem: 0,
-      awake: 0
+      awake: 0,
+      sessions: 0
     });
   }
   return map.get(date);
@@ -333,6 +334,174 @@ function extractSleepStageValue(point) {
     }
   }
   return null;
+}
+
+function sessionTimeMillis(entry, millisKey, nanosKey) {
+  if (!entry) return null;
+  const millisValue = toBigIntValue(entry[millisKey]);
+  if (millisValue !== null) {
+    const millis = Number(millisValue);
+    return Number.isFinite(millis) ? millis : null;
+  }
+  const nanosValue = toBigIntValue(entry[nanosKey]);
+  if (nanosValue !== null) {
+    const millis = Number(nanosValue / NANOS_IN_MILLI);
+    return Number.isFinite(millis) ? millis : null;
+  }
+  return null;
+}
+
+async function fetchSleepSessions(headers, startTimeMillis, endTimeMillis) {
+  const sessions = [];
+  const url = 'https://www.googleapis.com/fitness/v1/users/me/sessions';
+  const adjustedStart = Math.max(0, startTimeMillis - DAY_MS);
+  const startIso = new Date(adjustedStart).toISOString();
+  const adjustedEnd = endTimeMillis + DAY_MS;
+  const endIso = new Date(adjustedEnd).toISOString();
+  let pageToken = null;
+  try {
+    do {
+      const params = {
+        startTime: startIso,
+        endTime: endIso,
+        activityType: 72
+      };
+      if (pageToken) params.pageToken = pageToken;
+      const response = await axios.get(url, { headers, params });
+      const list = Array.isArray(response.data?.session) ? response.data.session : [];
+      sessions.push(...list);
+      pageToken = response.data?.nextPageToken || null;
+    } while (pageToken);
+  } catch (error) {
+    logAxiosError('Google Fit sleep sessions', error);
+  }
+  return sessions;
+}
+
+async function fetchSleepSegmentsForSession(headers, dataSource, sessionStartMillis, sessionEndMillis) {
+  if (!Number.isFinite(sessionStartMillis) || !Number.isFinite(sessionEndMillis)) return [];
+  if (sessionEndMillis <= sessionStartMillis) return [];
+  const aggregateBy = [];
+  if (dataSource?.dataStreamId) {
+    aggregateBy.push({ dataSourceId: dataSource.dataStreamId });
+  } else {
+    aggregateBy.push({ dataTypeName: 'com.google.sleep.segment' });
+  }
+  try {
+    const response = await axios.post(
+      'https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate',
+      {
+        aggregateBy,
+        startTimeMillis: sessionStartMillis,
+        endTimeMillis: sessionEndMillis
+      },
+      { headers }
+    );
+    const buckets = Array.isArray(response.data?.bucket) ? response.data.bucket : [];
+    const points = [];
+    for (const bucket of buckets) {
+      const datasets = Array.isArray(bucket?.dataset) ? bucket.dataset : [];
+      for (const dataset of datasets) {
+        const datasetPoints = Array.isArray(dataset?.point) ? dataset.point : [];
+        points.push(...datasetPoints);
+      }
+    }
+    return points;
+  } catch (error) {
+    logAxiosError('Google Fit sleep segments', error);
+    return [];
+  }
+}
+
+async function collectSleepDataFromSessions(
+  headers,
+  dataSource,
+  startTimeMillis,
+  endTimeMillis,
+  startIso,
+  endIso
+) {
+  const sleepMap = new Map();
+  const sessions = await fetchSleepSessions(headers, startTimeMillis, endTimeMillis);
+  for (const session of sessions) {
+    const sessionStart = sessionTimeMillis(session, 'startTimeMillis', 'startTimeNanos');
+    const sessionEnd = sessionTimeMillis(session, 'endTimeMillis', 'endTimeNanos');
+    if (sessionStart === null || sessionEnd === null) continue;
+    if (sessionEnd <= sessionStart) continue;
+    if (sessionEnd < startTimeMillis || sessionStart >= endTimeMillis + DAY_MS) continue;
+    const dateIso = toDateISO(new Date(sessionEnd));
+    if (!dateIso) continue;
+    if (startIso && dateIso < startIso) continue;
+    if (endIso && dateIso > endIso) continue;
+    const points = await fetchSleepSegmentsForSession(headers, dataSource, sessionStart, sessionEnd);
+    if (!points.length) continue;
+    const entry = ensureSleepEntry(sleepMap, dateIso);
+    entry.sessions += 1;
+    for (const point of points) {
+      const stageValue = extractSleepStageValue(point);
+      const stage = stageValue !== null ? SLEEP_STAGE[stageValue] || 'unknown' : 'unknown';
+      const durationMinutes = pointDurationMinutes(point);
+      if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue;
+      entry.duration += durationMinutes;
+      if (stage === 'deep') entry.deep += durationMinutes;
+      else if (stage === 'light' || stage === 'sleep') entry.light += durationMinutes;
+      else if (stage === 'rem') entry.rem += durationMinutes;
+      else entry.awake += durationMinutes;
+    }
+  }
+  return sleepMap;
+}
+
+async function collectSleepData(headers, sleepSource, startTimeMillis, endTimeMillis, startIso, endIso) {
+  const sessionMap = await collectSleepDataFromSessions(
+    headers,
+    sleepSource,
+    startTimeMillis,
+    endTimeMillis,
+    startIso,
+    endIso
+  );
+  if (sessionMap.size) {
+    return sessionMap;
+  }
+
+  let buckets = await aggregateBuckets(
+    headers,
+    'com.google.sleep.segment',
+    sleepSource,
+    startTimeMillis,
+    endTimeMillis,
+    'sleep'
+  );
+
+  if (!buckets.length) {
+    buckets = await fetchSleepBucketsFromDataset(headers, sleepSource, startTimeMillis, endTimeMillis);
+  }
+
+  const fallbackMap = new Map();
+  for (const bucket of buckets) {
+    const date = bucketStartIso(bucket);
+    if (!date) continue;
+    const points = bucket?.dataset?.[0]?.point || [];
+    if (!points.length) continue;
+    const entry = ensureSleepEntry(fallbackMap, date);
+    for (const point of points) {
+      const stageValue = extractSleepStageValue(point);
+      const stage = stageValue !== null ? SLEEP_STAGE[stageValue] || 'unknown' : 'unknown';
+      const durationMinutes = pointDurationMinutes(point);
+      if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue;
+      entry.duration += durationMinutes;
+      if (stage === 'deep') entry.deep += durationMinutes;
+      else if (stage === 'light' || stage === 'sleep') entry.light += durationMinutes;
+      else if (stage === 'rem') entry.rem += durationMinutes;
+      else entry.awake += durationMinutes;
+    }
+    if (entry.duration > 0) {
+      entry.sessions = Math.max(1, entry.sessions || 0);
+    }
+  }
+
+  return fallbackMap;
 }
 
 async function fetchSleepBucketsFromDataset(headers, dataSource, startTimeMillis, endTimeMillis) {
@@ -436,8 +605,7 @@ async function syncGoogleFitDataForUser(db, userId, refreshToken, startIso, endI
       distanceBuckets,
       moveBuckets,
       activeMinutesBuckets,
-      hrBuckets,
-      sleepBuckets
+      hrBuckets
     ] = await Promise.all([
       aggregateBuckets(headers, 'com.google.step_count.delta', stepsSource, startTimeMillis, endTimeMillis, 'steps'),
       aggregateBuckets(
@@ -465,17 +633,19 @@ async function syncGoogleFitDataForUser(db, userId, refreshToken, startIso, endI
         endTimeMillis,
         'active_minutes'
       ),
-      aggregateBuckets(headers, 'com.google.heart_rate.bpm', hrSource, startTimeMillis, endTimeMillis, 'heart_rate'),
-      aggregateBuckets(headers, 'com.google.sleep.segment', sleepSource, startTimeMillis, endTimeMillis, 'sleep')
+      aggregateBuckets(headers, 'com.google.heart_rate.bpm', hrSource, startTimeMillis, endTimeMillis, 'heart_rate')
     ]);
-
-    if (!sleepBuckets.length) {
-      sleepBuckets = await fetchSleepBucketsFromDataset(headers, sleepSource, startTimeMillis, endTimeMillis);
-    }
 
     const activityMap = new Map();
     const heartMap = new Map();
-    const sleepMap = new Map();
+    const sleepMap = await collectSleepData(
+      headers,
+      sleepSource,
+      startTimeMillis,
+      endTimeMillis,
+      startIso,
+      endIso
+    );
 
     for (const bucket of stepsBuckets) {
       const date = bucketStartIso(bucket);
@@ -555,28 +725,6 @@ async function syncGoogleFitDataForUser(db, userId, refreshToken, startIso, endI
         entry.samples += 1;
         entry.min = entry.min === null ? value : Math.min(entry.min, value);
         entry.max = entry.max === null ? value : Math.max(entry.max, value);
-      }
-    }
-
-    for (const bucket of sleepBuckets) {
-      const date = bucketStartIso(bucket);
-      if (!date) continue;
-      const points = bucket?.dataset?.[0]?.point || [];
-      if (!points.length) continue;
-      const entry = ensureSleepEntry(sleepMap, date);
-      for (const point of points) {
-        const stageValue = extractSleepStageValue(point);
-        const stage = stageValue !== null ? SLEEP_STAGE[stageValue] || 'unknown' : 'unknown';
-        const durationMinutes = pointDurationMinutes(point);
-        if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue;
-        entry.duration += durationMinutes;
-        if (stage === 'deep') entry.deep += durationMinutes;
-        else if (stage === 'light' || stage === 'sleep') entry.light += durationMinutes;
-        else if (stage === 'rem') entry.rem += durationMinutes;
-        else entry.awake += durationMinutes;
-      }
-      if (entry.duration > 0) {
-        entry.sessions = 1;
       }
     }
 
