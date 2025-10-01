@@ -12,7 +12,10 @@ const REDIRECT = process.env.GF_REDIRECT || 'http://localhost:4000/api/fitness/g
 const SCOPES = [
   'https://www.googleapis.com/auth/fitness.activity.read',
   'https://www.googleapis.com/auth/fitness.heart_rate.read',
-  'https://www.googleapis.com/auth/fitness.sleep.read'
+  'https://www.googleapis.com/auth/fitness.sleep.read',
+  'https://www.googleapis.com/auth/fitness.blood_pressure.read',
+  'https://www.googleapis.com/auth/fitness.oxygen_saturation.read',
+  'https://www.googleapis.com/auth/fitness.location.read'
 ].join(' ');
 
 const DAY_MS = 86400000;
