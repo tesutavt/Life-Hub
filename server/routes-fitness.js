@@ -30,6 +30,8 @@ const SLEEP_STAGE = {
   6: 'rem'
 };
 
+const NANOS_IN_MILLI = 1000000n;
+
 const publicRouter = express.Router();
 const protectedRouter = express.Router();
 
@@ -252,9 +254,119 @@ function ensureSleepEntry(map, date) {
   return map.get(date);
 }
 
-function nanosToMinutes(nanos) {
-  if (!nanos) return 0;
-  return Number(nanos) / 1e9 / 60;
+function toBigIntValue(value) {
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return BigInt(Math.trunc(value));
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      return BigInt(trimmed);
+    } catch {
+      return null;
+    }
+  }
+  if (value && typeof value === 'object' && 'intVal' in value) {
+    return toBigIntValue(value.intVal);
+  }
+  return null;
+}
+
+function pointTimeNanos(point, nanosKey, millisKey) {
+  if (!point) return null;
+  const nanos = toBigIntValue(point[nanosKey]);
+  if (nanos !== null) return nanos;
+  const millis = toBigIntValue(point[millisKey]);
+  if (millis !== null) return millis * NANOS_IN_MILLI;
+  return null;
+}
+
+function pointDurationMinutes(point) {
+  const start = pointTimeNanos(point, 'startTimeNanos', 'startTimeMillis');
+  const end = pointTimeNanos(point, 'endTimeNanos', 'endTimeMillis');
+  if (start === null || end === null) return 0;
+  const diff = end - start;
+  if (diff <= 0) return 0;
+  const minutes = Number(diff) / 1e9 / 60;
+  return Number.isFinite(minutes) ? minutes : 0;
+}
+
+function nanosToIsoDate(nanos) {
+  if (nanos === null) return null;
+  const millis = Number(nanos / NANOS_IN_MILLI);
+  if (!Number.isFinite(millis)) return null;
+  return toDateISO(new Date(millis));
+}
+
+function millisToNanosString(millis) {
+  if (!Number.isFinite(millis)) return '';
+  try {
+    return (BigInt(Math.trunc(millis)) * NANOS_IN_MILLI).toString();
+  } catch {
+    return '';
+  }
+}
+
+function extractSleepStageValue(point) {
+  const values = Array.isArray(point?.value) ? point.value : [];
+  if (!values.length) return null;
+  const entry = values[0];
+  if (!entry || typeof entry !== 'object') return null;
+  if (typeof entry.intVal === 'number') return entry.intVal;
+  if (typeof entry.fpVal === 'number') return Math.round(entry.fpVal);
+  if (entry.value && typeof entry.value === 'object' && typeof entry.value.intVal === 'number') {
+    return entry.value.intVal;
+  }
+  const mapVals = Array.isArray(entry.mapVal) ? entry.mapVal : [];
+  for (const mapEntry of mapVals) {
+    if (mapEntry && typeof mapEntry === 'object') {
+      const valObj = mapEntry.value;
+      if (valObj && typeof valObj.intVal === 'number') {
+        return valObj.intVal;
+      }
+      if (typeof mapEntry.intVal === 'number') {
+        return mapEntry.intVal;
+      }
+    }
+  }
+  return null;
+}
+
+async function fetchSleepBucketsFromDataset(headers, dataSource, startTimeMillis, endTimeMillis) {
+  const dataSourceId = dataSource?.dataStreamId || 'derived:com.google.android.gms:merge_sleep_segments';
+  if (!dataSourceId) return [];
+  const datasetStart = millisToNanosString(startTimeMillis);
+  const datasetEnd = millisToNanosString(endTimeMillis);
+  if (!datasetStart || !datasetEnd) return [];
+  const datasetId = `${datasetStart}-${datasetEnd}`;
+  const url = `https://www.googleapis.com/fitness/v1/users/me/dataSources/${encodeURIComponent(
+    dataSourceId
+  )}/datasets/${datasetId}`;
+  try {
+    const response = await axios.get(url, { headers });
+    const points = Array.isArray(response.data?.point) ? response.data.point : [];
+    const bucketMap = new Map();
+    for (const point of points) {
+      const startNanos = pointTimeNanos(point, 'startTimeNanos', 'startTimeMillis');
+      if (startNanos === null) continue;
+      const dateIso = nanosToIsoDate(startNanos);
+      if (!dateIso) continue;
+      if (!bucketMap.has(dateIso)) {
+        const startMillis = Number(startNanos / NANOS_IN_MILLI);
+        bucketMap.set(dateIso, {
+          startTimeMillis: Number.isFinite(startMillis) ? startMillis : undefined,
+          startTimeNanos: startNanos.toString(),
+          dataset: [{ point: [] }]
+        });
+      }
+      const bucket = bucketMap.get(dateIso);
+      bucket.dataset[0].point.push(point);
+    }
+    return Array.from(bucketMap.values());
+  } catch (error) {
+    logAxiosError('Google Fit sleep dataset', error);
+    return [];
+  }
 }
 
 function bucketStartIso(bucket) {
@@ -315,7 +427,7 @@ async function syncGoogleFitDataForUser(db, userId, refreshToken, startIso, endI
     const hrSource = pickDataSource(dataSources, 'com.google.heart_rate.bpm', ['merge_heart_rate_bpm']);
     const sleepSource = pickDataSource(dataSources, 'com.google.sleep.segment', ['merge_sleep_segments']);
 
-    const [
+    let [
       stepsBuckets,
       caloriesBuckets,
       distanceBuckets,
@@ -353,6 +465,10 @@ async function syncGoogleFitDataForUser(db, userId, refreshToken, startIso, endI
       aggregateBuckets(headers, 'com.google.heart_rate.bpm', hrSource, startTimeMillis, endTimeMillis, 'heart_rate'),
       aggregateBuckets(headers, 'com.google.sleep.segment', sleepSource, startTimeMillis, endTimeMillis, 'sleep')
     ]);
+
+    if (!sleepBuckets.length) {
+      sleepBuckets = await fetchSleepBucketsFromDataset(headers, sleepSource, startTimeMillis, endTimeMillis);
+    }
 
     const activityMap = new Map();
     const heartMap = new Map();
@@ -446,9 +562,9 @@ async function syncGoogleFitDataForUser(db, userId, refreshToken, startIso, endI
       if (!points.length) continue;
       const entry = ensureSleepEntry(sleepMap, date);
       for (const point of points) {
-        const stageValue = Number(point?.value?.[0]?.intVal ?? 0);
-        const stage = SLEEP_STAGE[stageValue] || 'unknown';
-        const durationMinutes = nanosToMinutes(point.endTimeNanos - point.startTimeNanos);
+        const stageValue = extractSleepStageValue(point);
+        const stage = stageValue !== null ? SLEEP_STAGE[stageValue] || 'unknown' : 'unknown';
+        const durationMinutes = pointDurationMinutes(point);
         if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) continue;
         entry.duration += durationMinutes;
         if (stage === 'deep') entry.deep += durationMinutes;
