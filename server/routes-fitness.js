@@ -19,6 +19,7 @@ const DAY_MS = 86400000;
 const DEFAULT_RANGE_DAYS = 7;
 const MAX_RANGE_DAYS = 90;
 const REFRESH_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+const CURRENT_DAY_REFRESH_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes for same-day data
 
 const SLEEP_STAGE = {
   1: 'awake',
@@ -579,8 +580,12 @@ async function ensureRangeSynced(userId, startIso, endIso, force = false) {
   const db = await getDB();
   const user = await db.get('SELECT google_refresh_token FROM users WHERE id=?', [userId]);
   if (!user?.google_refresh_token) return false;
-  const expectedDays = buildDateList(startIso, endIso).length;
+  const dateList = buildDateList(startIso, endIso);
+  const expectedDays = dateList.length;
   if (expectedDays === 0) return false;
+
+  const todayIso = toDateISO(startOfUtcDay(new Date()));
+  const includesToday = dateList.includes(todayIso);
 
   let shouldSync = force;
   if (!shouldSync) {
@@ -600,7 +605,8 @@ async function ensureRangeSynced(userId, startIso, endIso, force = false) {
 
   if (!shouldSync) {
     const latest = await latestUpdatedAt(db, 'fitness_activity', userId, startIso, endIso);
-    if (!latest || Date.now() - latest > REFRESH_THRESHOLD_MS) {
+    const threshold = includesToday ? CURRENT_DAY_REFRESH_THRESHOLD_MS : REFRESH_THRESHOLD_MS;
+    if (!latest || Date.now() - latest > threshold) {
       shouldSync = true;
     }
   }
@@ -793,7 +799,7 @@ export async function triggerFitnessSync(rangeDays = 30) {
   await queueFitnessSync(rangeDays);
 }
 
-export function scheduleFitnessSync({ intervalHours = 3, rangeDays = 30 } = {}) {
+export function scheduleFitnessSync({ intervalHours = 1, rangeDays = 30 } = {}) {
   if (intervalHandle) return intervalHandle;
   const hours = Math.max(1, Number(intervalHours) || 3);
   const intervalMs = hours * 60 * 60 * 1000;
