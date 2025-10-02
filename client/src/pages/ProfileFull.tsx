@@ -1,17 +1,19 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
-import { MapPin } from 'lucide-react';
+import { Image as ImageIcon, Link2, MapPin, Palette, Sparkles, User, type LucideIcon } from 'lucide-react';
 import Shell from '../components/Shell';
 import { Modal } from '../components/ui/Modal';
 import { api, resolveApiUrl } from '../api';
 import { useAuth } from '../AuthContext';
 import { useNotifications } from '../notifications/NotificationProvider';
 import { useReorderableList } from '../hooks/useReorderableList';
+import { AVATAR_FRAME_OPTIONS, DEFAULT_AVATAR_FRAME_ID, getAvatarFrameOption, resolveAvatarFrameId } from '../constants/avatarFrames';
 
 const JOURNAL_BATCH_SIZE = 10;
 
 const DEFAULT_PAGE_GRADIENT = 'linear-gradient(135deg, rgba(59, 130, 246, 0.65) 0%, rgba(236, 72, 153, 0.6) 100%)';
+const FALLBACK_AVATAR = 'https://api.dicebear.com/9.x/identicon/svg';
 
 const LANGUAGE_CARD_FALLBACKS = [
   'linear-gradient(135deg, rgba(244, 114, 182, 0.65), rgba(251, 191, 36, 0.55))',
@@ -151,6 +153,11 @@ const getLanguageBannerStyle = (language: ProfileLanguage, index: number): React
   return {
     backgroundImage: LANGUAGE_CARD_FALLBACKS[index % LANGUAGE_CARD_FALLBACKS.length]
   };
+};
+
+const normalizeProfileLink = (value: string) => {
+  if (!value) return '';
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 };
 
 const PAGE_PREVIEW_MASK_STYLE: React.CSSProperties = {
@@ -639,9 +646,15 @@ export default function ProfileFull() {
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
   const [city, setCity] = useState('');
+  const [profileLink, setProfileLink] = useState('');
+  const [avatarFrameMain, setAvatarFrameMain] = useState<string>(DEFAULT_AVATAR_FRAME_ID);
+  const [avatarFrameMini, setAvatarFrameMini] = useState<string>(DEFAULT_AVATAR_FRAME_ID);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [bannerPreviewUrl, setBannerPreviewUrl] = useState<string | null>(null);
   const [openEdit, setOpenEdit] = useState(false);
+  const [activeEditTab, setActiveEditTab] = useState<'basic' | 'avatar'>('basic');
   const { token } = useAuth();
   const { pushError } = useNotifications();
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -771,6 +784,13 @@ export default function ProfileFull() {
     setDisplayName(d?.user?.name || '');
     setBio(d?.user?.bio || '');
     setCity(d?.user?.city || '');
+    setProfileLink(d?.user?.profile_url || '');
+    setAvatarFrameMain(resolveAvatarFrameId(d?.user?.avatar_frame_main));
+    setAvatarFrameMini(resolveAvatarFrameId(d?.user?.avatar_frame_mini));
+    setAvatarFile(null);
+    setBannerFile(null);
+    setAvatarPreviewUrl(null);
+    setBannerPreviewUrl(null);
 
     // ✅ Лента (только feed, без страниц)
     const feed = await api.get('/api/life/feed');
@@ -816,6 +836,17 @@ export default function ProfileFull() {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (openEdit) {
+      setActiveEditTab('basic');
+    }
+  }, [openEdit]);
+
+  useEffect(() => () => {
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    if (bannerPreviewUrl) URL.revokeObjectURL(bannerPreviewUrl);
+  }, [avatarPreviewUrl, bannerPreviewUrl]);
 
   useEffect(() => {
     const sentinel = loadMoreRef.current;
@@ -865,6 +896,9 @@ export default function ProfileFull() {
     fd.append('display_name', displayName);
     fd.append('bio', bio);
     fd.append('city', city.trim());
+    fd.append('profile_link', profileLink.trim());
+    fd.append('avatar_frame_main', avatarFrameMain);
+    fd.append('avatar_frame_mini', avatarFrameMini);
     if (avatarFile) fd.append('avatar', avatarFile);
     if (bannerFile) fd.append('banner', bannerFile);
 
@@ -879,6 +913,68 @@ export default function ProfileFull() {
     setOpenEdit(false);
     alert('Профиль обновлён!');
   };
+
+  const handleAvatarFileChange = (file: File | null) => {
+    setAvatarFile(file);
+    setAvatarPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  };
+
+  const handleBannerFileChange = (file: File | null) => {
+    setBannerFile(file);
+    setBannerPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  };
+
+  const currentAvatarSrc = avatarPreviewUrl
+    ? avatarPreviewUrl
+    : data?.user?.avatar_url
+    ? resolveApiUrl(data.user.avatar_url)
+    : FALLBACK_AVATAR;
+
+  const currentBannerSrc = bannerPreviewUrl
+    ? bannerPreviewUrl
+    : data?.user?.banner_url
+    ? resolveApiUrl(data.user.banner_url)
+    : null;
+
+  const renderFramedAvatar = (frameId: string, sizeClass: string, src: string, alt: string) => {
+    const option = getAvatarFrameOption(frameId);
+    const innerClassName = option.innerClass || 'rounded-3xl bg-brand-night/95 border border-white/10';
+    return (
+      <div className={classNames('relative flex items-center justify-center', sizeClass)}>
+        <div className={classNames('w-full h-full flex items-center justify-center', option.wrapperClass)}>
+          <div className={classNames('w-full h-full overflow-hidden flex items-center justify-center', innerClassName)}>
+            <img src={src} alt={alt} className="h-full w-full object-cover" />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const savedMainFrameId = resolveAvatarFrameId(data?.user?.avatar_frame_main);
+  const savedMiniFrameId = resolveAvatarFrameId(data?.user?.avatar_frame_mini);
+  const savedProfileLink = typeof data?.user?.profile_url === 'string' ? data.user.profile_url.trim() : '';
+  const profileLinkHref = savedProfileLink ? normalizeProfileLink(savedProfileLink) : '';
+  const profileLinkLabel = savedProfileLink.replace(/^https?:\/\//i, '');
+  const editTabs: { id: 'basic' | 'avatar'; label: string; description: string; icon: LucideIcon }[] = [
+    {
+      id: 'basic',
+      label: 'Основное',
+      description: 'Никнейм, био и контакты',
+      icon: User,
+    },
+    {
+      id: 'avatar',
+      label: 'Аватар',
+      description: 'Загрузка, рамка и баннер',
+      icon: ImageIcon,
+    },
+  ];
 
   return (
     <Shell>
@@ -899,22 +995,28 @@ export default function ProfileFull() {
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between sm:gap-6">
             <div className="flex items-end gap-4">
               <div className="relative -mt-14 sm:-mt-16">
-                <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl border-2 border-brand-mint/60 bg-brand-night/90 shadow-brand-glow overflow-hidden">
-                  <img
-                    src={
-                      data?.user?.avatar_url
-                        ? resolveApiUrl(data.user.avatar_url)
-                        : 'https://api.dicebear.com/9.x/identicon/svg'
-                    }
-                    alt={data?.user?.name || 'Аватар профиля'}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
+                {renderFramedAvatar(
+                  savedMainFrameId,
+                  'w-24 h-24 sm:w-28 sm:h-28',
+                  data?.user?.avatar_url ? resolveApiUrl(data.user.avatar_url) : FALLBACK_AVATAR,
+                  data?.user?.name || 'Аватар профиля'
+                )}
               </div>
               <div className="mt-4 sm:mt-0">
                 <div className="text-lg sm:text-xl font-semibold">
                   {data?.user?.name || 'Мой профиль'}
                 </div>
+                {savedProfileLink && profileLinkHref && (
+                  <a
+                    href={profileLinkHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-brand-mint/90 hover:text-brand-mint"
+                  >
+                    <Link2 size={14} className="opacity-70" />
+                    <span className="truncate max-w-[200px] sm:max-w-[240px]">{profileLinkLabel}</span>
+                  </a>
+                )}
                 {data?.user?.city && (
                   <div className="mt-1 flex items-center gap-2 text-sm text-white/70">
                     <MapPin className="h-4 w-4 opacity-70" />
@@ -1050,54 +1152,303 @@ export default function ProfileFull() {
         open={openEdit}
         onClose={() => setOpenEdit(false)}
         overlayClassName="bg-black/70 backdrop-blur-sm"
-        contentClassName="w-full max-w-md space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+        containerClassName="items-center justify-center"
+        contentClassName="w-full max-w-3xl overflow-hidden rounded-3xl border border-white/20 bg-brand-night/95 shadow-2xl"
       >
-        <div className="text-lg font-semibold mb-2">Редактировать профиль</div>
+        <div className="border-b border-white/10 bg-white/5 px-6 py-5">
+          <div className="flex items-center gap-2 text-lg font-semibold">
+            <Sparkles size={18} className="text-brand-mint" />
+            <span>Редактировать профиль</span>
+          </div>
+          <div className="mt-1 text-sm text-white/60">
+            Обновите информацию, чтобы профиль выглядел ещё лучше.
+          </div>
+        </div>
 
-        <input
-          placeholder="Имя"
-          value={displayName}
-          onChange={e => setDisplayName(e.target.value)}
-          className="w-full px-3 py-2 rounded bg-white/10"
-        />
-        <input
-          placeholder="Город"
-          value={city}
-          onChange={e => setCity(e.target.value)}
-          className="w-full px-3 py-2 rounded bg-white/10"
-        />
-        <textarea
-          placeholder="О себе"
-          value={bio}
-          onChange={e => setBio(e.target.value)}
-          className="w-full px-3 py-2 rounded bg-white/10"
-        />
-        <label className="text-sm opacity-70">Аватар</label>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={e => setAvatarFile(e.target.files?.[0] || null)}
-        />
-        <label className="text-sm opacity-70">Баннер</label>
-        <input
-          type="file"
-          accept="image/*"
-          onChange={e => setBannerFile(e.target.files?.[0] || null)}
-        />
+        <div className="flex flex-col gap-6 px-6 py-5 sm:flex-row">
+          <aside className="sm:w-48">
+            <nav className="flex flex-row gap-2 sm:flex-col">
+              {editTabs.map((tab) => {
+                const active = activeEditTab === tab.id;
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveEditTab(tab.id)}
+                    className={classNames(
+                      'group flex-1 rounded-2xl border px-3 py-3 text-left transition sm:flex-none',
+                      active
+                        ? 'border-brand-mint/70 bg-brand-mint/15 text-white shadow-[0_0_30px_rgba(56,189,248,0.15)]'
+                        : 'border-white/10 bg-white/5 text-white/70 hover:border-brand-mint/50 hover:text-white'
+                    )}
+                  >
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <span className={active ? 'text-brand-mint' : 'text-white/60'}>
+                        <Icon size={16} />
+                      </span>
+                      <span>{tab.label}</span>
+                    </div>
+                    <div className="mt-1 text-xs text-white/45">{tab.description}</div>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
 
-        <div className="flex justify-between mt-4">
-          <button
-            onClick={() => setOpenEdit(false)}
-            className="px-4 py-2 rounded bg-white/10 hover:bg-white/20"
-          >
-            Отмена
-          </button>
-          <button
-            onClick={save}
-            className="px-4 py-2 rounded bg-green-600 hover:bg-green-700"
-          >
-            Сохранить
-          </button>
+          <div className="flex-1">
+            {activeEditTab === 'basic' ? (
+              <div className="space-y-5">
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <User size={16} className="opacity-70" />
+                    Никнейм
+                  </label>
+                  <input
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Отображаемое имя"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <Sparkles size={16} className="opacity-70" />
+                    О себе
+                  </label>
+                  <textarea
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    placeholder="Расскажите о себе, интересах и целях."
+                    rows={4}
+                    className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <Link2 size={16} className="opacity-70" />
+                    Личная ссылка
+                  </label>
+                  <input
+                    value={profileLink}
+                    onChange={(e) => setProfileLink(e.target.value)}
+                    placeholder="example.com/me"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                  />
+                  <p className="mt-1 text-xs text-white/45">
+                    Ссылка появится под именем и откроется в новой вкладке.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <MapPin size={16} className="opacity-70" />
+                    Город
+                  </label>
+                  <input
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="Например, Москва"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                        <ImageIcon size={16} className="opacity-80" />
+                        Превью аватарки
+                      </div>
+                      <p className="mt-1 text-xs text-white/45">
+                        Поддерживаются изображения PNG и JPG размером до 5 МБ.
+                      </p>
+                      <div className="mt-4 flex flex-wrap items-center gap-6">
+                        <div className="flex flex-col items-center gap-2">
+                          {renderFramedAvatar(avatarFrameMain, 'w-24 h-24', currentAvatarSrc, displayName || 'Аватар')}
+                          <span className="text-xs text-white/50">Основной профиль</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-2">
+                          {renderFramedAvatar(avatarFrameMini, 'w-16 h-16', currentAvatarSrc, displayName || 'Аватар')}
+                          <span className="text-xs text-white/50">Мини-профиль</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-full sm:w-48">
+                      <label className="relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-black/40 px-4 py-6 text-center text-sm text-white/70 transition hover:border-brand-mint/60 hover:bg-brand-mint/10">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                          onChange={(e) => handleAvatarFileChange(e.target.files?.[0] || null)}
+                        />
+                        <ImageIcon size={20} className="text-brand-mint" />
+                        <span>{avatarFile ? 'Заменить аватар' : 'Загрузить аватар'}</span>
+                        {avatarFile && (
+                          <span className="text-xs text-white/40">{avatarFile.name}</span>
+                        )}
+                      </label>
+                      {avatarFile && (
+                        <button
+                          type="button"
+                          onClick={() => handleAvatarFileChange(null)}
+                          className="mt-3 w-full text-xs text-white/50 transition hover:text-brand-mint"
+                        >
+                          Очистить выбор
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <Palette size={16} className="opacity-80" />
+                    Рамка основного профиля
+                  </div>
+                  <p className="mt-1 text-xs text-white/45">
+                    Выберите стиль рамки, который будет виден в большом профиле.
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {AVATAR_FRAME_OPTIONS.map((option) => {
+                      const active = avatarFrameMain === option.id;
+                      return (
+                        <button
+                          key={`main-${option.id}`}
+                          type="button"
+                          onClick={() => setAvatarFrameMain(option.id)}
+                          className={classNames(
+                            'w-full rounded-2xl border px-3 py-3 text-left transition hover:border-brand-mint/50 hover:bg-brand-mint/10',
+                            active
+                              ? 'border-brand-mint/70 bg-brand-mint/15 shadow-[0_0_24px_rgba(56,189,248,0.18)]'
+                              : 'border-white/10 bg-white/5'
+                          )}
+                        >
+                          <div className="flex items-center gap-3">
+                            {renderFramedAvatar(option.id, 'w-12 h-12', currentAvatarSrc, option.label)}
+                            <div>
+                              <div className="text-sm font-medium text-white">{option.label}</div>
+                              <div className="text-xs text-white/60">{option.description}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <Palette size={16} className="opacity-80" />
+                    Рамка мини-профиля
+                  </div>
+                  <p className="mt-1 text-xs text-white/45">
+                    Этот стиль будет использоваться в мини-карточках и боковом меню.
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {AVATAR_FRAME_OPTIONS.map((option) => {
+                      const active = avatarFrameMini === option.id;
+                      return (
+                        <button
+                          key={`mini-${option.id}`}
+                          type="button"
+                          onClick={() => setAvatarFrameMini(option.id)}
+                          className={classNames(
+                            'w-full rounded-2xl border px-3 py-3 text-left transition hover:border-brand-mint/50 hover:bg-brand-mint/10',
+                            active
+                              ? 'border-brand-mint/70 bg-brand-mint/15 shadow-[0_0_24px_rgba(56,189,248,0.18)]'
+                              : 'border-white/10 bg-white/5'
+                          )}
+                        >
+                          <div className="flex items-center gap-3">
+                            {renderFramedAvatar(option.id, 'w-10 h-10', currentAvatarSrc, option.label)}
+                            <div>
+                              <div className="text-sm font-medium text-white">{option.label}</div>
+                              <div className="text-xs text-white/60">{option.description}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <ImageIcon size={16} className="opacity-80" />
+                    Баннер профиля
+                  </div>
+                  <p className="mt-1 text-xs text-white/45">
+                    Баннер отображается в шапке профиля и задаёт атмосферу страницы.
+                  </p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] sm:items-center">
+                    <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+                      {currentBannerSrc ? (
+                        <div
+                          className="h-32 w-full bg-cover bg-center"
+                          style={{ backgroundImage: `url(${currentBannerSrc})` }}
+                        />
+                      ) : (
+                        <div className="flex h-32 items-center justify-center text-sm text-white/35">
+                          Предпросмотр баннера
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-black/40 px-4 py-6 text-center text-sm text-white/70 transition hover:border-brand-mint/60 hover:bg-brand-mint/10">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                          onChange={(e) => handleBannerFileChange(e.target.files?.[0] || null)}
+                        />
+                        <ImageIcon size={20} className="text-brand-mint" />
+                        <span>{bannerFile ? 'Заменить баннер' : 'Загрузить баннер'}</span>
+                        {bannerFile && (
+                          <span className="text-xs text-white/40">{bannerFile.name}</span>
+                        )}
+                      </label>
+                      {bannerFile && (
+                        <button
+                          type="button"
+                          onClick={() => handleBannerFileChange(null)}
+                          className="mt-3 w-full text-xs text-white/50 transition hover:text-brand-mint"
+                        >
+                          Очистить выбор
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-white/10 bg-black/60 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-white/40">
+            Нажмите «Сохранить», чтобы применить изменения.
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setOpenEdit(false)}
+              className="rounded-2xl border border-white/15 px-4 py-2 text-sm text-white/70 transition hover:border-white/30 hover:text-white"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              className="rounded-2xl bg-brand-mint/90 px-5 py-2 text-sm font-semibold text-brand-night transition hover:bg-brand-mint"
+            >
+              Сохранить
+            </button>
+          </div>
         </div>
       </Modal>
     </Shell>

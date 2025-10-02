@@ -54,6 +54,15 @@ async function runMigrations(database) {
     if (!hasUserColumn('city')) {
       await database.exec('ALTER TABLE users ADD COLUMN city TEXT;');
     }
+    if (!hasUserColumn('profile_url')) {
+      await database.exec('ALTER TABLE users ADD COLUMN profile_url TEXT;');
+    }
+    if (!hasUserColumn('avatar_frame_main')) {
+      await database.exec('ALTER TABLE users ADD COLUMN avatar_frame_main TEXT;');
+    }
+    if (!hasUserColumn('avatar_frame_mini')) {
+      await database.exec('ALTER TABLE users ADD COLUMN avatar_frame_mini TEXT;');
+    }
     if (!hasUserColumn('weather_api_key')) {
       await database.exec('ALTER TABLE users ADD COLUMN weather_api_key TEXT;');
     }

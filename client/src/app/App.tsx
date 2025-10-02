@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import classNames from 'classnames';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { api, resolveApiUrl } from '../api';
@@ -15,12 +16,14 @@ import {
   Settings as SettingsIcon,
   UserCircle,
   Search,
-  BarChart3
+  BarChart3,
+  Link2
 } from 'lucide-react';
 import { onHiddenMenuItemsChange, onMenuCountersRefresh, onMenuVisibilityChange, notifyHiddenMenuItems } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
 import { Modal } from '../components/ui/Modal';
 import ReportReminders from '../components/reports/ReportReminders';
+import { getAvatarFrameOption, resolveAvatarFrameId } from '../constants/avatarFrames';
 
 type MenuCounters = {
   languages: number;
@@ -51,6 +54,7 @@ export const MENU_ITEMS: MenuItem[] = [
 ];
 
 const EMPTY_COUNTERS: MenuCounters = { languages: 0, courses: 0, goals: 0 };
+const FALLBACK_AVATAR = 'https://api.dicebear.com/9.x/identicon/svg';
 
 export default function App() {
   return (
@@ -73,6 +77,30 @@ function Sidebar() {
   const [showCounters, setShowCounters] = useState(true);
   const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const renderFramedAvatar = (frameId: string, sizeClass: string, src: string, alt: string) => {
+    const option = getAvatarFrameOption(frameId);
+    const innerClassName = option.innerClass || 'rounded-xl bg-brand-night/95 border border-white/10';
+    return (
+      <div className={classNames('relative flex items-center justify-center', sizeClass)}>
+        <div className={classNames('w-full h-full flex items-center justify-center', option.wrapperClass)}>
+          <div className={classNames('w-full h-full overflow-hidden flex items-center justify-center', innerClassName)}>
+            <img src={src} alt={alt} className="h-full w-full object-cover" />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const miniFrameId = resolveAvatarFrameId(profile?.avatar_frame_mini);
+  const miniAvatarSrc = profile?.avatar_url ? resolveApiUrl(profile.avatar_url) : FALLBACK_AVATAR;
+  const profileLinkRaw = typeof profile?.profile_url === 'string' ? profile.profile_url.trim() : '';
+  const profileLinkHref = profileLinkRaw
+    ? /^https?:\/\//i.test(profileLinkRaw)
+      ? profileLinkRaw
+      : `https://${profileLinkRaw}`
+    : '';
+  const profileLinkLabel = profileLinkRaw ? profileLinkRaw.replace(/^https?:\/\//i, '') : '';
 
   useEffect(() => {
     setSearchOpen(false);
@@ -164,18 +192,21 @@ function Sidebar() {
             }}
           />
           <div className="px-4 pb-4 pt-8 flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl border-2 border-brand-mint/60 bg-brand-night/90 shadow-brand-glow overflow-hidden">
-              <img
-                src={profile.avatar_url
-                  ? resolveApiUrl(profile.avatar_url)
-                  : 'https://api.dicebear.com/9.x/identicon/svg'}
-                alt={profile.name || 'Аватар пользователя'}
-                className="w-full h-full object-cover"
-              />
-            </div>
+            {renderFramedAvatar(miniFrameId, 'w-12 h-12', miniAvatarSrc, profile.name || 'Аватар пользователя')}
             <div className="min-w-0">
               <div className="font-semibold leading-tight truncate">{profile.name || 'Без имени'}</div>
-              {profile.city && <div className="text-xs text-slate-200/60 truncate">{profile.city}</div>}
+              {profileLinkHref && (
+                <a
+                  href={profileLinkHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand-mint/80 hover:text-brand-mint"
+                >
+                  <Link2 size={12} className="opacity-70" />
+                  <span className="truncate">{profileLinkLabel}</span>
+                </a>
+              )}
+              {profile.city && <div className="mt-1 text-xs text-slate-200/60 truncate">{profile.city}</div>}
             </div>
           </div>
         </div>
