@@ -21,6 +21,12 @@ type SocialSummary = {
     averageViewers: number | null;
     activeChatters: number | null;
     topChatter: string | null;
+    lastStreamTitle?: string | null;
+    lastStreamGame?: string | null;
+    lastStreamAt?: string | null;
+    lastStreamUpdatedAt?: string | null;
+    live?: boolean;
+    channel?: string | null;
   };
   youtube?: {
     subscribers: number | null;
@@ -83,30 +89,52 @@ export default function Socials() {
       {(summary.twitch || summary.youtube) && (
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           {summary.twitch && (
-            <div className="card space-y-2">
-              <div className="font-medium">Twitch</div>
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="font-medium">Twitch</div>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded ${summary.twitch.live ? 'bg-emerald-500/20 text-emerald-200' : 'bg-white/10 text-white/70'}`}
+                >
+                  {summary.twitch.live ? 'Сейчас в эфире' : 'Офлайн'}
+                </span>
+              </div>
               <dl className="text-sm space-y-1">
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
+                  <span className="opacity-70">Последний стрим</span>
+                  <span className="text-right">{summary.twitch.lastStreamTitle || '—'}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="opacity-70">Игра</span>
+                  <span className="text-right">{summary.twitch.lastStreamGame || '—'}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="opacity-70">Дата</span>
+                  <span className="text-right">{formatDateTime(summary.twitch.lastStreamAt)}</span>
+                </div>
+                <div className="flex justify-between gap-4 pt-2 border-t border-white/10 mt-2">
                   <span className="opacity-70">Фолловеры</span>
                   <span>{formatNumber(summary.twitch.followers)}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <span className="opacity-70">Текущий онлайн</span>
                   <span>{formatNumber(summary.twitch.currentViewers)}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <span className="opacity-70">Средний онлайн</span>
                   <span>{formatNumber(summary.twitch.averageViewers)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="opacity-70">Активных чаттеров</span>
-                  <span>{formatNumber(summary.twitch.activeChatters)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="opacity-70">Самый активный</span>
-                  <span>{summary.twitch.topChatter || '-'}</span>
-                </div>
               </dl>
+              <div className="text-xs opacity-70 space-y-1">
+                <div>
+                  Активных чаттеров: <span className="opacity-100">{formatNumber(summary.twitch.activeChatters)}</span>
+                </div>
+                <div>
+                  Самый активный: <span className="opacity-100">{summary.twitch.topChatter || '—'}</span>
+                </div>
+                {summary.twitch.lastStreamUpdatedAt && (
+                  <div>Обновлено: {formatDateTime(summary.twitch.lastStreamUpdatedAt)}</div>
+                )}
+              </div>
             </div>
           )}
           {summary.youtube && (
