@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { parse as parseCSV } from 'csv-parse/sync';
 import iconv from 'iconv-lite';
-import { getDB } from './utils.js';
+import { getDB } from '../../utils.js';
 
 const router = express.Router();
 const upload = multer();

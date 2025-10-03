@@ -1,7 +1,7 @@
 import express from 'express';
 import axios from 'axios';
 import tmi from 'tmi.js';
-import { getDB } from './utils.js';
+import { getDB } from '../../utils.js';
 
 const router = express.Router();
 

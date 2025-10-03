@@ -1,6 +1,6 @@
 import express from 'express';
-import { getDB } from './utils.js';
-import { TAG_ENTITY_TYPES, fetchTagLinks, syncTagLinks } from './tagUtils.js';
+import { getDB } from '../../utils.js';
+import { TAG_ENTITY_TYPES, fetchTagLinks, syncTagLinks } from '../../tagUtils.js';
 
 const router = express.Router();
 

@@ -1,7 +1,7 @@
 import express from "express";
 import { randomUUID } from "crypto";
-import { getDB } from "./utils.js";
-import { TAG_ENTITY_TYPES, coerceTagIds, fetchTagLinks, sortTags, syncTagLinks } from "./tagUtils.js";
+import { getDB } from "../../utils.js";
+import { TAG_ENTITY_TYPES, coerceTagIds, fetchTagLinks, sortTags, syncTagLinks } from "../../tagUtils.js";
 
 const router = express.Router();
 

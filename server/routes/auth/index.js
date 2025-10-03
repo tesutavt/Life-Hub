@@ -1,7 +1,6 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import { getDB } from './utils.js';
-import { JWT_SECRET } from './utils.js';
+import { getDB, JWT_SECRET } from '../../utils.js';
 
 const router = express.Router();
 
