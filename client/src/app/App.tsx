@@ -76,6 +76,7 @@ export default function App() {
       className="min-h-screen grid text-slate-100 transition-[grid-template-columns] duration-300"
       style={{ gridTemplateColumns: sidebarCollapsed ? '88px 1fr' : '260px 1fr' }}
     >
+
       <div className="relative">
         <Sidebar collapsed={sidebarCollapsed} />
         <div
@@ -290,6 +291,7 @@ function Sidebar({ collapsed }: SidebarProps) {
     <aside
       className={classNames(
         'border-r border-brand-slate/40 bg-brand-night/75 backdrop-blur-xl flex flex-col gap-4 shadow-brand-soft transition-[padding,width] duration-300',
+
         collapsed ? 'p-3 items-center' : 'p-4 pr-6'
       )}
     >
