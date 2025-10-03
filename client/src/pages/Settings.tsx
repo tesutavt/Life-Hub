@@ -233,6 +233,17 @@ export default function Settings() {
   const [manualLoading, setManualLoading] = useState(false);
   const [manualReport, setManualReport] = useState<ReportData | null>(null);
 
+  const loadManualReport = useCallback(async (period: 'daily' | 'weekly' | 'monthly') => {
+    setManualLoading(true);
+    try {
+      const response = (await api.get(`/api/life/reports/period?period=${period}&force=1`)) as ReportPeriodResponse;
+      setManualReport(response?.report || null);
+    } catch {
+      setManualReport(null);
+    } finally {
+      setManualLoading(false);
+    }
+  }, []);
   const handleManualPeriodChange = useCallback((value: 'daily' | 'weekly' | 'monthly') => {
     setManualPeriod(value);
     setManualReport(null);
@@ -331,18 +342,6 @@ export default function Settings() {
   useEffect(() => {
     notificationPreferencesRef.current = notificationPreferences;
   }, [notificationPreferences]);
-
-  const loadManualReport = useCallback(async (period: 'daily' | 'weekly' | 'monthly') => {
-    setManualLoading(true);
-    try {
-      const response = (await api.get(`/api/life/reports/period?period=${period}&force=1`)) as ReportPeriodResponse;
-      setManualReport(response?.report || null);
-    } catch {
-      setManualReport(null);
-    } finally {
-      setManualLoading(false);
-    }
-  }, []);
 
   const saveSocials = async (e: React.FormEvent) => {
     e.preventDefault();
