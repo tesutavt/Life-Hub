@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
@@ -17,7 +17,14 @@ import {
   UserCircle,
   Search,
   BarChart3,
-  Link2
+  Link2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Palette,
+  Type,
+  LogOut
 } from 'lucide-react';
 import { onHiddenMenuItemsChange, onMenuCountersRefresh, onMenuVisibilityChange, notifyHiddenMenuItems } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
@@ -31,36 +38,46 @@ type MenuCounters = {
   goals: number;
 };
 
+type MenuGroupId = 'core' | 'learning' | 'lifestyle' | 'system';
+
 export type MenuItem = {
   to: string;
   label: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
   counterKey?: keyof MenuCounters;
+  group: MenuGroupId;
 };
 
 export const MENU_ITEMS: MenuItem[] = [
-  { to: '/profile-full', label: 'Профиль', icon: UserCircle },
-  { to: '/dashboard', label: 'Дэшборд', icon: LayoutDashboard },
-  { to: '/calendar', label: 'Календарь', icon: CalendarDays },
-  { to: '/languages', label: 'Языки', icon: LanguagesIcon, counterKey: 'languages' },
-  { to: '/courses', label: 'Курсы', icon: GraduationCap, counterKey: 'courses' },
-  { to: '/year-goals', label: 'Цели на год', icon: Target, counterKey: 'goals' },
-  { to: '/pages', label: 'Страницы', icon: NotebookPen },
-  { to: '/habits', label: 'Привычки', icon: CheckSquare },
-  { to: '/travel', label: 'Путешествие', icon: Plane },
-  { to: '/socials', label: 'Соцсети', icon: Share2 },
-  { to: '/reports', label: 'Отчёты', icon: BarChart3 },
-  { to: '/settings', label: 'Настройки', icon: SettingsIcon }
+  { to: '/profile-full', label: 'Профиль', icon: UserCircle, group: 'core' },
+  { to: '/dashboard', label: 'Дэшборд', icon: LayoutDashboard, group: 'core' },
+  { to: '/calendar', label: 'Календарь', icon: CalendarDays, group: 'core' },
+  { to: '/languages', label: 'Языки', icon: LanguagesIcon, counterKey: 'languages', group: 'learning' },
+  { to: '/courses', label: 'Курсы', icon: GraduationCap, counterKey: 'courses', group: 'learning' },
+  { to: '/year-goals', label: 'Цели на год', icon: Target, counterKey: 'goals', group: 'learning' },
+  { to: '/pages', label: 'Страницы', icon: NotebookPen, group: 'lifestyle' },
+  { to: '/habits', label: 'Привычки', icon: CheckSquare, group: 'lifestyle' },
+  { to: '/travel', label: 'Путешествие', icon: Plane, group: 'lifestyle' },
+  { to: '/socials', label: 'Соцсети', icon: Share2, group: 'lifestyle' },
+  { to: '/reports', label: 'Отчёты', icon: BarChart3, group: 'system' },
+  { to: '/settings', label: 'Настройки', icon: SettingsIcon, group: 'system' }
 ];
+
+const MENU_GROUP_ORDER: MenuGroupId[] = ['core', 'learning', 'lifestyle', 'system'];
 
 const EMPTY_COUNTERS: MenuCounters = { languages: 0, courses: 0, goals: 0 };
 const FALLBACK_AVATAR = 'https://api.dicebear.com/9.x/identicon/svg';
 
 export default function App() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   return (
-    <div className="min-h-screen grid grid-cols-[240px_1fr] text-slate-100">
-      <Sidebar />
-      <main className="p-6">
+    <div
+      className="min-h-screen grid text-slate-100 transition-[grid-template-columns] duration-300"
+      style={{ gridTemplateColumns: sidebarCollapsed ? '88px 1fr' : '260px 1fr' }}
+    >
+      <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)} />
+      <main className="p-6 transition-[padding] duration-300">
         <ReportReminders />
         <Outlet />
       </main>
@@ -68,7 +85,12 @@ export default function App() {
   );
 }
 
-function Sidebar() {
+type SidebarProps = {
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+};
+
+function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { setToken } = useAuth();
@@ -77,6 +99,13 @@ function Sidebar() {
   const [showCounters, setShowCounters] = useState(true);
   const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [clockSettingsOpen, setClockSettingsOpen] = useState(false);
+  const [clockColor, setClockColor] = useState<string>('#f8fafc');
+  const [clockFont, setClockFont] = useState<string>('font-mono');
+  const [now, setNow] = useState<Date>(new Date());
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const clockSettingsRef = useRef<HTMLDivElement | null>(null);
 
   const renderFramedAvatar = (frameId: string, sizeClass: string, src: string, alt: string) => {
     const option = getAvatarFrameOption(frameId);
@@ -104,6 +133,7 @@ function Sidebar() {
 
   useEffect(() => {
     setSearchOpen(false);
+    setProfileMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -115,6 +145,16 @@ function Sidebar() {
         setProfile(null);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -176,69 +216,296 @@ function Sidebar() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        profileMenuOpen &&
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(target)
+      ) {
+        setProfileMenuOpen(false);
+      }
+      if (
+        clockSettingsOpen &&
+        clockSettingsRef.current &&
+        !clockSettingsRef.current.contains(target)
+      ) {
+        setClockSettingsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClick);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+    };
+  }, [profileMenuOpen, clockSettingsOpen]);
+
+  const formattedTime = now.toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const clockColorOptions = ['#f8fafc', '#38bdf8', '#f472b6', '#34d399', '#f97316', '#c084fc'];
+  const clockFontOptions: { label: string; className: string }[] = [
+    { label: 'Моно', className: 'font-mono' },
+    { label: 'Санс', className: 'font-sans' },
+    { label: 'Сериф', className: 'font-serif' },
+  ];
+
+  const filteredMenuItems = MENU_ITEMS.filter((item) => !hiddenMenuItems.includes(item.to));
+  const visibleGroups = MENU_GROUP_ORDER.map((groupId) => ({
+    id: groupId,
+    items: filteredMenuItems.filter((item) => item.group === groupId),
+  })).filter((group) => group.items.length > 0);
+
   return (
-    <aside className="p-4 border-r border-brand-slate/40 bg-brand-night/75 backdrop-blur-xl flex flex-col gap-4 shadow-brand-soft">
+    <aside
+      className={classNames(
+        'border-r border-brand-slate/40 bg-brand-night/75 backdrop-blur-xl flex flex-col gap-4 shadow-brand-soft transition-[padding,width] duration-300',
+        collapsed ? 'p-3 items-center' : 'p-4'
+      )}
+    >
+      <div className={classNames('w-full flex', collapsed ? 'justify-center' : 'justify-end')}>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          className="inline-flex items-center justify-center rounded-full border border-brand-slate/40 bg-brand-night/70 p-2 text-slate-200/80 transition hover:border-brand-mint/60 hover:text-brand-mint"
+          aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
+        >
+          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        </button>
+      </div>
       {profile && (
-        <div className="relative rounded-3xl border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft overflow-hidden">
+        <div ref={profileMenuRef} className="relative w-full">
           <div
-            className="h-20 bg-brand-mint/10"
-            style={{
-              backgroundImage: profile.banner_url
-                ? `url(${resolveApiUrl(profile.banner_url)})`
-                : undefined,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              filter: profile.banner_url ? 'saturate(80%)' : undefined,
-            }}
-          />
-          <div className="px-4 pb-4 pt-8 flex items-center gap-3">
-            {renderFramedAvatar(miniFrameId, 'w-12 h-12', miniAvatarSrc, profile.name || 'Аватар пользователя')}
-            <div className="min-w-0">
-              <div className="font-semibold leading-tight truncate">{profile.name || 'Без имени'}</div>
-              {profileLinkHref && (
-                <a
-                  href={profileLinkHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand-mint/80 hover:text-brand-mint"
-                >
-                  <Link2 size={12} className="opacity-70" />
-                  <span className="truncate">{profileLinkLabel}</span>
-                </a>
+            className={classNames(
+              'relative rounded-3xl border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft overflow-hidden',
+              collapsed ? 'pb-4 pt-3 px-2 flex flex-col items-center gap-3' : ''
+            )}
+          >
+            <div
+              className={classNames(
+                'relative w-full overflow-hidden bg-brand-mint/10',
+                collapsed ? 'h-16 rounded-2xl' : 'h-20'
               )}
-              {profile.city && <div className="mt-1 text-xs text-slate-200/60 truncate">{profile.city}</div>}
+              style={{
+                backgroundImage: profile.banner_url ? `url(${resolveApiUrl(profile.banner_url)})` : undefined,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                filter: profile.banner_url ? 'saturate(80%)' : undefined,
+              }}
+            >
+              <div className="absolute inset-0 bg-brand-night/30" aria-hidden />
+              <div
+                className={classNames(
+                  'absolute flex gap-2',
+                  collapsed ? 'top-1 left-1/2 -translate-x-1/2' : 'top-2 left-2'
+                )}
+                ref={clockSettingsRef}
+              >
+                <button
+                  type="button"
+                  onClick={() => setClockSettingsOpen((prev) => !prev)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-brand-slate/40 bg-brand-night/70 text-slate-200/80 transition hover:border-brand-mint/60 hover:text-brand-mint"
+                  aria-label="Настройки часов"
+                >
+                  <Palette size={16} />
+                </button>
+                {clockSettingsOpen && (
+                  <div className="absolute left-0 top-10 z-20 w-48 rounded-2xl border border-brand-slate/40 bg-brand-night/95 p-3 text-xs text-slate-200/80 shadow-brand-soft">
+                    <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-200/60">
+                      <Palette size={14} /> Цвет
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {clockColorOptions.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => setClockColor(color)}
+                          className={classNames(
+                            'h-6 w-6 rounded-full border transition',
+                            color === clockColor
+                              ? 'border-brand-mint/80 ring-2 ring-brand-mint/60'
+                              : 'border-white/20 hover:border-brand-mint/60'
+                          )}
+                          style={{ backgroundColor: color }}
+                          aria-label={`Выбрать цвет ${color}`}
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-3 border-t border-brand-slate/40 pt-3">
+                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-200/60">
+                        <Type size={14} /> Шрифт
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {clockFontOptions.map((option) => (
+                          <button
+                            key={option.className}
+                            type="button"
+                            onClick={() => setClockFont(option.className)}
+                            className={classNames(
+                              'w-full rounded-xl border border-transparent px-3 py-1.5 text-left transition hover:border-brand-mint/60 hover:text-brand-mint',
+                              option.className,
+                              clockFont === option.className ? 'border-brand-mint/70 text-brand-mint' : 'text-slate-200/80'
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div
+                className={classNames(
+                  'absolute flex',
+                  collapsed
+                    ? 'bottom-2 left-1/2 -translate-x-1/2'
+                    : 'bottom-2 right-2'
+                )}
+              >
+                <div
+                  className={classNames(
+                    'rounded-xl bg-brand-night/75 px-3 py-1 text-sm font-semibold shadow-brand-soft transition-colors',
+                    clockFont
+                  )}
+                  style={{ color: clockColor }}
+                >
+                  {formattedTime}
+                </div>
+              </div>
+            </div>
+            <div
+              className={classNames(
+                'flex items-center gap-3 w-full',
+                collapsed ? 'px-2 pt-3 justify-center' : 'px-4 pb-4 pt-8'
+              )}
+            >
+              {renderFramedAvatar(
+                miniFrameId,
+                collapsed ? 'w-14 h-14' : 'w-12 h-12',
+                miniAvatarSrc,
+                profile.name || 'Аватар пользователя'
+              )}
+              {!collapsed && (
+                <div className="min-w-0">
+                  <div className="font-semibold leading-tight truncate">{profile.name || 'Без имени'}</div>
+                  {profileLinkHref && (
+                    <a
+                      href={profileLinkHref}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand-mint/80 hover:text-brand-mint"
+                    >
+                      <Link2 size={12} className="opacity-70" />
+                      <span className="truncate">{profileLinkLabel}</span>
+                    </a>
+                  )}
+                  {profile.city && <div className="mt-1 text-xs text-slate-200/60 truncate">{profile.city}</div>}
+                </div>
+              )}
+            </div>
+            <div className={classNames('flex w-full', collapsed ? 'justify-center' : 'justify-end pr-4')}>
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((prev) => !prev)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-brand-slate/40 bg-brand-night/70 text-slate-200/80 transition hover:border-brand-mint/60 hover:text-brand-mint"
+                aria-label={profileMenuOpen ? 'Скрыть меню профиля' : 'Открыть меню профиля'}
+              >
+                {profileMenuOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </button>
             </div>
           </div>
+          {profileMenuOpen && (
+            <div className="absolute left-0 right-0 z-30 mt-3 rounded-3xl border border-brand-slate/40 bg-brand-night/95 p-3 shadow-brand-soft">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigate('/profile-full');
+                    setProfileMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-2xl border border-transparent px-3 py-2 text-sm text-slate-200/80 transition hover:border-brand-mint/60 hover:bg-brand-night/70 hover:text-brand-mint"
+                >
+                  <SettingsIcon size={16} className="shrink-0" />
+                  <span className="truncate">Настройки профиля</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setToken(null);
+                    setProfileMenuOpen(false);
+                    navigate('/login');
+                  }}
+                  className="flex w-full items-center gap-2 rounded-2xl border border-transparent px-3 py-2 text-sm text-slate-200/80 transition hover:border-brand-mint/60 hover:bg-brand-night/70 hover:text-brand-mint"
+                >
+                  <LogOut size={16} className="shrink-0" />
+                  <span className="truncate">Выйти</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       <button
         type="button"
         onClick={() => setSearchOpen(true)}
-        className="flex items-center gap-2 rounded-2xl border border-brand-slate/40 bg-brand-night/70 px-3 py-2 text-sm text-slate-200/80 transition hover:border-brand-mint/60 hover:bg-brand-night/60 hover:text-brand-mint"
+        title="Поиск по сайту"
+        className={classNames(
+          'flex items-center gap-2 rounded-2xl border border-brand-slate/40 bg-brand-night/70 py-2 text-sm text-slate-200/80 transition hover:border-brand-mint/60 hover:bg-brand-night/60 hover:text-brand-mint',
+          collapsed ? 'justify-center px-2' : 'px-3'
+        )}
       >
         <Search size={16} className="opacity-80" />
-        <span className="truncate">Поиск по сайту…</span>
+        {!collapsed && <span className="truncate">Поиск по сайту…</span>}
       </button>
 
-      <div>
-        <div className="text-lg font-semibold mb-2 text-brand-mint">Life Hub</div>
-        <nav className="space-y-1">
-          {MENU_ITEMS.filter(item => !hiddenMenuItems.includes(item.to)).map(item => (
-            <NavItem key={item.to} item={item} counters={counters} showCounters={showCounters} />
-          ))}
+      <div className={classNames('w-full flex flex-col', collapsed ? 'items-center' : '')}>
+        {!collapsed && <div className="text-lg font-semibold mb-2 text-brand-mint w-full">Life Hub</div>}
+        <nav className={classNames('w-full flex flex-col', collapsed ? 'items-center gap-3' : 'gap-4')}>
+          {visibleGroups.map((group, index) => {
+            const isLastGroup = index === visibleGroups.length - 1;
+            return (
+              <div
+                key={group.id}
+                className={classNames(
+                  'w-full space-y-1',
+                  collapsed ? 'flex flex-col items-center gap-1' : '',
+                  !isLastGroup && 'pb-3 mb-3 border-b border-brand-slate/40'
+                )}
+              >
+                {group.items.map((item) => (
+                  <NavItem
+                    key={item.to}
+                    item={item}
+                    counters={counters}
+                    showCounters={showCounters}
+                    collapsed={collapsed}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </nav>
       </div>
 
-      <button
-        onClick={() => {
-          setToken(null);
-          navigate('/login');
-        }}
-        className="mt-auto text-sm text-slate-300/70 transition hover:text-brand-mint"
-      >
-        Выйти
-      </button>
+      {profile ? (
+        <div className="mt-auto" />
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setToken(null);
+            navigate('/login');
+          }}
+          className="mt-auto text-sm text-slate-300/70 transition hover:text-brand-mint"
+        >
+          Выйти
+        </button>
+      )}
 
       <Modal
         open={searchOpen}
@@ -269,7 +536,17 @@ function Sidebar() {
   );
 }
 
-function NavItem({ item, counters, showCounters }: { item: MenuItem; counters: MenuCounters; showCounters: boolean }) {
+function NavItem({
+  item,
+  counters,
+  showCounters,
+  collapsed,
+}: {
+  item: MenuItem;
+  counters: MenuCounters;
+  showCounters: boolean;
+  collapsed: boolean;
+}) {
   const Icon = item.icon;
   const count = item.counterKey ? counters[item.counterKey] : 0;
   const shouldShowCounter = Boolean(item.counterKey && showCounters && count > 0);
@@ -277,17 +554,27 @@ function NavItem({ item, counters, showCounters }: { item: MenuItem; counters: M
   return (
     <NavLink
       to={item.to}
+      title={item.label}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2 rounded-2xl border transition ${
+        classNames(
+          'group flex items-center gap-3 rounded-2xl border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint/60',
+          collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2',
           isActive
             ? 'border-brand-mint/60 bg-brand-mint/15 text-brand-mint shadow-brand-glow'
             : 'border-transparent text-slate-300/80 hover:border-brand-slate/50 hover:bg-brand-night/60'
-        }`
+        )
       }
     >
-      <Icon size={18} className="shrink-0" />
-      <span className="flex-1 truncate">{item.label}</span>
-      {shouldShowCounter && (
+      <div className="relative">
+        <Icon size={18} className="shrink-0" />
+        {shouldShowCounter && collapsed && (
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full border border-brand-mint/60 bg-brand-mint/20 px-1 text-[10px] font-semibold text-brand-mint">
+            {count}
+          </span>
+        )}
+      </div>
+      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+      {shouldShowCounter && !collapsed && (
         <span className="ml-auto px-2 py-0.5 rounded-full border border-brand-mint/40 bg-brand-mint/10 text-[10px] font-semibold text-brand-mint">
           {count}
         </span>
