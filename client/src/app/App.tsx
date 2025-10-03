@@ -76,8 +76,7 @@ export default function App() {
       className="min-h-screen grid text-slate-100 transition-[grid-template-columns] duration-300"
       style={{ gridTemplateColumns: sidebarCollapsed ? '88px 1fr' : '260px 1fr' }}
     >
-
-      <div className="relative">
+      <div className="relative min-h-screen">
         <Sidebar collapsed={sidebarCollapsed} />
         <div
           className={classNames(
@@ -290,9 +289,8 @@ function Sidebar({ collapsed }: SidebarProps) {
   return (
     <aside
       className={classNames(
-        'border-r border-brand-slate/40 bg-brand-night/75 backdrop-blur-xl flex flex-col gap-4 shadow-brand-soft transition-[padding,width] duration-300',
-
-        collapsed ? 'p-3 items-center' : 'p-4 pr-6'
+        'flex h-full min-h-screen flex-col gap-4 border-r border-brand-slate/40 bg-brand-night/75 shadow-brand-soft backdrop-blur-xl transition-[padding,width] duration-300',
+        collapsed ? 'items-center p-3' : 'p-4 pr-6'
       )}
     >
       {profile && (
@@ -305,8 +303,8 @@ function Sidebar({ collapsed }: SidebarProps) {
           >
             <div
               className={classNames(
-                'relative w-full overflow-hidden bg-brand-mint/10',
-                collapsed ? 'h-16 rounded-2xl' : 'h-20'
+                'relative w-full overflow-visible bg-brand-mint/10',
+                collapsed ? 'h-16 rounded-2xl' : 'h-20 rounded-3xl'
               )}
               style={{
                 backgroundImage: profile.banner_url ? `url(${resolveApiUrl(profile.banner_url)})` : undefined,
@@ -332,7 +330,7 @@ function Sidebar({ collapsed }: SidebarProps) {
                   <Palette size={16} />
                 </button>
                 {clockSettingsOpen && (
-                  <div className="absolute left-0 top-11 z-30 w-48 rounded-2xl border border-brand-slate/40 bg-brand-night/95 p-3 text-xs text-slate-200/80 shadow-brand-soft">
+                  <div className="absolute left-0 top-11 z-50 w-48 rounded-2xl border border-brand-slate/40 bg-brand-night/95 p-3 text-xs text-slate-200/80 shadow-brand-soft">
                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-200/60">
                       <Palette size={14} /> Цвет
                     </div>
