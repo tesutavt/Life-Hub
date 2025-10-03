@@ -76,7 +76,36 @@ export default function App() {
       className="min-h-screen grid text-slate-100 transition-[grid-template-columns] duration-300"
       style={{ gridTemplateColumns: sidebarCollapsed ? '88px 1fr' : '260px 1fr' }}
     >
-      <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)} />
+
+      <div className="relative">
+        <Sidebar collapsed={sidebarCollapsed} />
+        <div
+          className={classNames(
+            'absolute top-1/2 right-0 z-40 flex -translate-y-1/2 translate-x-1/2 items-center gap-1 transition-all duration-300',
+            sidebarCollapsed ? 'pr-1' : 'pr-0'
+          )}
+        >
+          <span
+            className={classNames(
+              'inline-block rounded-r-full border border-l-0 border-brand-slate/40 bg-brand-night/80 shadow-brand-soft transition-all duration-300',
+              sidebarCollapsed ? 'h-10 w-3' : 'h-12 w-4'
+            )}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((prev) => !prev)}
+            className={classNames(
+              'group inline-flex items-center justify-center rounded-full border bg-brand-night/80 text-slate-200/80 shadow-brand-soft transition hover:border-brand-mint/60 hover:text-brand-mint',
+              sidebarCollapsed ? 'h-10 w-10 border-brand-slate/50' : 'h-11 w-11 border-brand-slate/40'
+            )}
+            aria-label={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          >
+            <span className="sr-only">{sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}</span>
+            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </button>
+        </div>
+      </div>
       <main className="p-6 transition-[padding] duration-300">
         <ReportReminders />
         <Outlet />
@@ -87,10 +116,9 @@ export default function App() {
 
 type SidebarProps = {
   collapsed: boolean;
-  onToggleCollapse: () => void;
 };
 
-function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
+function Sidebar({ collapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { setToken } = useAuth();
@@ -263,24 +291,15 @@ function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
     <aside
       className={classNames(
         'border-r border-brand-slate/40 bg-brand-night/75 backdrop-blur-xl flex flex-col gap-4 shadow-brand-soft transition-[padding,width] duration-300',
-        collapsed ? 'p-3 items-center' : 'p-4'
+
+        collapsed ? 'p-3 items-center' : 'p-4 pr-6'
       )}
     >
-      <div className={classNames('w-full flex', collapsed ? 'justify-center' : 'justify-end')}>
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          className="inline-flex items-center justify-center rounded-full border border-brand-slate/40 bg-brand-night/70 p-2 text-slate-200/80 transition hover:border-brand-mint/60 hover:text-brand-mint"
-          aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
-        >
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-        </button>
-      </div>
       {profile && (
         <div ref={profileMenuRef} className="relative w-full">
           <div
             className={classNames(
-              'relative rounded-3xl border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft overflow-hidden',
+              'relative rounded-3xl border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft overflow-visible',
               collapsed ? 'pb-4 pt-3 px-2 flex flex-col items-center gap-3' : ''
             )}
           >
@@ -313,7 +332,7 @@ function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
                   <Palette size={16} />
                 </button>
                 {clockSettingsOpen && (
-                  <div className="absolute left-0 top-10 z-20 w-48 rounded-2xl border border-brand-slate/40 bg-brand-night/95 p-3 text-xs text-slate-200/80 shadow-brand-soft">
+                  <div className="absolute left-0 top-11 z-30 w-48 rounded-2xl border border-brand-slate/40 bg-brand-night/95 p-3 text-xs text-slate-200/80 shadow-brand-soft">
                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-200/60">
                       <Palette size={14} /> Цвет
                     </div>
@@ -379,43 +398,51 @@ function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
             </div>
             <div
               className={classNames(
-                'flex items-center gap-3 w-full',
-                collapsed ? 'px-2 pt-3 justify-center' : 'px-4 pb-4 pt-8'
+                'w-full',
+                collapsed ? 'px-2 pt-3' : 'px-4 pb-4 pt-8'
               )}
             >
-              {renderFramedAvatar(
-                miniFrameId,
-                collapsed ? 'w-14 h-14' : 'w-12 h-12',
-                miniAvatarSrc,
-                profile.name || 'Аватар пользователя'
-              )}
-              {!collapsed && (
-                <div className="min-w-0">
-                  <div className="font-semibold leading-tight truncate">{profile.name || 'Без имени'}</div>
-                  {profileLinkHref && (
-                    <a
-                      href={profileLinkHref}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand-mint/80 hover:text-brand-mint"
-                    >
-                      <Link2 size={12} className="opacity-70" />
-                      <span className="truncate">{profileLinkLabel}</span>
-                    </a>
-                  )}
-                  {profile.city && <div className="mt-1 text-xs text-slate-200/60 truncate">{profile.city}</div>}
-                </div>
-              )}
-            </div>
-            <div className={classNames('flex w-full', collapsed ? 'justify-center' : 'justify-end pr-4')}>
-              <button
-                type="button"
-                onClick={() => setProfileMenuOpen((prev) => !prev)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-brand-slate/40 bg-brand-night/70 text-slate-200/80 transition hover:border-brand-mint/60 hover:text-brand-mint"
-                aria-label={profileMenuOpen ? 'Скрыть меню профиля' : 'Открыть меню профиля'}
+              <div
+                className={classNames(
+                  'flex w-full items-center gap-3',
+                  collapsed ? 'flex-col justify-center' : ''
+                )}
               >
-                {profileMenuOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-              </button>
+                {renderFramedAvatar(
+                  miniFrameId,
+                  collapsed ? 'w-14 h-14' : 'w-12 h-12',
+                  miniAvatarSrc,
+                  profile.name || 'Аватар пользователя'
+                )}
+                {!collapsed && (
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold leading-tight truncate">{profile.name || 'Без имени'}</div>
+                    {profileLinkHref && (
+                      <a
+                        href={profileLinkHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-[11px] text-brand-mint/80 hover:text-brand-mint"
+                      >
+                        <Link2 size={12} className="opacity-70" />
+                        <span className="truncate">{profileLinkLabel}</span>
+                      </a>
+                    )}
+                    {profile.city && <div className="mt-1 text-xs text-slate-200/60 truncate">{profile.city}</div>}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((prev) => !prev)}
+                  className={classNames(
+                    'inline-flex items-center justify-center rounded-full border border-brand-slate/40 bg-brand-night/70 text-slate-200/80 transition hover:border-brand-mint/60 hover:text-brand-mint',
+                    collapsed ? 'mt-2 h-9 w-9' : 'ml-auto h-9 w-9'
+                  )}
+                  aria-label={profileMenuOpen ? 'Скрыть меню профиля' : 'Открыть меню профиля'}
+                >
+                  {profileMenuOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </button>
+              </div>
             </div>
           </div>
           {profileMenuOpen && (
