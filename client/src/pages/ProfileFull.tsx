@@ -9,6 +9,16 @@ import { useAuth } from '../AuthContext';
 import { useNotifications } from '../notifications/NotificationProvider';
 import { useReorderableList } from '../hooks/useReorderableList';
 import { AVATAR_FRAME_OPTIONS, DEFAULT_AVATAR_FRAME_ID, getAvatarFrameOption, resolveAvatarFrameId } from '../constants/avatarFrames';
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  type TooltipProps,
+} from 'recharts';
 
 const JOURNAL_BATCH_SIZE = 10;
 
@@ -34,6 +44,255 @@ type ProfileLanguage = {
 type ProfileOverviewBlock = {
   id: string;
   render: () => React.ReactNode;
+};
+
+type LifeRadarMetric = {
+  id: string;
+  label: string;
+  value: number;
+  description: string;
+  detail: string;
+  sampleSize: number;
+  sampleLabel: string;
+  confidence: number;
+};
+
+type LifeRadarState = {
+  metrics: LifeRadarMetric[];
+  confidence: number;
+  average: number;
+  highlight: LifeRadarMetric | null;
+  lowlight: LifeRadarMetric | null;
+};
+
+type LifeRadarSources = {
+  xp: { level: number; xp: number; progressPct: number };
+  habits: any[];
+  goals: any[];
+  languages: any[];
+  courses: any[];
+  travel: any[];
+};
+
+const pluralize = (value: number, forms: [string, string, string]) => {
+  const abs = Math.abs(value) % 100;
+  const remainder = abs % 10;
+  if (abs > 10 && abs < 20) return forms[2];
+  if (remainder > 1 && remainder < 5) return forms[1];
+  if (remainder === 1) return forms[0];
+  return forms[2];
+};
+
+const clampPercentage = (value: number) => {
+  if (!Number.isFinite(value)) return 0;
+  const rounded = Math.round(value);
+  if (rounded < 0) return 0;
+  if (rounded > 100) return 100;
+  return rounded;
+};
+
+const toNumber = (value: any) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const average = (values: number[]) => {
+  if (!values.length) return 0;
+  const sum = values.reduce((acc, value) => acc + value, 0);
+  return sum / values.length;
+};
+
+const buildLifeRadar = ({ xp, habits, goals, languages, courses, travel }: LifeRadarSources): LifeRadarState => {
+  const metrics: LifeRadarMetric[] = [];
+
+  const habitEntries = Array.isArray(habits) ? habits : [];
+  const habitRatios = habitEntries.map((habit) => {
+    const target = Math.max(0, toNumber(habit.target_per_week ?? habit.targetPerWeek));
+    const done = Math.max(0, toNumber(habit.done_this_week ?? habit.doneThisWeek));
+    if (target === 0) return done > 0 ? 1 : 0;
+    return Math.max(0, Math.min(1, done / target));
+  });
+  const habitValue = habitRatios.length > 0 ? clampPercentage(average(habitRatios) * 100) : 0;
+  const habitCompleted = habitRatios.filter((ratio) => ratio >= 1).length;
+  metrics.push({
+    id: 'habits',
+    label: 'Привычки',
+    value: habitValue,
+    description:
+      habitRatios.length > 0
+        ? `Среднее выполнение недельного плана — ${habitValue}% (${habitCompleted}/${habitRatios.length} привычек достигают цели).`
+        : 'Привычки не отслеживаются — добавьте их, чтобы контролировать прогресс.',
+    detail:
+      habitRatios.length > 0
+        ? `Успешных привычек: ${habitCompleted} из ${habitRatios.length}.`
+        : 'Нет активных привычек.',
+    sampleSize: habitRatios.length,
+    sampleLabel:
+      habitRatios.length > 0
+        ? `${habitRatios.length} ${pluralize(habitRatios.length, ['привычка', 'привычки', 'привычек'])}`
+        : 'нет привычек',
+    confidence: 1,
+  });
+
+  const goalEntries = Array.isArray(goals) ? goals : [];
+  const goalValues = goalEntries.map((goal) => clampPercentage(toNumber(goal.completion_pct ?? goal.completionPct)));
+  const goalValue = goalValues.length > 0 ? clampPercentage(average(goalValues)) : 0;
+  const goalsCompleted = goalEntries.filter((goal) => {
+    const pct = toNumber(goal.completion_pct ?? goal.completionPct);
+    if (pct >= 100) return true;
+    const status = typeof goal.status === 'string' ? goal.status.toLowerCase() : '';
+    return status === 'archived';
+  }).length;
+  metrics.push({
+    id: 'goals',
+    label: 'Годовые цели',
+    value: goalValue,
+    description:
+      goalValues.length > 0
+        ? `Достижение целей на ${goalValue}% (${goalsCompleted}/${goalEntries.length} завершены).`
+        : 'Годовые цели пока не настроены.',
+    detail:
+      goalValues.length > 0
+        ? `Средний прогресс по ${goalEntries.length} ${pluralize(goalEntries.length, ['цели', 'целям', 'целям'])} — ${goalValue}%.`
+        : 'Нет активных годовых целей.',
+    sampleSize: goalEntries.length,
+    sampleLabel:
+      goalEntries.length > 0
+        ? `${goalEntries.length} ${pluralize(goalEntries.length, ['цель', 'цели', 'целей'])}`
+        : 'нет целей',
+    confidence: 1,
+  });
+
+  const languageEntries = Array.isArray(languages) ? languages : [];
+  const languageValues = languageEntries.map((language) =>
+    clampPercentage(toNumber(language.courses_progress_pct ?? language.coursesProgressPct ?? 0))
+  );
+  const languageValue = languageValues.length > 0 ? clampPercentage(average(languageValues)) : 0;
+  const languageMinutes = languageEntries.reduce(
+    (acc, language) => acc + Math.max(0, toNumber(language.minutes_today ?? language.minutesToday ?? 0)),
+    0
+  );
+  metrics.push({
+    id: 'languages',
+    label: 'Языки',
+    value: languageValue,
+    description:
+      languageValues.length > 0
+        ? `Средний прогресс языковых курсов — ${languageValue}% (практика сегодня: ${languageMinutes} мин.).`
+        : 'Языковые активности не добавлены.',
+    detail:
+      languageValues.length > 0
+        ? `Учите ${languageEntries.length} ${pluralize(languageEntries.length, ['язык', 'языка', 'языков'])}, суммарно ${languageMinutes} мин. практики.`
+        : 'Нет активных языков.',
+    sampleSize: languageEntries.length,
+    sampleLabel:
+      languageEntries.length > 0
+        ? `${languageEntries.length} ${pluralize(languageEntries.length, ['язык', 'языка', 'языков'])}`
+        : 'нет языков',
+    confidence: 1,
+  });
+
+  const courseEntries = Array.isArray(courses) ? courses : [];
+  const courseValues = courseEntries.map((course) => clampPercentage(toNumber(course.progress)));
+  const courseValue = courseValues.length > 0 ? clampPercentage(average(courseValues)) : 0;
+  const courseCompleted = courseEntries.filter((course) => {
+    const progress = toNumber(course.progress);
+    if (progress >= 100) return true;
+    const status = typeof course.status === 'string' ? course.status.toLowerCase() : '';
+    if (status === 'completed') return true;
+    return Boolean(course.archived_at);
+  }).length;
+  metrics.push({
+    id: 'courses',
+    label: 'Курсы',
+    value: courseValue,
+    description:
+      courseValues.length > 0
+        ? `Средний прогресс — ${courseValue}% (${courseCompleted}/${courseEntries.length} завершены).`
+        : 'Учебные курсы не добавлены.',
+    detail:
+      courseValues.length > 0
+        ? `Контролируется ${courseEntries.length} ${pluralize(courseEntries.length, ['курс', 'курса', 'курсов'])}.`
+        : 'Нет активных курсов.',
+    sampleSize: courseEntries.length,
+    sampleLabel:
+      courseEntries.length > 0
+        ? `${courseEntries.length} ${pluralize(courseEntries.length, ['курс', 'курса', 'курсов'])}`
+        : 'нет курсов',
+    confidence: 1,
+  });
+
+  const travelEntries = Array.isArray(travel) ? travel : [];
+  const travelTotal = travelEntries.length;
+  const travelCompleted = travelEntries.filter((trip) => (trip.status || '').toLowerCase() === 'completed').length;
+  const travelInProgress = travelEntries.filter((trip) => (trip.status || '').toLowerCase() === 'in-progress').length;
+  const travelValue = travelTotal > 0 ? clampPercentage(((travelCompleted + travelInProgress * 0.5) / travelTotal) * 100) : 0;
+  metrics.push({
+    id: 'travel',
+    label: 'Путешествия',
+    value: travelValue,
+    description:
+      travelTotal > 0
+        ? `Поездки: завершено ${travelCompleted} из ${travelTotal}${travelInProgress ? `, в пути — ${travelInProgress}` : ''}.`
+        : 'Путешествия пока не запланированы.',
+    detail:
+      travelTotal > 0
+        ? `Завершено ${travelCompleted}/${travelTotal} поездок; ${travelInProgress} в процессе.`
+        : 'Нет записанных поездок.',
+    sampleSize: travelTotal,
+    sampleLabel:
+      travelTotal > 0
+        ? `${travelTotal} ${pluralize(travelTotal, ['поездка', 'поездки', 'поездок'])}`
+        : 'нет поездок',
+    confidence: 1,
+  });
+
+  const xpProgress = clampPercentage(toNumber(xp?.progressPct));
+  const xpLevel = toNumber(xp?.level ?? 0);
+  const xpValue = toNumber(xp?.xp ?? 0);
+  metrics.push({
+    id: 'xp',
+    label: 'Опыт',
+    value: xpProgress,
+    description: `До уровня ${xpLevel + 1} осталось ${100 - xpProgress}% (накоплено ${xpValue} XP).`,
+    detail: `Текущий уровень: ${xpLevel}. Прогресс к следующему — ${xpProgress}%.`,
+    sampleSize: 1,
+    sampleLabel: 'XP',
+    confidence: 1,
+  });
+
+  const confidence = metrics.length > 0 ? clampPercentage((metrics.reduce((acc, metric) => acc + metric.confidence, 0) / metrics.length) * 100) : 0;
+  const averageValue = metrics.length > 0 ? clampPercentage(metrics.reduce((acc, metric) => acc + metric.value, 0) / metrics.length) : 0;
+
+  const highlight =
+    metrics.length > 0
+      ? metrics.reduce<LifeRadarMetric | null>((best, current) => {
+          if (!best) return current;
+          return current.value > best.value ? current : best;
+        }, null)
+      : null;
+
+  const lowlight =
+    metrics.length > 0
+      ? metrics.reduce<LifeRadarMetric | null>((worst, current) => {
+          if (!worst) return current;
+          return current.value < worst.value ? current : worst;
+        }, null)
+      : null;
+
+  return { metrics, confidence, average: averageValue, highlight, lowlight };
+};
+
+const LifeRadarTooltip: React.FC<TooltipProps<number, string>> = ({ active, payload }) => {
+  if (!active || !payload || payload.length === 0) return null;
+  const entry = payload[0]?.payload as any;
+  if (!entry) return null;
+  return (
+    <div className="rounded-2xl border border-white/10 bg-brand-night/95 px-3 py-2 text-xs text-white/80 shadow-xl">
+      <div className="text-sm font-semibold text-white">{entry.subject}</div>
+      <div className="mt-1 text-white/65">{entry.detail || entry.description}</div>
+    </div>
+  );
 };
 
 const getFeedVisuals = (type: string | null | undefined) => {
@@ -642,6 +901,8 @@ export default function ProfileFull() {
   const [visibleCount, setVisibleCount] = useState(JOURNAL_BATCH_SIZE);
   const [languages, setLanguages] = useState<ProfileLanguage[]>([]);
   const [nextEvent, setNextEvent] = useState<any | null>(null);
+  const [lifeRadar, setLifeRadar] = useState<LifeRadarState | null>(null);
+  const [lifeRadarLoading, setLifeRadarLoading] = useState(false);
 
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
@@ -779,60 +1040,113 @@ export default function ProfileFull() {
     (block) => block.id,
   );
   const load = async () => {
-    const d = await api.get('/api/life/profile');
-    setData(d);
-    setDisplayName(d?.user?.name || '');
-    setBio(d?.user?.bio || '');
-    setCity(d?.user?.city || '');
-    setProfileLink(d?.user?.profile_url || '');
-    setAvatarFrameMain(resolveAvatarFrameId(d?.user?.avatar_frame_main));
-    setAvatarFrameMini(resolveAvatarFrameId(d?.user?.avatar_frame_mini));
-    setAvatarFile(null);
-    setBannerFile(null);
-    setAvatarPreviewUrl(null);
-    setBannerPreviewUrl(null);
+    setLifeRadarLoading(true);
+    try {
+      const d = await api.get('/api/life/profile');
+      setData(d);
+      setDisplayName(d?.user?.name || '');
+      setBio(d?.user?.bio || '');
+      setCity(d?.user?.city || '');
+      setProfileLink(d?.user?.profile_url || '');
+      setAvatarFrameMain(resolveAvatarFrameId(d?.user?.avatar_frame_main));
+      setAvatarFrameMini(resolveAvatarFrameId(d?.user?.avatar_frame_mini));
+      setAvatarFile(null);
+      setBannerFile(null);
+      setAvatarPreviewUrl(null);
+      setBannerPreviewUrl(null);
 
-    // ✅ Лента (только feed, без страниц)
-    const feed = await api.get('/api/life/feed');
-    const normalized = (feed.items || []).map((item: any) => {
-      const rawTs = item.ts ?? item.created_at ?? item.date ?? null;
-      let meta = item.meta;
-      if (typeof meta === 'string') {
+      const levelValue = d?.xp?.level || 1;
+      const xpValue = d?.xp?.xp || 0;
+      const prevLevelBase = Math.max(0, levelValue - 1);
+      const xpBase = prevLevelBase * prevLevelBase * 100;
+      const xpNext = levelValue * levelValue * 100;
+      const xpRatio = xpNext === xpBase ? 0 : Math.max(0, Math.min(1, (xpValue - xpBase) / (xpNext - xpBase)));
+      const xpProgressPct = Math.round(xpRatio * 100);
+
+      const safeGet = async <T,>(path: string, fallback: T): Promise<T> => {
         try {
-          meta = JSON.parse(meta);
-        } catch {
-          // ignore malformed meta
+          return await api.get(path, { silentError: true });
+        } catch (error) {
+          console.error(`Failed to load ${path}`, error);
+          return fallback;
         }
-      }
-      let tsValue: number | null = null;
-      if (typeof rawTs === 'number') {
-        tsValue = rawTs;
-      } else if (typeof rawTs === 'string') {
-        const parsed = Date.parse(rawTs);
-        tsValue = Number.isNaN(parsed) ? null : parsed;
-      }
-      return {
-        ...item,
-        ts: rawTs,
-        tsValue,
-        type: item.type || 'note',
-        meta
       };
-    });
-    const sorted = normalized.sort((a: any, b: any) => (b.tsValue ?? 0) - (a.tsValue ?? 0));
-    setJournal(sorted);
-    setVisibleCount(Math.min(JOURNAL_BATCH_SIZE, sorted.length));
-    isLoadingMoreRef.current = false;
 
-    const langs = await api.get('/api/life/languages');
-    setLanguages((langs.items || []).map((entry: any, index: number) => mapProfileLanguage(entry, index)));
+      const [feed, langs, cal, habitsRes, goalsRes, coursesRes, travelRes] = await Promise.all([
+        safeGet('/api/life/feed', { items: [] as any[] }),
+        safeGet('/api/life/languages', { items: [] as any[] }),
+        safeGet('/api/life/calendar', { items: [] as any[] }),
+        safeGet('/api/life/habits', { items: [] as any[] }),
+        safeGet('/api/life/yearly-goals', { active: [] as any[], archived: [] as any[] }),
+        safeGet('/api/life/courses', { items: [] as any[], archived: [] as any[] }),
+        safeGet('/api/life/travel', { items: [] as any[] }),
+      ]);
 
-    const cal = await api.get('/api/life/calendar');
-    const today = new Date().toISOString().slice(0, 10);
-    const future = (cal.items || [])
-      .filter((x: any) => x.date >= today)
-      .sort((a: any, b: any) => a.date.localeCompare(b.date));
-    setNextEvent(future[0] || null);
+      const normalized = (feed.items || []).map((item: any) => {
+        const rawTs = item.ts ?? item.created_at ?? item.date ?? null;
+        let meta = item.meta;
+        if (typeof meta === 'string') {
+          try {
+            meta = JSON.parse(meta);
+          } catch {
+            // ignore malformed meta
+          }
+        }
+        let tsValue: number | null = null;
+        if (typeof rawTs === 'number') {
+          tsValue = rawTs;
+        } else if (typeof rawTs === 'string') {
+          const parsed = Date.parse(rawTs);
+          tsValue = Number.isNaN(parsed) ? null : parsed;
+        }
+        return {
+          ...item,
+          ts: rawTs,
+          tsValue,
+          type: item.type || 'note',
+          meta,
+        };
+      });
+      const sorted = normalized.sort((a: any, b: any) => (b.tsValue ?? 0) - (a.tsValue ?? 0));
+      setJournal(sorted);
+      setVisibleCount(Math.min(JOURNAL_BATCH_SIZE, sorted.length));
+      isLoadingMoreRef.current = false;
+
+      const languagesSource = Array.isArray(langs?.items)
+        ? langs.items
+        : Array.isArray(langs)
+        ? langs
+        : [];
+      setLanguages(languagesSource.map((entry: any, index: number) => mapProfileLanguage(entry, index)));
+
+      const calendarItems = Array.isArray(cal?.items) ? cal.items : [];
+      const today = new Date().toISOString().slice(0, 10);
+      const future = calendarItems
+        .filter((x: any) => x.date >= today)
+        .sort((a: any, b: any) => a.date.localeCompare(b.date));
+      setNextEvent(future[0] || null);
+
+      const habitItems = Array.isArray(habitsRes?.items) ? habitsRes.items : [];
+      const goalItems = Array.isArray(goalsRes?.active) ? goalsRes.active : [];
+      const courseItems = Array.isArray(coursesRes?.items) ? coursesRes.items : [];
+      const travelItems = Array.isArray(travelRes?.items) ? travelRes.items : [];
+
+      setLifeRadar(
+        buildLifeRadar({
+          xp: { level: levelValue, xp: xpValue, progressPct: xpProgressPct },
+          habits: habitItems,
+          goals: goalItems,
+          languages: languagesSource,
+          courses: courseItems,
+          travel: travelItems,
+        })
+      );
+    } catch (error) {
+      console.error('Failed to load profile', error);
+      setLifeRadar(null);
+    } finally {
+      setLifeRadarLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -886,6 +1200,16 @@ export default function ProfileFull() {
   const nextLevel = level * level * 100;
   const ratio = nextLevel === base ? 0 : Math.max(0, Math.min(1, (xp - base) / (nextLevel - base)));
   const prog = Math.round(ratio * 100);
+
+  const radarChartData = useMemo(() => {
+    if (!lifeRadar) return [];
+    return lifeRadar.metrics.map((metric) => ({
+      subject: metric.label,
+      value: metric.value,
+      detail: metric.detail,
+      description: metric.description,
+    }));
+  }, [lifeRadar]);
 
   const save = async () => {
     if (!token) {
@@ -1076,6 +1400,90 @@ export default function ProfileFull() {
         })}
       </div>
 
+      <div className="card mt-6">
+        <div className="font-medium mb-3">Индекс жизни</div>
+        {lifeRadarLoading ? (
+          <div className="grid gap-6 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+            <div className="h-64 rounded-3xl bg-white/5 animate-pulse" />
+            <div className="space-y-3">
+              <div className="h-4 w-2/3 rounded-full bg-white/5 animate-pulse" />
+              <div className="h-3 w-1/2 rounded-full bg-white/5 animate-pulse" />
+              <div className="h-3 w-full rounded-full bg-white/5 animate-pulse" />
+              <div className="h-3 w-5/6 rounded-full bg-white/5 animate-pulse" />
+              <div className="h-3 w-3/4 rounded-full bg-white/5 animate-pulse" />
+            </div>
+          </div>
+        ) : lifeRadar ? (
+          <div className="grid gap-6 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={radarChartData} outerRadius="70%">
+                  <PolarGrid stroke="rgba(255,255,255,0.12)" />
+                  <PolarAngleAxis
+                    dataKey="subject"
+                    tick={{ fill: 'rgba(255,255,255,0.65)', fontSize: 12 }}
+                    stroke="rgba(255,255,255,0.3)"
+                  />
+                  <PolarRadiusAxis
+                    angle={30}
+                    domain={[0, 100]}
+                    tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }}
+                    stroke="rgba(255,255,255,0.15)"
+                  />
+                  <Radar
+                    name="Показатель"
+                    dataKey="value"
+                    stroke="rgba(34,197,94,0.75)"
+                    fill="rgba(34,197,94,0.45)"
+                    fillOpacity={0.45}
+                  />
+                  <RechartsTooltip content={<LifeRadarTooltip />} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <div className="text-sm text-white/70">
+                  Среднее значение: <span className="font-semibold text-white">{lifeRadar.average}%</span>
+                </div>
+                <div className="mt-1 text-xs text-white/50">
+                  Покрытие данных: {lifeRadar.confidence}% · все показатели рассчитаны на основе фактических записей.
+                </div>
+                {lifeRadar.highlight && lifeRadar.lowlight && (
+                  <div className="mt-3 space-y-1 text-sm text-white/70">
+                    <div>
+                      Сильная сторона — <span className="text-white">{lifeRadar.highlight.label}</span> ({lifeRadar.highlight.value}%).
+                    </div>
+                    <div>
+                      Зона роста — <span className="text-white">{lifeRadar.lowlight.label}</span> ({lifeRadar.lowlight.value}%).
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                {lifeRadar.metrics.map((metric) => (
+                  <div
+                    key={metric.id}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 transition hover:border-brand-mint/40 hover:bg-brand-mint/10"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white">{metric.label}</div>
+                        <div className="text-[11px] uppercase tracking-wide text-white/40">{metric.sampleLabel}</div>
+                      </div>
+                      <div className="text-sm font-semibold text-brand-mint">{metric.value}%</div>
+                    </div>
+                    <div className="mt-2 text-xs leading-relaxed text-white/65">{metric.description}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="text-sm text-white/60">Не удалось построить диаграмму — попробуйте обновить страницу.</div>
+        )}
+      </div>
+
       {/* ---------- Лента дневника ---------- */}
       <div className="card mt-6">
         <div className="font-medium mb-2">Последние события</div>
@@ -1148,12 +1556,13 @@ export default function ProfileFull() {
       </div>
 
       {/* ---------- Модалка редактирования ---------- */}
+
       <Modal
         open={openEdit}
         onClose={() => setOpenEdit(false)}
         overlayClassName="bg-black/70 backdrop-blur-sm"
         containerClassName="items-center justify-center"
-        contentClassName="w-full max-w-3xl overflow-hidden rounded-3xl border border-white/20 bg-brand-night/95 shadow-2xl"
+        contentClassName="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-3xl border border-white/20 bg-brand-night/95 shadow-2xl flex flex-col"
       >
         <div className="border-b border-white/10 bg-white/5 px-6 py-5">
           <div className="flex items-center gap-2 text-lg font-semibold">
@@ -1165,8 +1574,9 @@ export default function ProfileFull() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-6 px-6 py-5 sm:flex-row">
-          <aside className="sm:w-48">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="flex flex-col gap-6 sm:flex-row">
+            <aside className="sm:w-48 sm:flex-shrink-0">
             <nav className="flex flex-row gap-2 sm:flex-col">
               {editTabs.map((tab) => {
                 const active = activeEditTab === tab.id;
@@ -1196,7 +1606,7 @@ export default function ProfileFull() {
             </nav>
           </aside>
 
-          <div className="flex-1">
+            <div className="flex-1">
             {activeEditTab === 'basic' ? (
               <div className="space-y-5">
                 <div>
@@ -1427,6 +1837,7 @@ export default function ProfileFull() {
               </div>
             )}
           </div>
+          </div>
         </div>
 
         <div className="flex flex-col gap-3 border-t border-white/10 bg-black/60 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1451,6 +1862,7 @@ export default function ProfileFull() {
           </div>
         </div>
       </Modal>
+
     </Shell>
   );
 }
