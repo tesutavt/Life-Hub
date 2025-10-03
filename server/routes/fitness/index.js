@@ -1,7 +1,7 @@
 import express from 'express';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
-import { getDB } from './utils.js';
+import { getDB } from '../../utils.js';
 
 const CLIENT_ID =
   process.env.GF_CLIENT_ID ||

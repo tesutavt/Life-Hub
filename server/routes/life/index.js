@@ -1,34 +1,10 @@
 import express from 'express';
-import multer from 'multer';
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
-import { fileURLToPath } from 'url';
-import { getDB, levelFromXp } from './utils.js';
-import { TAG_ENTITY_TYPES, fetchTagLinks, sortTags, syncTagLinks } from './tagUtils.js';
+import { getDB, levelFromXp } from '../../utils.js';
+import { TAG_ENTITY_TYPES, fetchTagLinks, sortTags, syncTagLinks } from '../../tagUtils.js';
+import { upload, removeLocalUpload } from './storage.js';
+import { createUploadsRouter } from './uploads.js';
 
 const router = express.Router();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const uploadsDir = path.join(__dirname, 'uploads');
-
-const storage = multer.diskStorage({
-  destination(_req, _file, cb) {
-    fs.promises
-      .mkdir(uploadsDir, { recursive: true })
-      .then(() => cb(null, uploadsDir))
-      .catch((error) => cb(error, uploadsDir));
-  },
-  filename(_req, file, cb) {
-    const ext = path.extname(file?.originalname || '').slice(0, 16);
-    const random = crypto.randomBytes(8).toString('hex');
-    cb(null, `${Date.now()}-${random}${ext}`);
-  }
-});
-
-const MAX_PDF_FILE_SIZE = 512 * 1024 * 1024; // 512MB limit to allow 200MB+ uploads
-const upload = multer({ storage, limits: { fileSize: MAX_PDF_FILE_SIZE } });
 
 const DEFAULT_NOTIFICATION_PREFS = {
   disabled_types: [],
@@ -70,34 +46,7 @@ const normalizeNotificationPreferences = (value) => {
   };
 };
 
-async function removeLocalUpload(url) {
-  if (!url || typeof url !== 'string') return;
-  if (!url.startsWith('/uploads/')) return;
-  const filename = path.basename(url);
-  const filePath = path.join(uploadsDir, filename);
-  try {
-    await fs.promises.unlink(filePath);
-  } catch {
-    // ignore missing files
-  }
-}
-
-router.post('/uploads/pdf', upload.single('file'), async (req, res) => {
-  const file = req.file;
-  if (!file) return res.status(400).json({ error: 'no_file' });
-  const mime = (file.mimetype || '').toLowerCase();
-  const ext = path.extname(file.originalname || '').toLowerCase();
-  const isPdf = mime.includes('pdf') || ext === '.pdf';
-  if (!isPdf) {
-    await removeLocalUpload(`/uploads/${file.filename}`);
-    return res.status(400).json({ error: 'invalid_type' });
-  }
-  res.json({
-    url: `/uploads/${file.filename}`,
-    original_name: file.originalname || file.filename,
-    size: file.size
-  });
-});
+router.use('/uploads', createUploadsRouter());
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
