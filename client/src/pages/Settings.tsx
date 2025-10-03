@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
@@ -36,9 +36,38 @@ type SocialSettings = {
   youtube_channel_id?: string | null;
   tg_stream_template?: string | null;
   tg_video_template?: string | null;
+  twitch_bot_username?: string | null;
+  twitch_bot_token?: string | null;
+};
+
+type TwitchCommand = {
+  id: number | null;
+  command: string;
+  response: string;
+  enabled: boolean;
+  isNew?: boolean;
+};
+
+type TwitchTimer = {
+  id: number | null;
+  message: string;
+  online_interval_sec: number;
+  offline_interval_sec: number;
+  enabled: boolean;
+  last_sent_at?: string | null;
+  isNew?: boolean;
 };
 
 type GoogleSettings = { refresh_token: string | null };
+
+const normalizeIntervalValue = (value: string | number) => {
+  const num = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.max(0, Math.round(num));
+};
+
+const formatTimerDate = (value: string | null | undefined) =>
+  value ? new Date(value).toLocaleString('ru-RU') : '—';
 
 export default function Settings() {
   const { token } = useAuth();
@@ -60,6 +89,169 @@ export default function Settings() {
     ...DEFAULT_NOTIFICATION_PREFERENCES,
   });
 
+  const [commands, setCommands] = useState<TwitchCommand[]>([]);
+  const [timers, setTimers] = useState<TwitchTimer[]>([]);
+  const [commandsLoading, setCommandsLoading] = useState(true);
+  const [timersLoading, setTimersLoading] = useState(true);
+  const [commandsBusy, setCommandsBusy] = useState(false);
+  const [timersBusy, setTimersBusy] = useState(false);
+
+  const loadTwitchMeta = useCallback(async () => {
+    setCommandsLoading(true);
+    setTimersLoading(true);
+    try {
+      const [commandsResponse, timersResponse] = await Promise.all([
+        api.get('/api/socials/twitch/commands', { silentError: true }),
+        api.get('/api/socials/twitch/timers', { silentError: true }),
+      ]);
+      const mappedCommands: TwitchCommand[] = Array.isArray(commandsResponse?.items)
+        ? commandsResponse.items.map((item: any): TwitchCommand => ({
+            id: typeof item?.id === 'number' ? item.id : null,
+            command: typeof item?.command === 'string' ? item.command : '',
+            response: typeof item?.response === 'string' ? item.response : '',
+            enabled: item?.enabled !== false,
+          }))
+        : [];
+      const mappedTimers: TwitchTimer[] = Array.isArray(timersResponse?.items)
+        ? timersResponse.items.map((item: any): TwitchTimer => ({
+            id: typeof item?.id === 'number' ? item.id : null,
+            message: typeof item?.message === 'string' ? item.message : '',
+            online_interval_sec: normalizeIntervalValue(item?.online_interval_sec ?? 0),
+            offline_interval_sec: normalizeIntervalValue(item?.offline_interval_sec ?? 0),
+            enabled: item?.enabled !== false,
+            last_sent_at: typeof item?.last_sent_at === 'string' ? item.last_sent_at : null,
+          }))
+        : [];
+      setCommands(mappedCommands);
+      setTimers(mappedTimers);
+    } catch {
+      setCommands([]);
+      setTimers([]);
+    } finally {
+      setCommandsLoading(false);
+      setTimersLoading(false);
+    }
+  }, []);
+
+  const updateCommandField = (index: number, field: 'command' | 'response' | 'enabled', value: string | boolean) => {
+    setCommands((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== index) return item;
+        if (field === 'command') {
+          return { ...item, command: String(value) };
+        }
+        if (field === 'response') {
+          return { ...item, response: String(value) };
+        }
+        return { ...item, enabled: Boolean(value) };
+      })
+    );
+  };
+
+  const updateTimerField = (
+    index: number,
+    field: 'message' | 'online_interval_sec' | 'offline_interval_sec' | 'enabled',
+    value: string | number | boolean,
+  ) => {
+    setTimers((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== index) return item;
+        if (field === 'message') {
+          return { ...item, message: String(value) };
+        }
+        if (field === 'enabled') {
+          return { ...item, enabled: Boolean(value) };
+        }
+        const numeric = normalizeIntervalValue(value as string | number);
+        if (field === 'online_interval_sec') {
+          return { ...item, online_interval_sec: numeric };
+        }
+        return { ...item, offline_interval_sec: numeric };
+      })
+    );
+  };
+
+  const addCommand = () =>
+    setCommands((prev) => [
+      ...prev,
+      { id: null, command: '', response: '', enabled: true, isNew: true },
+    ]);
+
+  const addTimer = () =>
+    setTimers((prev) => [
+      ...prev,
+      { id: null, message: '', online_interval_sec: 900, offline_interval_sec: 1800, enabled: true, isNew: true },
+    ]);
+
+  const saveCommand = async (item: TwitchCommand, index: number) => {
+    const payload = {
+      command: (item.command || '').replace(/^!+/, '').trim(),
+      response: (item.response || '').trim(),
+      enabled: item.enabled,
+    };
+    if (!payload.command || !payload.response) return;
+    setCommandsBusy(true);
+    try {
+      if (item.id) {
+        await api.put(`/api/socials/twitch/commands/${item.id}`, payload);
+      } else {
+        await api.post('/api/socials/twitch/commands', payload);
+      }
+      await loadTwitchMeta();
+    } finally {
+      setCommandsBusy(false);
+    }
+  };
+
+  const deleteCommand = async (item: TwitchCommand, index: number) => {
+    if (!item.id) {
+      setCommands((prev) => prev.filter((_, idx) => idx !== index));
+      return;
+    }
+    setCommandsBusy(true);
+    try {
+      await api.del(`/api/socials/twitch/commands/${item.id}`);
+      await loadTwitchMeta();
+    } finally {
+      setCommandsBusy(false);
+    }
+  };
+
+  const saveTimer = async (item: TwitchTimer, index: number) => {
+    const payload = {
+      message: item.message.trim(),
+      online_interval_sec: normalizeIntervalValue(item.online_interval_sec),
+      offline_interval_sec: normalizeIntervalValue(item.offline_interval_sec),
+      enabled: item.enabled,
+    };
+    if (!payload.message) return;
+    setTimersBusy(true);
+    try {
+      if (item.id) {
+        await api.put(`/api/socials/twitch/timers/${item.id}`, payload);
+      } else {
+        await api.post('/api/socials/twitch/timers', payload);
+      }
+      await loadTwitchMeta();
+    } finally {
+      setTimersBusy(false);
+    }
+  };
+
+  const deleteTimer = async (item: TwitchTimer, index: number) => {
+    if (!item.id) {
+      setTimers((prev) => prev.filter((_, idx) => idx !== index));
+      return;
+    }
+    setTimersBusy(true);
+    try {
+      await api.del(`/api/socials/twitch/timers/${item.id}`);
+      await loadTwitchMeta();
+    } finally {
+      setTimersBusy(false);
+    }
+  };
+
   const [manualOpen, setManualOpen] = useState(false);
   const [manualPeriod, setManualPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
   const [manualLoading, setManualLoading] = useState(false);
@@ -76,6 +268,8 @@ export default function Settings() {
           youtube_channel_id: socials.settings?.youtube_channel_id || "",
           tg_stream_template: socials.settings?.tg_stream_template || defaultSocialTemplates.stream,
           tg_video_template: socials.settings?.tg_video_template || defaultSocialTemplates.video,
+          twitch_bot_username: socials.settings?.twitch_bot_username || "",
+          twitch_bot_token: socials.settings?.twitch_bot_token || "",
         });
       } catch {
         setSocialForm({
@@ -85,6 +279,8 @@ export default function Settings() {
           youtube_channel_id: "",
           tg_stream_template: defaultSocialTemplates.stream,
           tg_video_template: defaultSocialTemplates.video,
+          twitch_bot_username: "",
+          twitch_bot_token: "",
         });
       }
       try {
@@ -134,6 +330,10 @@ export default function Settings() {
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    loadTwitchMeta();
+  }, [loadTwitchMeta]);
 
   useEffect(() => {
     hiddenMenuItemsRef.current = hiddenMenuItems;
@@ -380,6 +580,202 @@ export default function Settings() {
                 onChange={(e) => setSocialForm({ ...socialForm, tg_video_template: e.target.value })}
                 className="w-full px-3 py-2 rounded bg-white/10 min-h-[96px]"
               />
+            </div>
+          </div>
+
+          <div className="border-t border-white/10 pt-4 space-y-4">
+            <div>
+              <div className="text-lg font-semibold mb-1">Twitch бот</div>
+              <p className="text-xs opacity-70">
+                Укажите логин и OAuth токен аккаунта, который будет отправлять сообщения в чат Twitch.
+              </p>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <input
+                placeholder="Логин бота"
+                value={socialForm.twitch_bot_username || ""}
+                onChange={(e) => setSocialForm({ ...socialForm, twitch_bot_username: e.target.value })}
+                className="px-3 py-2 rounded bg-white/10"
+                autoComplete="off"
+              />
+              <input
+                placeholder="OAuth токен (oauth:...)"
+                type="password"
+                value={socialForm.twitch_bot_token || ""}
+                onChange={(e) => setSocialForm({ ...socialForm, twitch_bot_token: e.target.value })}
+                className="px-3 py-2 rounded bg-white/10"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-medium">Команды</div>
+                <button
+                  type="button"
+                  onClick={addCommand}
+                  disabled={commandsBusy || commandsLoading}
+                  className="px-3 py-1.5 rounded bg-white/10 border border-white/20 text-xs"
+                >
+                  Добавить команду
+                </button>
+              </div>
+              {commandsLoading ? (
+                <div className="text-xs opacity-70">Загружаем команды…</div>
+              ) : commands.length === 0 ? (
+                <div className="text-xs opacity-70">Команды ещё не добавлены.</div>
+              ) : (
+                <div className="space-y-3">
+                  {commands.map((command, index) => {
+                    const ready = command.command.trim().length > 0 && command.response.trim().length > 0;
+                    return (
+                      <div
+                        key={command.id ?? `command-${index}`}
+                        className="bg-white/5 border border-white/10 rounded p-3 space-y-2"
+                      >
+                        <div className="grid md:grid-cols-2 gap-2">
+                          <input
+                            className="px-3 py-2 rounded bg-white/10"
+                            placeholder="Команда (без !)"
+                            value={command.command}
+                            onChange={(e) => updateCommandField(index, 'command', e.target.value)}
+                            disabled={commandsBusy}
+                          />
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <label className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={command.enabled}
+                                onChange={(e) => updateCommandField(index, 'enabled', e.target.checked)}
+                                disabled={commandsBusy}
+                              />
+                              Включена
+                            </label>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="px-3 py-1.5 rounded bg-white text-black"
+                                onClick={() => saveCommand(command, index)}
+                                disabled={commandsBusy || !ready}
+                              >
+                                Сохранить
+                              </button>
+                              <button
+                                type="button"
+                                className="px-3 py-1.5 rounded bg-white/10 border border-white/10"
+                                onClick={() => deleteCommand(command, index)}
+                                disabled={commandsBusy}
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <textarea
+                          className="w-full px-3 py-2 rounded bg-white/10 min-h-[72px]"
+                          placeholder="Ответ в чат"
+                          value={command.response}
+                          onChange={(e) => updateCommandField(index, 'response', e.target.value)}
+                          disabled={commandsBusy}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-medium">Таймеры</div>
+                <button
+                  type="button"
+                  onClick={addTimer}
+                  disabled={timersBusy || timersLoading}
+                  className="px-3 py-1.5 rounded bg-white/10 border border-white/20 text-xs"
+                >
+                  Добавить таймер
+                </button>
+              </div>
+              {timersLoading ? (
+                <div className="text-xs opacity-70">Загружаем таймеры…</div>
+              ) : timers.length === 0 ? (
+                <div className="text-xs opacity-70">Таймеры ещё не настроены.</div>
+              ) : (
+                <div className="space-y-3">
+                  {timers.map((timer, index) => (
+                    <div
+                      key={timer.id ?? `timer-${index}`}
+                      className="bg-white/5 border border-white/10 rounded p-3 space-y-2"
+                    >
+                      <input
+                        className="w-full px-3 py-2 rounded bg-white/10"
+                        placeholder="Сообщение таймера"
+                        value={timer.message}
+                        onChange={(e) => updateTimerField(index, 'message', e.target.value)}
+                        disabled={timersBusy}
+                      />
+                      <div className="grid md:grid-cols-3 gap-2 text-xs">
+                        <div className="flex flex-col gap-1">
+                          <label className="opacity-70">Интервал онлайн (сек.)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            className="px-3 py-2 rounded bg-white/10"
+                            value={timer.online_interval_sec}
+                            onChange={(e) => updateTimerField(index, 'online_interval_sec', e.target.value)}
+                            disabled={timersBusy}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="opacity-70">Интервал офлайн (сек.)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            className="px-3 py-2 rounded bg-white/10"
+                            value={timer.offline_interval_sec}
+                            onChange={(e) => updateTimerField(index, 'offline_interval_sec', e.target.value)}
+                            disabled={timersBusy}
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="opacity-70">Статус</label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={timer.enabled}
+                              onChange={(e) => updateTimerField(index, 'enabled', e.target.checked)}
+                              disabled={timersBusy}
+                            />
+                            Активен
+                          </label>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs opacity-70">
+                        <span>Последняя отправка: {formatTimerDate(timer.last_sent_at)}</span>
+                        <div className="flex gap-2 opacity-100">
+                          <button
+                            type="button"
+                            className="px-3 py-1.5 rounded bg-white text-black"
+                            onClick={() => saveTimer(timer, index)}
+                            disabled={timersBusy || !timer.message.trim()}
+                          >
+                            Сохранить
+                          </button>
+                          <button
+                            type="button"
+                            className="px-3 py-1.5 rounded bg-white/10 border border-white/10"
+                            onClick={() => deleteTimer(timer, index)}
+                            disabled={timersBusy}
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
