@@ -62,6 +62,7 @@ const INSTRUCTIONS: Record<SetupTarget, Instruction> = {
     bullets: [
       "Создайте бота через @BotFather и скопируйте токен.",
       "Укажите chat ID канала или группы для рассылки.",
+      "Добавьте ID личного чата для отправки отчётов и изображений.",
       "Настройте шаблоны сообщений для стримов и видео.",
     ],
   },
@@ -87,8 +88,8 @@ const COMPLETION: Record<SetupTarget, CompletionMeta> = {
   twitch: {
     title: "Данные Twitch заполнены",
     description:
-      "Проверьте раздел «Соцсети», убедитесь в корректности данных и нажмите «Сохранить», чтобы применить изменения.",
-    sectionId: "settings-socials",
+      "Перейдите во вкладку «Twitch», убедитесь в корректности данных и нажмите «Сохранить», чтобы применить изменения.",
+    sectionId: "settings-twitch",
   },
   google: {
     title: "Токен Google Fit добавлен",
@@ -99,8 +100,8 @@ const COMPLETION: Record<SetupTarget, CompletionMeta> = {
   telegram: {
     title: "Параметры Telegram готовы",
     description:
-      "Раздел «Соцсети» уже содержит введённые значения. Проверьте их и сохраните настройки, чтобы бот заработал.",
-    sectionId: "settings-socials",
+      "Во вкладке «Telegram» уже заполнены данные. Проверьте их и сохраните настройки, чтобы бот заработал.",
+    sectionId: "settings-telegram",
   },
   weather: {
     title: "Ключ OpenWeather заполнен",
@@ -159,7 +160,11 @@ export default function QuickSetupMaster({
       case "google":
         return isFilled(googleRefreshToken);
       case "telegram":
-        return isFilled(social.tg_bot_token) && isFilled(social.tg_chat_id);
+        return (
+          isFilled(social.tg_bot_token) &&
+          isFilled(social.tg_chat_id) &&
+          isFilled(social.tg_personal_chat_id)
+        );
       case "weather":
         return isFilled(weatherKey);
       case "system":
@@ -246,6 +251,12 @@ export default function QuickSetupMaster({
               placeholder="Chat ID"
               value={social.tg_chat_id || ""}
               onChange={(event) => onSocialChange({ tg_chat_id: event.target.value })}
+              className="px-3 py-2 rounded bg-white/10"
+            />
+            <input
+              placeholder="ID личного чата"
+              value={social.tg_personal_chat_id || ""}
+              onChange={(event) => onSocialChange({ tg_personal_chat_id: event.target.value })}
               className="px-3 py-2 rounded bg-white/10"
             />
           </div>

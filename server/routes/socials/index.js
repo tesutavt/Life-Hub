@@ -5,12 +5,13 @@ import { getDB } from '../../utils.js';
 
 const router = express.Router();
 
-async function ensureSchema() {
+export async function ensureSocialSchema() {
   const db = await getDB();
   await db.exec(`CREATE TABLE IF NOT EXISTS social_settings(
     user_id INTEGER PRIMARY KEY,
     tg_bot_token TEXT,
     tg_chat_id TEXT,
+    tg_personal_chat_id TEXT,
     twitch_channel TEXT,
     youtube_channel_id TEXT,
     tg_stream_template TEXT,
@@ -37,6 +38,7 @@ async function ensureSchema() {
   await ensureSettingsColumn('last_stream_game', 'TEXT');
   await ensureSettingsColumn('last_stream_started_at', 'TEXT');
   await ensureSettingsColumn('last_stream_updated_at', 'TEXT');
+  await ensureSettingsColumn('tg_personal_chat_id', 'TEXT');
   await db.exec(`CREATE TABLE IF NOT EXISTS social_metrics(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -147,28 +149,34 @@ async function sendTelegram(botToken, chatId, text) {
 }
 
 router.get('/settings', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const row = await db.get('SELECT * FROM social_settings WHERE user_id=?', [req.user.uid]);
   res.json({ settings: row || null });
 });
 
 router.post('/settings', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const {
-    tg_bot_token=null, tg_chat_id=null,
-    twitch_channel=null, youtube_channel_id=null,
-    tg_stream_template=null, tg_video_template=null,
-    twitch_bot_username=null, twitch_bot_token=null
+    tg_bot_token = null,
+    tg_chat_id = null,
+    tg_personal_chat_id = null,
+    twitch_channel = null,
+    youtube_channel_id = null,
+    tg_stream_template = null,
+    tg_video_template = null,
+    twitch_bot_username = null,
+    twitch_bot_token = null,
   } = req.body || {};
   const now = new Date().toISOString();
 
-  await db.run(`INSERT INTO social_settings(user_id, tg_bot_token, tg_chat_id, twitch_channel, youtube_channel_id, tg_stream_template, tg_video_template, twitch_bot_username, twitch_bot_token, updated_at)
-                VALUES(?,?,?,?,?,?,?,?,?,?)
+  await db.run(`INSERT INTO social_settings(user_id, tg_bot_token, tg_chat_id, tg_personal_chat_id, twitch_channel, youtube_channel_id, tg_stream_template, tg_video_template, twitch_bot_username, twitch_bot_token, updated_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(user_id) DO UPDATE SET
                   tg_bot_token=excluded.tg_bot_token,
                   tg_chat_id=excluded.tg_chat_id,
+                  tg_personal_chat_id=excluded.tg_personal_chat_id,
                   twitch_channel=excluded.twitch_channel,
                   youtube_channel_id=excluded.youtube_channel_id,
                   tg_stream_template=excluded.tg_stream_template,
@@ -180,6 +188,7 @@ router.post('/settings', async (req, res) => {
                   req.user.uid,
                   tg_bot_token,
                   tg_chat_id,
+                  tg_personal_chat_id,
                   twitch_channel,
                   youtube_channel_id,
                   tg_stream_template,
@@ -194,22 +203,29 @@ router.post('/settings', async (req, res) => {
 });
 
 router.post('/test/telegram', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const s = await db.get('SELECT * FROM social_settings WHERE user_id=?', [req.user.uid]);
-  if (!s?.tg_bot_token || !s?.tg_chat_id) return res.status(400).json({ error: 'no_telegram' });
-  const { type='stream' } = req.body || {};
+  const chatFallback = s?.tg_chat_id || s?.tg_personal_chat_id;
+  if (!s?.tg_bot_token || !chatFallback) return res.status(400).json({ error: 'no_telegram' });
+  const { type = 'stream', target = 'default' } = req.body || {};
+  const resolvedChatId =
+    target === 'personal' && s?.tg_personal_chat_id
+      ? s.tg_personal_chat_id
+      : target === 'channel' && s?.tg_chat_id
+        ? s.tg_chat_id
+        : chatFallback;
   const sample = type === 'video'
     ? { video_title: 'Demo video', video_url: 'https://youtube.com/watch?v=demo', published_at: new Date().toISOString() }
     : { stream_title: 'Demo stream', channel: normalizeTwitchChannel(s.twitch_channel) || 'channel', game: 'Just Chatting', viewers: 777 };
   const t = type === 'video' ? s.tg_video_template : s.tg_stream_template;
   const text = tpl(t || (type==='video' ? '🎬 {video_title}\n{video_url}' : '🔴 Стрим: {stream_title}\nhttps://twitch.tv/{channel}'), sample);
-  const r = await sendTelegram(s.tg_bot_token, s.tg_chat_id, text);
-  res.json({ sent: r });
+  const r = await sendTelegram(s.tg_bot_token, resolvedChatId, text);
+  res.json({ sent: r, target: resolvedChatId === s?.tg_personal_chat_id ? 'personal' : 'channel' });
 });
 
 router.get('/twitch/commands', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const rows = await db.all(
     'SELECT id, command, response, enabled, created_at, updated_at FROM twitch_commands WHERE user_id=? ORDER BY command ASC',
@@ -227,7 +243,7 @@ router.get('/twitch/commands', async (req, res) => {
 });
 
 router.post('/twitch/commands', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const command = normalizeCommandTrigger(req.body?.command);
   const response = typeof req.body?.response === 'string' ? req.body.response.trim() : '';
@@ -256,7 +272,7 @@ router.post('/twitch/commands', async (req, res) => {
 });
 
 router.put('/twitch/commands/:id', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid_id' });
@@ -295,7 +311,7 @@ router.put('/twitch/commands/:id', async (req, res) => {
 });
 
 router.delete('/twitch/commands/:id', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid_id' });
@@ -307,7 +323,7 @@ router.delete('/twitch/commands/:id', async (req, res) => {
 });
 
 router.get('/twitch/timers', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const rows = await db.all(
     'SELECT id, message, online_interval_sec, offline_interval_sec, enabled, last_sent_at, created_at, updated_at FROM twitch_timers WHERE user_id=? ORDER BY id ASC',
@@ -327,7 +343,7 @@ router.get('/twitch/timers', async (req, res) => {
 });
 
 router.post('/twitch/timers', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
   if (!message) return res.status(400).json({ error: 'invalid_message' });
@@ -358,7 +374,7 @@ router.post('/twitch/timers', async (req, res) => {
 });
 
 router.put('/twitch/timers/:id', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid_id' });
@@ -395,7 +411,7 @@ router.put('/twitch/timers/:id', async (req, res) => {
 });
 
 router.delete('/twitch/timers/:id', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid_id' });
@@ -466,7 +482,7 @@ class TwitchBotManager {
 
   async bootstrap() {
     try {
-      await ensureSchema();
+      await ensureSocialSchema();
       const db = await getDB();
       const rows = await db.all(
         `SELECT user_id FROM social_settings WHERE twitch_channel IS NOT NULL AND TRIM(twitch_channel) <> ''`
@@ -482,7 +498,7 @@ class TwitchBotManager {
   async refreshUser(userId) {
     if (!userId) return;
     try {
-      await ensureSchema();
+      await ensureSocialSchema();
       const db = await getDB();
       const settings = await db.get(
         'SELECT twitch_channel, twitch_bot_username, twitch_bot_token FROM social_settings WHERE user_id=?',
@@ -1019,7 +1035,7 @@ async function youtubePoll(userId, settings) {
 }
 
 router.post('/poll', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const s = await db.get('SELECT * FROM social_settings WHERE user_id=?', [req.user.uid]);
   if (!s) return res.status(400).json({ error: 'no_settings' });
@@ -1029,7 +1045,7 @@ router.post('/poll', async (req, res) => {
 });
 
 router.get('/metrics', async (req, res) => {
-  await ensureSchema();
+  await ensureSocialSchema();
   const db = await getDB();
   const rows = await db.all('SELECT * FROM social_metrics WHERE user_id=? ORDER BY id DESC LIMIT 200', [req.user.uid]);
 

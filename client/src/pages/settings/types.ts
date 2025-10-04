@@ -1,6 +1,7 @@
 export type SocialSettings = {
   tg_bot_token?: string | null;
   tg_chat_id?: string | null;
+  tg_personal_chat_id?: string | null;
   twitch_channel?: string | null;
   youtube_channel_id?: string | null;
   tg_stream_template?: string | null;
