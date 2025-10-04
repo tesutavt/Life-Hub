@@ -838,14 +838,11 @@ export default function Dashboard() {
   const [weatherError, setWeatherError] = useState<WeatherErrorState>(null);
   const [weatherBackgrounds, setWeatherBackgrounds] = useState<StoredWeatherBackgrounds>(loadWeatherBackgrounds);
   const [weatherEffects, setWeatherEffects] = useState<StoredWeatherEffects>(loadWeatherEffects);
-  const [languagesCollapsed, setLanguagesCollapsed] = usePersistentCollapse('dashboard:languages');
   const [coursesCollapsed, setCoursesCollapsed] = usePersistentCollapse('dashboard:courses');
   const [fitnessCollapsed, setFitnessCollapsed] = usePersistentCollapse('dashboard:fitness');
   const [spendCollapsed, setSpendCollapsed] = usePersistentCollapse('dashboard:spend');
-  const [calendarCollapsed, setCalendarCollapsed] = usePersistentCollapse('dashboard:calendar');
   const [goalsCollapsed, setGoalsCollapsed] = usePersistentCollapse('dashboard:goals');
   const [loansCollapsed, setLoansCollapsed] = usePersistentCollapse('dashboard:loans');
-  const [weatherCollapsed, setWeatherCollapsed] = usePersistentCollapse('dashboard:weather');
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1412,45 +1409,26 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  {!languagesCollapsed && (
-                    <div className="flex flex-col items-center">
-                      <CircleProgress value={languagesAverage} />
-                      <div className="mt-3 text-sm text-white/60">
-                        {totalMinutesToday > 0
-                          ? `Сегодня: ${formatNumber(totalMinutesToday)} мин`
-                          : 'Сегодня занятий ещё не было'}
-                      </div>
+                  <div className="flex flex-col items-center">
+                    <CircleProgress value={languagesAverage} />
+                    <div className="mt-3 text-sm text-white/60">
+                      {totalMinutesToday > 0
+                        ? `Сегодня: ${formatNumber(totalMinutesToday)} мин`
+                        : 'Сегодня занятий ещё не было'}
                     </div>
-                  )}
-                  <CollapseToggle
-                    collapsed={languagesCollapsed}
-                    onToggle={() => setLanguagesCollapsed((prev) => !prev)}
-                  />
+                  </div>
                 </div>
               </div>
 
-              {languagesCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
-                  Секция скрыта. Разверните, чтобы увидеть прогресс по языкам.
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {languages.slice(0, 6).map((lang) => (
-                    <div key={lang.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-semibold text-white">{lang.name}</div>
-                        <div className="text-xs text-white/50">{lang.level || 'уровень ?'}</div>
-                      </div>
-                      <div className="mt-3">
-                        <ProgressBar value={lang.courseProgressPct} color="from-violet-400 to-sky-400" />
-                      </div>
-                      <div className="mt-2 flex justify-between text-xs text-white/60">
-                        <span>Прогресс</span>
-                        <span>{lang.courseProgressPct}%</span>
-                      </div>
-                      {lang.minutesToday > 0 && (
-                        <div className="mt-2 text-xs text-white/50">Сегодня: {formatNumber(lang.minutesToday)} мин</div>
-                      )}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {languages.slice(0, 6).map((lang) => (
+                  <div key={lang.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-semibold text-white">{lang.name}</div>
+                      <div className="text-xs text-white/50">{lang.level || 'уровень ?'}</div>
+                    </div>
+                    <div className="mt-3">
+                      <ProgressBar value={lang.courseProgressPct} color="from-violet-400 to-sky-400" />
                     </div>
                   ))}
                   {languages.length === 0 && (
@@ -1486,11 +1464,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {coursesCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
-                  Секция скрыта. Разверните, чтобы увидеть активные курсы.
-                </div>
-              ) : (
+              {!coursesCollapsed && (
                 <div className="space-y-3">
                   {activeCourses.slice(0, 5).map((course) => (
                     <div key={course.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
@@ -1546,11 +1520,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {fitnessCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
-                  Секция скрыта. Разверните, чтобы посмотреть статистику активности.
-                </div>
-              ) : (
+              {!fitnessCollapsed && (
                 <>
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <FitnessStatCard icon={Footprints} label="Шаги" value={formatNumber(metrics.steps)} data={stepsSpark} color="#38bdf8" />
@@ -1599,11 +1569,7 @@ export default function Dashboard() {
                 />
               </div>
 
-              {spendCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
-                  Секция скрыта. Разверните, чтобы увидеть динамику расходов.
-                </div>
-              ) : (
+              {!spendCollapsed && (
                 <div className="grid gap-6 lg:grid-cols-2">
                   <div className="flex flex-col items-center justify-center">
                     {categorySpend.length === 0 ? (
@@ -1670,29 +1636,15 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="space-y-6 xl:col-span-4">
-            <div className="space-y-3">
-              <div className="flex justify-end">
-                <CollapseToggle
-                  collapsed={weatherCollapsed}
-                  onToggle={() => setWeatherCollapsed((prev) => !prev)}
-                />
-              </div>
-              {weatherCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
-                  Погода скрыта. Разверните, чтобы посмотреть текущий прогноз.
-                </div>
-              ) : (
-                <WeatherCard
-                  weather={weather}
-                  status={weatherStatus}
-                  city={weatherCity}
-                  error={weatherError}
-                  onRetry={loadWeather}
-                  backgrounds={weatherBackgrounds}
-                  effects={weatherEffects}
-                />
-              )}
-            </div>
+            <WeatherCard
+              weather={weather}
+              status={weatherStatus}
+              city={weatherCity}
+              error={weatherError}
+              onRetry={loadWeather}
+              backgrounds={weatherBackgrounds}
+              effects={weatherEffects}
+            />
             <div className="card space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -1726,73 +1678,69 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {calendarCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
-                  Календарь скрыт. Разверните, чтобы просмотреть события и расписание.
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-white/50">
-                    {dayNames.map((name) => (
-                      <div key={name}>{name}</div>
-                    ))}
-                  </div>
+              <div className="grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-white/50">
+                {dayNames.map((name) => (
+                  <div key={name}>{name}</div>
+                ))}
+              </div>
 
-                  <div className="grid grid-cols-7 gap-2">
-                    {weeks.flat().map((date) => {
-                      const iso = toISODate(date);
-                      const dayEvents = eventsByDate.get(iso) || [];
-                      const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
-                      const isToday = iso === todayIso;
-                      return (
-                        <div
-                          key={`${iso}-${date.getDate()}`}
-                          className={classNames(
-                            'aspect-square rounded-2xl border border-white/5 p-2 text-xs text-white/70 transition',
-                            isCurrentMonth ? 'bg-white/5' : 'bg-black/20 text-white/30',
-                            isToday && 'border-white/70 text-white',
-                            dayEvents.length > 0 && 'ring-1 ring-offset-0 ring-purple-400/60'
+              <div className="grid grid-cols-7 gap-2">
+                {weeks.flat().map((date) => {
+                  const iso = toISODate(date);
+                  const dayEvents = eventsByDate.get(iso) || [];
+                  const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
+                  const isToday = iso === todayIso;
+                  return (
+                    <div
+                      key={`${iso}-${date.getDate()}`}
+                      className={classNames(
+                        'aspect-square rounded-2xl border border-white/5 p-2 text-xs text-white/70 transition',
+                        isCurrentMonth ? 'bg-white/5' : 'bg-black/20 text-white/30',
+                        isToday && 'border-white/70 text-white',
+                        dayEvents.length > 0 && 'ring-1 ring-offset-0 ring-purple-400/60'
+                      )}
+                    >
+                      <div className="flex h-full flex-col justify-between">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span>{date.getDate()}</span>
+                          {dayEvents.length > 0 && (
+                            <span className="rounded-full bg-purple-400/40 px-1 text-[10px] text-purple-100">
+                              {dayEvents.length}
+                            </span>
                           )}
-                        >
-                          <div className="flex h-full flex-col justify-between">
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span>{date.getDate()}</span>
-                              {dayEvents.length > 0 && <span className="rounded-full bg-purple-400/40 px-1 text-[10px] text-purple-100">{dayEvents.length}</span>}
-                            </div>
-                            {dayEvents.slice(0, 2).map((event) => (
-                              <div key={event.id} className="truncate text-[10px] text-white/60">
-                                {event.title}
-                              </div>
-                            ))}
+                        </div>
+                        {dayEvents.slice(0, 2).map((event) => (
+                          <div key={event.id} className="truncate text-[10px] text-white/60">
+                            {event.title}
                           </div>
                         </div>
                       );
                     })}
                   </div>
 
-                  {upcomingEvents.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="text-xs uppercase tracking-wide text-white/50">Ближайшие события</div>
-                      {upcomingEvents.map((event) => (
-                        <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
-                          <div className="text-sm text-white/80">{event.title}</div>
-                          <div className="flex items-center gap-2 text-xs text-white/50">
-                            <Clock className="h-3.5 w-3.5" />
-                            <span>
-                              {new Date(event.date).toLocaleDateString('ru-RU', {
-                                day: '2-digit',
-                                month: 'short',
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+              {upcomingEvents.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-white/50">Ближайшие события</div>
+                  {upcomingEvents.map((event) => (
+                    <div
+                      key={event.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2"
+                    >
+                      <div className="text-sm text-white/80">{event.title}</div>
+                      <div className="flex items-center gap-2 text-xs text-white/50">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>
+                          {new Date(event.date).toLocaleDateString('ru-RU', {
+                            day: '2-digit',
+                            month: 'short',
+                          })}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </>
               )}
             </div>
-
             <div className="card space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -1812,11 +1760,7 @@ export default function Dashboard() {
                 />
               </div>
 
-              {goalsCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
-                  Секция целей скрыта. Разверните, чтобы оценить прогресс по году.
-                </div>
-              ) : (
+              {!goalsCollapsed && (
                 <div className="space-y-3">
                   {goals.slice(0, 4).map((goal) => (
                     <div key={goal.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">

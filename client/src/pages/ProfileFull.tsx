@@ -1431,9 +1431,7 @@ export default function ProfileFull() {
             onToggle={() => setLifeRadarCollapsed((prev) => !prev)}
           />
         </div>
-        {lifeRadarCollapsed ? (
-          <div className="text-sm text-white/60">Секция скрыта. Разверните, чтобы снова увидеть индекс.</div>
-        ) : lifeRadarLoading ? (
+        {lifeRadarCollapsed ? null : lifeRadarLoading ? (
           <div className="grid gap-6 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
             <div className="h-64 rounded-3xl bg-white/5 animate-pulse" />
             <div className="space-y-3">
