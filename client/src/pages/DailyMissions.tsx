@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Flame, Loader2, Sparkles } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronRight, Flame, Loader2, Sparkles } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api } from '../api';
 
@@ -51,6 +51,19 @@ export default function DailyMissions() {
   const [summary, setSummary] = useState<DailyMissionSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
+  const missionsContainerRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = useCallback(() => {
+    const node = missionsContainerRef.current;
+    if (!node) {
+      setCanScrollRight(false);
+      return;
+    }
+    const { scrollLeft, scrollWidth, clientWidth } = node;
+    const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
+    setCanScrollRight(maxScrollLeft - scrollLeft > 8);
+  }, []);
 
   const loadMissions = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -100,6 +113,34 @@ export default function DailyMissions() {
   const targetPoints = summary?.target_points ?? 500;
   const totalPoints = summary?.total_points ?? 0;
   const remainingPoints = summary?.remaining_points ?? Math.max(0, targetPoints - totalPoints);
+
+  useEffect(() => {
+    const node = missionsContainerRef.current;
+    if (!node) {
+      setCanScrollRight(false);
+      return;
+    }
+
+    updateScrollState();
+    const handleScroll = () => updateScrollState();
+    const handleResize = () => updateScrollState();
+
+    node.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      node.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [missions.length, updateScrollState]);
+
+  const handleScrollRight = useCallback(() => {
+    const node = missionsContainerRef.current;
+    if (!node) return;
+    const scrollAmount = Math.max(280, Math.round(node.clientWidth * 0.8));
+    node.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    window.requestAnimationFrame(updateScrollState);
+  }, [updateScrollState]);
 
   const milestoneValues = useMemo(() => {
     const step = 100;
@@ -247,8 +288,11 @@ export default function DailyMissions() {
           На сегодня нет заданий. Загляните позже!
         </div>
       ) : (
-        <div className="mt-6">
-          <div className="flex w-full gap-4 overflow-x-auto pb-4">
+        <div className="relative mt-6 overflow-hidden">
+          <div
+            ref={missionsContainerRef}
+            className="flex w-full gap-4 overflow-x-hidden pb-4 pr-16 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          >
             {missions.map((mission) => {
               const claiming = claimingId === mission.id;
               const progressLabel = formatProgressLabel(mission);
@@ -291,8 +335,24 @@ export default function DailyMissions() {
                   </button>
                 </div>
               );
-            })}
+            })
           </div>
+          {canScrollRight ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-brand-night via-brand-night/40 to-transparent"
+            />
+          ) : null}
+          {canScrollRight ? (
+            <button
+              type="button"
+              onClick={handleScrollRight}
+              className="absolute right-4 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-3 text-white shadow-lg transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-amber-300"
+              aria-label="Показать следующие задания"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          ) : null}
         </div>
       )}
     </Shell>
