@@ -164,8 +164,9 @@ export default function DailyMissions() {
 
   return (
     <Shell>
-      <div className="flex flex-wrap items-center justify-between gap-6 rounded-3xl border border-white/10 bg-white/5 p-6">
-        <div className="space-y-4">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-6 rounded-3xl border border-white/10 bg-white/5 p-6">
+          <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm uppercase tracking-wide text-slate-300/80">
             <Sparkles size={18} className="text-amber-300" />
             Ежедневные задания
@@ -205,8 +206,9 @@ export default function DailyMissions() {
             </div>
             {milestoneValues.length > 0 ? (
               <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-3">
-                  <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
+                <div className="w-full overflow-hidden">
+                  <div className="flex w-full min-w-0 items-center gap-3 overflow-x-auto pb-2 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    <div className="relative h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-white/10">
                     <div
                       className="absolute left-0 top-0 h-full bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500 transition-all duration-500"
                       style={{ width: `${Math.min(100, Math.round(leadingProgress * 100))}%` }}
@@ -228,7 +230,7 @@ export default function DailyMissions() {
                     return (
                       <React.Fragment key={value}>
                         <div
-                          className={`relative flex h-16 w-16 flex-col items-center justify-center overflow-hidden rounded-full border-2 text-xs font-semibold transition ${
+                          className={`relative flex h-16 w-16 shrink-0 flex-col items-center justify-center overflow-hidden rounded-full border-2 text-xs font-semibold transition ${
                             achieved
                               ? 'border-amber-300/80 bg-white/20 text-white shadow-[0_0_18px_rgba(251,191,36,0.35)]'
                               : 'border-white/15 bg-white/5 text-slate-200/70'
@@ -248,7 +250,7 @@ export default function DailyMissions() {
                           />
                         </div>
                         {nextValue ? (
-                          <div className="relative h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+                          <div className="relative h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-white/10">
                             <div
                               className="absolute left-0 top-0 h-full bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500 transition-all duration-500"
                               style={{ width: `${Math.min(100, Math.round(connectorFill * 100))}%` }}
@@ -258,6 +260,7 @@ export default function DailyMissions() {
                       </React.Fragment>
                     );
                   })}
+                  </div>
                 </div>
                 <div className="text-xs uppercase tracking-wide text-slate-300/60">
                   Мини-награды каждые 100 очков
@@ -280,15 +283,15 @@ export default function DailyMissions() {
       </div>
 
       {loading ? (
-        <div className="mt-6 flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 py-16 text-slate-200/80">
+        <div className="flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 py-16 text-slate-200/80">
           <Loader2 className="mr-3 h-5 w-5 animate-spin" /> Загружаем задания…
         </div>
       ) : missions.length === 0 ? (
-        <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-10 text-center text-slate-200/70">
+        <div className="rounded-3xl border border-white/10 bg-white/5 p-10 text-center text-slate-200/70">
           На сегодня нет заданий. Загляните позже!
         </div>
       ) : (
-        <div className="relative mt-6 w-full overflow-hidden">
+        <div className="relative w-full overflow-hidden">
           <div
             ref={missionsContainerRef}
             className="flex w-full min-w-0 gap-4 overflow-x-auto pb-4 pr-12 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
@@ -305,7 +308,7 @@ export default function DailyMissions() {
               return (
                 <div
                   key={mission.id}
-                  className="relative flex w-[280px] min-w-[260px] flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 text-white shadow-lg shadow-brand-night/20 transition hover:border-amber-300/60 hover:bg-white/10"
+                  className="relative flex w-[280px] min-w-[260px] shrink-0 flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 text-white shadow-lg shadow-brand-night/20 transition hover:border-amber-300/60 hover:bg-white/10"
                 >
                   <div className={`inline-flex items-center justify-center rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-wide ${statusColor}`}>
                     {progressLabel}
@@ -355,6 +358,7 @@ export default function DailyMissions() {
           ) : null}
         </div>
       )}
+      </div>
     </Shell>
   );
 }
