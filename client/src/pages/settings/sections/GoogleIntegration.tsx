@@ -11,7 +11,12 @@ type Props = {
 
 export default function GoogleIntegration({ value, onChange, onSubmit, saving, authUrl }: Props) {
   return (
-    <form onSubmit={onSubmit} className="card space-y-4">
+    <form
+      id="settings-google"
+      data-settings-section="google"
+      onSubmit={onSubmit}
+      className="card space-y-4"
+    >
       <div>
         <div className="text-lg font-semibold mb-1">Google API / Fitness</div>
         <p className="text-xs opacity-70">Нужен для импорта активности и сна из Google Fit.</p>

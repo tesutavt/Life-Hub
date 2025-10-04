@@ -53,7 +53,12 @@ export default function SocialIntegrations({
   };
 
   return (
-    <form onSubmit={onSubmit} className="card space-y-4">
+    <form
+      id="settings-socials"
+      data-settings-section="socials"
+      onSubmit={onSubmit}
+      className="card space-y-4"
+    >
       <div>
         <div className="text-lg font-semibold mb-1">Telegram</div>
         <p className="text-xs opacity-70">Заполните поля, чтобы бот мог отправлять сообщения и посты.</p>

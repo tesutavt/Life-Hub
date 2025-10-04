@@ -18,8 +18,22 @@ import WeatherIntegration from "./settings/sections/WeatherIntegration";
 import InterfacePreferences from "./settings/sections/InterfacePreferences";
 import ManualReportLauncher from "./settings/sections/ManualReportLauncher";
 import ManualReportModal from "./settings/sections/ManualReportModal";
+import SystemSettings from "./settings/sections/SystemSettings";
 import QuickSetupMaster from "./settings/QuickSetupMaster";
 import { GoogleSettings, SocialSettings, TwitchCommand, TwitchTimer } from "./settings/types";
+import {
+  emitFaviconUpdate,
+  emitWeatherAssetsUpdate,
+  loadStoredFavicon,
+  loadWeatherBackgrounds,
+  loadWeatherEffects,
+  saveFaviconToStorage,
+  saveWeatherBackgrounds,
+  saveWeatherEffects,
+  updateDocumentFavicon,
+  WeatherBackgroundKey,
+  WeatherEffectKey,
+} from "../utils/customAssets";
 const defaultSocialTemplates = {
   stream: "Привет! В эфире: {stream_title}\nhttps://twitch.tv/{channel}",
   video: "Новое видео: {video_title}\n{video_url}",
@@ -32,6 +46,27 @@ const FALLBACK_OPENWEATHER_KEY = (() => {
   const lowered = trimmed.toLowerCase();
   return lowered === "undefined" || lowered === "null" ? "" : trimmed;
 })();
+
+type WeatherBackgroundMap = Record<WeatherBackgroundKey, string>;
+type WeatherEffectMap = Record<WeatherEffectKey, string>;
+
+const createInitialWeatherBackgrounds = (): WeatherBackgroundMap => {
+  const stored = loadWeatherBackgrounds();
+  return {
+    morning: stored.morning || "",
+    day: stored.day || "",
+    evening: stored.evening || "",
+  };
+};
+
+const createInitialWeatherEffects = (): WeatherEffectMap => {
+  const stored = loadWeatherEffects();
+  return {
+    rain: stored.rain || "",
+    snow: stored.snow || "",
+    mist: stored.mist || "",
+  };
+};
 
 const normalizeIntervalValue = (value: string | number) => {
   const num = typeof value === 'number' ? value : Number(value);
@@ -47,6 +82,9 @@ export default function Settings() {
   const [socialForm, setSocialForm] = useState<SocialSettings>({});
   const [google, setGoogle] = useState<GoogleSettings>({ refresh_token: null });
   const [weatherApiKey, setWeatherApiKey] = useState('');
+  const [weatherBackgrounds, setWeatherBackgrounds] = useState<WeatherBackgroundMap>(createInitialWeatherBackgrounds);
+  const [weatherEffects, setWeatherEffects] = useState<WeatherEffectMap>(createInitialWeatherEffects);
+  const [favicon, setFavicon] = useState(() => loadStoredFavicon());
   const [showMenuCounters, setShowMenuCounters] = useState(true);
   const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([]);
   const hiddenMenuItemsRef = useRef<string[]>([]);
@@ -54,6 +92,7 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [savingGoogle, setSavingGoogle] = useState(false);
   const [savingWeather, setSavingWeather] = useState(false);
+  const [savingSystem, setSavingSystem] = useState(false);
   const [savingUi, setSavingUi] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>({
     ...DEFAULT_NOTIFICATION_PREFERENCES,
@@ -61,6 +100,10 @@ export default function Settings() {
   const notificationPreferencesRef = useRef<NotificationPreferences>({
     ...DEFAULT_NOTIFICATION_PREFERENCES,
   });
+
+  useEffect(() => {
+    updateDocumentFavicon(favicon);
+  }, [favicon]);
 
   const [commands, setCommands] = useState<TwitchCommand[]>([]);
   const [timers, setTimers] = useState<TwitchTimer[]>([]);
@@ -71,6 +114,20 @@ export default function Settings() {
   const handleSocialChange = useCallback((updates: Partial<SocialSettings>) => {
     setSocialForm((prev) => ({ ...prev, ...updates }));
   }, []);
+
+  const handleWeatherBackgroundChange = useCallback(
+    (key: WeatherBackgroundKey, value: string) => {
+      setWeatherBackgrounds((prev) => ({ ...prev, [key]: value }));
+    },
+    [],
+  );
+
+  const handleWeatherEffectChange = useCallback(
+    (key: WeatherEffectKey, value: string) => {
+      setWeatherEffects((prev) => ({ ...prev, [key]: value }));
+    },
+    [],
+  );
 
   const loadTwitchMeta = useCallback(async () => {
     setCommandsLoading(true);
@@ -317,6 +374,11 @@ export default function Settings() {
         setNotificationPreferences(prefs);
         notificationPreferencesRef.current = prefs;
         notifyNotificationSettingsChange(prefs);
+        const faviconFromApi = typeof ui?.favicon === "string" ? ui.favicon.trim() : "";
+        if (faviconFromApi) {
+          setFavicon(faviconFromApi);
+          saveFaviconToStorage(faviconFromApi);
+        }
       } catch {
         setShowMenuCounters(true);
         notifyMenuCountersVisibility(true);
@@ -383,8 +445,27 @@ export default function Settings() {
           notifySuccess: "Ключ OpenWeather сохранён",
         },
       );
+      saveWeatherBackgrounds(weatherBackgrounds);
+      saveWeatherEffects(weatherEffects);
+      emitWeatherAssetsUpdate(weatherBackgrounds, weatherEffects);
     } finally {
       setSavingWeather(false);
+    }
+  };
+
+  const saveSystemSettings = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSavingSystem(true);
+    try {
+      await api.put(
+        "/api/life/ui-settings",
+        { favicon: favicon ? favicon : null },
+        { notifySuccess: "Favicon обновлён" },
+      );
+      saveFaviconToStorage(favicon);
+      emitFaviconUpdate(favicon);
+    } finally {
+      setSavingSystem(false);
     }
   };
 
@@ -394,7 +475,7 @@ export default function Settings() {
     setSavingUi(true);
     notifyMenuCountersVisibility(show);
     try {
-      const response = await api.put("/api/life/ui-settings", { show_menu_counters: show });
+      const response = await api.put("/api/life/ui-settings", { show_menu_counters: show, favicon: favicon ? favicon : null });
       const resolved = response?.show_menu_counters !== false;
       setShowMenuCounters(resolved);
       if (resolved !== show) {
@@ -415,7 +496,7 @@ export default function Settings() {
     try {
       const response = await api.put(
         "/api/life/ui-settings",
-        { hidden_menu_items: hidden },
+        { hidden_menu_items: hidden, favicon: favicon ? favicon : null },
         { silentSuccess: true },
       );
       const normalized = Array.isArray(response?.hidden_menu_items)
@@ -446,6 +527,7 @@ export default function Settings() {
             mute_sound: prefs.muteSound,
             text_enabled: prefs.textEnabled,
           },
+          favicon: favicon ? favicon : null,
         },
         { silentSuccess: true },
       );
@@ -516,7 +598,16 @@ export default function Settings() {
       <div className="text-2xl font-semibold mb-4">Настройки интеграций</div>
 
       <div className="flex justify-start sm:justify-end mb-4">
-        <QuickSetupMaster />
+        <QuickSetupMaster
+          social={socialForm}
+          onSocialChange={handleSocialChange}
+          googleRefreshToken={google.refresh_token || ""}
+          onGoogleTokenChange={(token) => setGoogle({ refresh_token: token })}
+          weatherKey={weatherApiKey}
+          onWeatherKeyChange={setWeatherApiKey}
+          favicon={favicon}
+          onFaviconChange={setFavicon}
+        />
       </div>
 
       <div className="grid gap-6">
@@ -552,9 +643,20 @@ export default function Settings() {
 
         <WeatherIntegration
           apiKey={weatherApiKey}
-          onChange={setWeatherApiKey}
+          backgrounds={weatherBackgrounds}
+          effects={weatherEffects}
+          onApiKeyChange={setWeatherApiKey}
+          onBackgroundChange={handleWeatherBackgroundChange}
+          onEffectChange={handleWeatherEffectChange}
           onSubmit={saveWeather}
           saving={savingWeather}
+        />
+
+        <SystemSettings
+          favicon={favicon}
+          onChange={setFavicon}
+          onSubmit={saveSystemSettings}
+          saving={savingSystem}
         />
 
         <ManualReportLauncher
