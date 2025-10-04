@@ -22,12 +22,18 @@ import Pages from './pages/Pages';
 import PageEditor from './pages/PageEditor';
 import Settings from './pages/Settings'
 import Reports from './pages/Reports'
+import { loadStoredFavicon, updateDocumentFavicon } from './utils/customAssets'
 
 
 function PrivateRoute({ children }: { children: JSX.Element }){
   const { token } = useAuth();
   if (!token) return <Navigate to="/login" replace />
   return children
+}
+
+const initialFavicon = loadStoredFavicon()
+if (initialFavicon) {
+  updateDocumentFavicon(initialFavicon)
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

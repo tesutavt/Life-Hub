@@ -8,6 +8,15 @@ import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
 import { Modal } from '../components/ui/Modal';
 import {
+  loadWeatherBackgrounds,
+  loadWeatherEffects,
+  StoredWeatherBackgrounds,
+  StoredWeatherEffects,
+  WEATHER_ASSETS_EVENT,
+  WEATHER_BACKGROUNDS_STORAGE_KEY,
+  WEATHER_EFFECTS_STORAGE_KEY,
+} from '../utils/customAssets';
+import {
   ResponsiveContainer,
   LineChart,
   Line,
@@ -201,7 +210,13 @@ type FitnessMetrics = { steps: number; hr: number; sleepH: number; activeCalorie
 type WeatherTimeOfDay = 'morning' | 'day' | 'evening' | 'night';
 type WeatherMood = 'clear' | 'clouds' | 'rain' | 'snow' | 'storm' | 'mist' | 'default';
 
-type WeatherVisual = { gradient: string; overlay: string; accent: string };
+type WeatherVisual = {
+  gradient: string;
+  overlay: string;
+  accent: string;
+  backgroundImage?: string;
+  effectImage?: string;
+};
 
 type WeatherInfo = {
   city: string;
@@ -362,11 +377,39 @@ const normalizeWeatherResponse = (payload: any, requestedCity: string): WeatherI
   };
 };
 
-const getWeatherVisuals = (info?: WeatherInfo | null): WeatherVisual => {
+const getWeatherVisuals = (
+  info: WeatherInfo | null | undefined,
+  backgrounds: StoredWeatherBackgrounds,
+  effects: StoredWeatherEffects,
+): WeatherVisual => {
   const mood = info?.mood ?? 'default';
   const time = info?.timeOfDay ?? 'day';
   const palette = WEATHER_VISUALS[mood] ?? WEATHER_VISUALS.default;
-  return palette[time] ?? WEATHER_VISUALS.default.day;
+  const base = palette[time] ?? WEATHER_VISUALS.default.day;
+
+  let backgroundImage: string | undefined;
+  if (backgrounds) {
+    if (time === 'morning' || time === 'day' || time === 'evening') {
+      backgroundImage = backgrounds[time] || undefined;
+    } else if (time === 'night') {
+      backgroundImage = backgrounds.evening || backgrounds.day;
+    }
+  }
+
+  const effectMap: Partial<Record<WeatherMood, keyof StoredWeatherEffects>> = {
+    rain: 'rain',
+    storm: 'rain',
+    snow: 'snow',
+    mist: 'mist',
+  };
+  const effectKey = info ? effectMap[info.mood] : undefined;
+  const effectImage = effectKey ? effects[effectKey] : undefined;
+
+  return {
+    ...base,
+    backgroundImage,
+    effectImage,
+  };
 };
 
 const TopStat = ({
@@ -497,14 +540,18 @@ const WeatherCard = ({
   city,
   error,
   onRetry,
+  backgrounds,
+  effects,
 }: {
   weather: WeatherInfo | null;
   status: 'idle' | 'loading' | 'error';
   city: string;
   error: WeatherErrorState;
   onRetry: () => void;
+  backgrounds: StoredWeatherBackgrounds;
+  effects: StoredWeatherEffects;
 }) => {
-  const visuals = getWeatherVisuals(weather);
+  const visuals = getWeatherVisuals(weather, backgrounds, effects);
   const locationLabel = weather
     ? weather.country
       ? `${weather.city}, ${weather.country}`
@@ -670,10 +717,25 @@ const WeatherCard = ({
     );
   }
 
+  const backgroundStyle = visuals.backgroundImage
+    ? {
+        backgroundImage: `url(${visuals.backgroundImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }
+    : { background: visuals.gradient };
+
   return (
     <div className="relative overflow-hidden rounded-3xl border border-white/10 text-white shadow-xl shadow-black/30">
-      <div className="absolute inset-0" style={{ background: visuals.gradient }} />
+      <div className="absolute inset-0 transition-all duration-500" style={backgroundStyle} />
       <div className="absolute inset-0" style={{ background: visuals.overlay }} />
+      {visuals.effectImage ? (
+        <div
+          className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-60 mix-blend-screen weather-effect-layer"
+          style={{ backgroundImage: `url(${visuals.effectImage})` }}
+        />
+      ) : null}
       <div className="absolute -top-24 -right-20 h-56 w-56 rounded-full bg-white/25 opacity-20 blur-3xl" />
       <div className="relative z-10 p-6">{content}</div>
     </div>
@@ -772,6 +834,8 @@ export default function Dashboard() {
   const [weatherCity, setWeatherCity] = useState('');
   const [weatherStatus, setWeatherStatus] = useState<'idle' | 'loading' | 'error'>('loading');
   const [weatherError, setWeatherError] = useState<WeatherErrorState>(null);
+  const [weatherBackgrounds, setWeatherBackgrounds] = useState<StoredWeatherBackgrounds>(loadWeatherBackgrounds);
+  const [weatherEffects, setWeatherEffects] = useState<StoredWeatherEffects>(loadWeatherEffects);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -788,6 +852,49 @@ export default function Dashboard() {
     const lowered = trimmed.toLowerCase();
     if (lowered === 'undefined' || lowered === 'null') return '';
     return trimmed;
+  }, []);
+
+  useEffect(() => {
+    const loadAssets = () => {
+      setWeatherBackgrounds(loadWeatherBackgrounds());
+      setWeatherEffects(loadWeatherEffects());
+    };
+
+    loadAssets();
+
+    if (typeof window === 'undefined') return;
+
+    const handleAssetsUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent<{ backgrounds?: StoredWeatherBackgrounds; effects?: StoredWeatherEffects }>;
+      if (customEvent.detail) {
+        if (customEvent.detail.backgrounds) {
+          setWeatherBackgrounds(customEvent.detail.backgrounds);
+        }
+        if (customEvent.detail.effects) {
+          setWeatherEffects(customEvent.detail.effects);
+        }
+      } else {
+        loadAssets();
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key) return;
+      if (
+        event.key === WEATHER_BACKGROUNDS_STORAGE_KEY ||
+        event.key === WEATHER_EFFECTS_STORAGE_KEY
+      ) {
+        loadAssets();
+      }
+    };
+
+    window.addEventListener(WEATHER_ASSETS_EVENT, handleAssetsUpdate as EventListener);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener(WEATHER_ASSETS_EVENT, handleAssetsUpdate as EventListener);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const loadWeather = useCallback(async () => {
@@ -1507,6 +1614,8 @@ export default function Dashboard() {
               city={weatherCity}
               error={weatherError}
               onRetry={loadWeather}
+              backgrounds={weatherBackgrounds}
+              effects={weatherEffects}
             />
             <div className="card">
               <div className="flex items-center justify-between">

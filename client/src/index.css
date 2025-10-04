@@ -263,3 +263,19 @@ body {
     transform: translate3d(0, 0, 0) scale(1);
   }
 }
+
+@keyframes weatherEffectDrift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-20px, -10px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.weather-effect-layer {
+  animation: weatherEffectDrift 18s ease-in-out infinite;
+}
