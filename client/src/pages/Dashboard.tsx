@@ -1430,14 +1430,14 @@ export default function Dashboard() {
                     <div className="mt-3">
                       <ProgressBar value={lang.courseProgressPct} color="from-violet-400 to-sky-400" />
                     </div>
-                  ))}
-                  {languages.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
-                      Добавьте языки, чтобы отслеживать прогресс.
-                    </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                ))}
+                {languages.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                    Добавьте языки, чтобы отслеживать прогресс.
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="card space-y-4">
@@ -1709,37 +1709,39 @@ export default function Dashboard() {
                             </span>
                           )}
                         </div>
-                        {dayEvents.slice(0, 2).map((event) => (
-                          <div key={event.id} className="truncate text-[10px] text-white/60">
-                            {event.title}
-                          </div>
+                          {dayEvents.slice(0, 2).map((event) => (
+                            <div key={event.id} className="truncate text-[10px] text-white/60">
+                              {event.title}
+                            </div>
+                          ))}
                         </div>
-                      );
-                    })}
-                  </div>
-
-              {upcomingEvents.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs uppercase tracking-wide text-white/50">Ближайшие события</div>
-                  {upcomingEvents.map((event) => (
-                    <div
-                      key={event.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2"
-                    >
-                      <div className="text-sm text-white/80">{event.title}</div>
-                      <div className="flex items-center gap-2 text-xs text-white/50">
-                        <Clock className="h-3.5 w-3.5" />
-                        <span>
-                          {new Date(event.date).toLocaleDateString('ru-RU', {
-                            day: '2-digit',
-                            month: 'short',
-                          })}
-                        </span>
                       </div>
-                    </div>
-                  )}
-                </>
-              )}
+                    );
+                  })}
+                </div>
+
+                {upcomingEvents.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-white/50">Ближайшие события</div>
+                    {upcomingEvents.map((event) => (
+                      <div
+                        key={event.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2"
+                      >
+                        <div className="text-sm text-white/80">{event.title}</div>
+                        <div className="flex items-center gap-2 text-xs text-white/50">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>
+                            {new Date(event.date).toLocaleDateString('ru-RU', {
+                              day: '2-digit',
+                              month: 'short',
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
             </div>
             <div className="card space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
