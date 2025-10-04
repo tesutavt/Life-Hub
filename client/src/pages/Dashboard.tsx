@@ -1430,21 +1430,14 @@ export default function Dashboard() {
                     <div className="mt-3">
                       <ProgressBar value={lang.courseProgressPct} color="from-violet-400 to-sky-400" />
                     </div>
-                    <div className="mt-2 flex justify-between text-xs text-white/60">
-                      <span>Прогресс</span>
-                      <span>{lang.courseProgressPct}%</span>
+                  ))}
+                  {languages.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                      Добавьте языки, чтобы отслеживать прогресс.
                     </div>
-                    {lang.minutesToday > 0 && (
-                      <div className="mt-2 text-xs text-white/50">Сегодня: {formatNumber(lang.minutesToday)} мин</div>
-                    )}
-                  </div>
-                ))}
-                {languages.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
-                    Добавьте языки, чтобы отслеживать прогресс.
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="card space-y-4">
@@ -1678,6 +1671,10 @@ export default function Dashboard() {
                   >
                     ›
                   </button>
+                  <CollapseToggle
+                    collapsed={calendarCollapsed}
+                    onToggle={() => setCalendarCollapsed((prev) => !prev)}
+                  />
                 </div>
               </div>
 
@@ -1716,12 +1713,10 @@ export default function Dashboard() {
                           <div key={event.id} className="truncate text-[10px] text-white/60">
                             {event.title}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                        </div>
+                      );
+                    })}
+                  </div>
 
               {upcomingEvents.length > 0 && (
                 <div className="space-y-2">
@@ -1742,8 +1737,8 @@ export default function Dashboard() {
                         </span>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
             <div className="card space-y-4">
