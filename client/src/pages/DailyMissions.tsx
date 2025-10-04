@@ -335,8 +335,7 @@ export default function DailyMissions() {
                   </button>
                 </div>
               );
-            })}
-            </div>
+            })
           </div>
           {canScrollRight ? (
             <div
