@@ -15,6 +15,7 @@ import Courses from './pages/Courses'
 import YearGoals from './pages/YearGoals'
 import Journal from './pages/Journal'
 import Habits from './pages/Habits'
+import DailyMissions from './pages/DailyMissions'
 import Travel from './pages/Travel'
 import Socials from './pages/Socials'
 import Pages from './pages/Pages';
@@ -47,6 +48,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="year-goals" element={<YearGoals/>} />
               <Route path="journal" element={<Journal/>} />
               <Route path="habits" element={<Habits/>} />
+              <Route path="daily-missions" element={<DailyMissions/>} />
               <Route path="travel" element={<Travel/>} />
               <Route path="socials" element={<Socials/>} />
               <Route path="settings" element={<Settings/>} />

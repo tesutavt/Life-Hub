@@ -115,6 +115,33 @@ CREATE TABLE IF NOT EXISTS user_badges(
   FOREIGN KEY(badge_id) REFERENCES badges(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS daily_missions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  points INTEGER DEFAULT 100,
+  xp_reward INTEGER DEFAULT 50,
+  sort_order INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS daily_mission_completions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  mission_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  points_awarded INTEGER DEFAULT 0,
+  xp_awarded INTEGER DEFAULT 0,
+  completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, mission_id, date),
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY(mission_id) REFERENCES daily_missions(id) ON DELETE CASCADE
+);
+
 -- Calendar & life
 CREATE TABLE IF NOT EXISTS calendar_events(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
