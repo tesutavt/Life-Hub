@@ -7,6 +7,8 @@ import { useAuth } from '../AuthContext';
 import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
 import { Modal } from '../components/ui/Modal';
+import CollapseToggle from '../components/ui/CollapseToggle';
+import { usePersistentCollapse } from '../hooks/usePersistentCollapse';
 import {
   loadWeatherBackgrounds,
   loadWeatherEffects,
@@ -836,6 +838,11 @@ export default function Dashboard() {
   const [weatherError, setWeatherError] = useState<WeatherErrorState>(null);
   const [weatherBackgrounds, setWeatherBackgrounds] = useState<StoredWeatherBackgrounds>(loadWeatherBackgrounds);
   const [weatherEffects, setWeatherEffects] = useState<StoredWeatherEffects>(loadWeatherEffects);
+  const [coursesCollapsed, setCoursesCollapsed] = usePersistentCollapse('dashboard:courses');
+  const [fitnessCollapsed, setFitnessCollapsed] = usePersistentCollapse('dashboard:fitness');
+  const [spendCollapsed, setSpendCollapsed] = usePersistentCollapse('dashboard:spend');
+  const [goalsCollapsed, setGoalsCollapsed] = usePersistentCollapse('dashboard:goals');
+  const [loansCollapsed, setLoansCollapsed] = usePersistentCollapse('dashboard:loans');
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1388,8 +1395,8 @@ export default function Dashboard() {
 
         <div className="grid gap-6 xl:grid-cols-12">
           <div className="space-y-6 xl:col-span-8">
-            <div className="card">
-              <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="card space-y-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
                     <BookOpen className="h-5 w-5 text-white" />
@@ -1401,17 +1408,19 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col items-center">
-                  <CircleProgress value={languagesAverage} />
-                  <div className="mt-3 text-sm text-white/60">
-                    {totalMinutesToday > 0
-                      ? `Сегодня: ${formatNumber(totalMinutesToday)} мин`
-                      : 'Сегодня занятий ещё не было'}
+                <div className="flex items-center gap-3">
+                  <div className="flex flex-col items-center">
+                    <CircleProgress value={languagesAverage} />
+                    <div className="mt-3 text-sm text-white/60">
+                      {totalMinutesToday > 0
+                        ? `Сегодня: ${formatNumber(totalMinutesToday)} мин`
+                        : 'Сегодня занятий ещё не было'}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {languages.slice(0, 6).map((lang) => (
                   <div key={lang.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
                     <div className="flex items-center justify-between">
@@ -1438,8 +1447,8 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="card">
-              <div className="flex items-center justify-between">
+            <div className="card space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
                     <Activity className="h-5 w-5 text-white" />
@@ -1451,41 +1460,49 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
-                <div className="rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs text-white/60">
-                  Средний прогресс: {courseAverageProgress}%
+                <div className="flex items-center gap-3">
+                  <div className="rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs text-white/60">
+                    Средний прогресс: {courseAverageProgress}%
+                  </div>
+                  <CollapseToggle
+                    collapsed={coursesCollapsed}
+                    onToggle={() => setCoursesCollapsed((prev) => !prev)}
+                  />
                 </div>
               </div>
 
-              <div className="mt-5 space-y-3">
-                {activeCourses.slice(0, 5).map((course) => (
-                  <div key={course.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm font-semibold text-white">{course.title}</div>
-                        {course.provider && <div className="text-xs text-white/50">{course.provider}</div>}
+              {!coursesCollapsed && (
+                <div className="space-y-3">
+                  {activeCourses.slice(0, 5).map((course) => (
+                    <div key={course.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-white">{course.title}</div>
+                          {course.provider && <div className="text-xs text-white/50">{course.provider}</div>}
+                        </div>
+                        <div className="text-xs uppercase tracking-wide text-white/50">
+                          {(course.status ?? 'in-progress') === 'done' ? 'Готово' : 'В процессе'}
+                        </div>
                       </div>
-                      <div className="text-xs uppercase tracking-wide text-white/50">
-                        {(course.status ?? 'in-progress') === 'done' ? 'Готово' : 'В процессе'}
+                      <div className="mt-3">
+                        <ProgressBar value={course.progress} color="from-emerald-400 to-lime-300" />
+                      </div>
+                      <div className="mt-2 flex justify-between text-xs text-white/60">
+                        <span>Прогресс</span>
+                        <span>{course.progress}%</span>
                       </div>
                     </div>
-                    <div className="mt-3">
-                      <ProgressBar value={course.progress} color="from-emerald-400 to-lime-300" />
+                  ))}
+                  {activeCourses.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                      Пока нет активных курсов — самое время выбрать новый!
                     </div>
-                    <div className="mt-2 flex justify-between text-xs text-white/60">
-                      <span>Прогресс</span>
-                      <span>{course.progress}%</span>
-                    </div>
-                  </div>
-                ))}
-                {activeCourses.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
-                    Пока нет активных курсов — самое время выбрать новый!
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className="card">
+            <div className="card space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
@@ -1496,115 +1513,133 @@ export default function Dashboard() {
                     <div className="text-xs uppercase tracking-wide text-white/50">Последние 7 дней</div>
                   </div>
                 </div>
-                <a
-                  href={googleAuthUrl}
-                  className="rounded-full border border-white/10 bg-black/50 px-4 py-1 text-xs uppercase tracking-wide text-white/60 hover:bg-white/10"
-                >
-                  Подключить Google Fit
-                </a>
+                <div className="flex items-center gap-3">
+                  <a
+                    href={googleAuthUrl}
+                    className="rounded-full border border-white/10 bg-black/50 px-4 py-1 text-xs uppercase tracking-wide text-white/60 hover:bg-white/10"
+                  >
+                    Подключить Google Fit
+                  </a>
+                  <CollapseToggle
+                    collapsed={fitnessCollapsed}
+                    onToggle={() => setFitnessCollapsed((prev) => !prev)}
+                  />
+                </div>
               </div>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <FitnessStatCard icon={Footprints} label="Шаги" value={formatNumber(metrics.steps)} data={stepsSpark} color="#38bdf8" />
-                <FitnessStatCard icon={Moon} label="Сон" value={metrics.sleepH.toFixed(1)} unit="ч" data={sleepSpark} color="#a855f7" />
-                <FitnessStatCard icon={Flame} label="Калории" value={formatNumber(activeCaloriesToday)} data={caloriesSpark} color="#f97316" />
-                <FitnessStatCard icon={TrendingUp} label="Активность" value={formatNumber(estimatedActiveMinutes)} unit="мин" data={activitySpark} color="#34d399" />
-              </div>
+              {!fitnessCollapsed && (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <FitnessStatCard icon={Footprints} label="Шаги" value={formatNumber(metrics.steps)} data={stepsSpark} color="#38bdf8" />
+                    <FitnessStatCard icon={Moon} label="Сон" value={metrics.sleepH.toFixed(1)} unit="ч" data={sleepSpark} color="#a855f7" />
+                    <FitnessStatCard icon={Flame} label="Калории" value={formatNumber(activeCaloriesToday)} data={caloriesSpark} color="#f97316" />
+                    <FitnessStatCard icon={TrendingUp} label="Активность" value={formatNumber(estimatedActiveMinutes)} unit="мин" data={activitySpark} color="#34d399" />
+                  </div>
 
-              <div className="mt-6 h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={series} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="stepsGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.6} />
-                        <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="date" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
-                    <Area type="monotone" dataKey="steps" stroke="#38bdf8" fill="url(#stepsGradient)" strokeWidth={2} />
-                    <Line type="monotone" dataKey="hr" stroke="#facc15" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="sleep" stroke="#a855f7" strokeWidth={2} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={series} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="stepsGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.6} />
+                            <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                        <XAxis dataKey="date" stroke="#94a3b8" />
+                        <YAxis stroke="#94a3b8" />
+                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                        <Area type="monotone" dataKey="steps" stroke="#38bdf8" fill="url(#stepsGradient)" strokeWidth={2} />
+                        <Line type="monotone" dataKey="hr" stroke="#facc15" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="sleep" stroke="#a855f7" strokeWidth={2} dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </>
+              )}
             </div>
 
-            <div className="card">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                  <PieChartIcon className="h-5 w-5 text-white" />
+            <div className="card space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
+                    <PieChartIcon className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-lg font-semibold text-white">Расходы</div>
+                    <div className="text-xs uppercase tracking-wide text-white/50">Категории и динамика</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-lg font-semibold text-white">Расходы</div>
-                  <div className="text-xs uppercase tracking-wide text-white/50">Категории и динамика</div>
-                </div>
+                <CollapseToggle
+                  collapsed={spendCollapsed}
+                  onToggle={() => setSpendCollapsed((prev) => !prev)}
+                />
               </div>
 
-              <div className="mt-6 grid gap-6 lg:grid-cols-2">
-                <div className="flex flex-col items-center justify-center">
-                  {categorySpend.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-center text-sm text-white/60">
-                      Загрузите данные транзакций, чтобы увидеть разбивку по категориям.
-                    </div>
-                  ) : (
-                    <>
-                      <div className="h-64 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Tooltip
-                              formatter={(value: number) => formatCurrency(value)}
-                              contentStyle={{
-                                backgroundColor: '#0f172a',
-                                borderRadius: 12,
-                                border: '1px solid rgba(255,255,255,0.1)',
-                                color: '#fff',
-                              }}
-                            />
-                            <Pie data={categorySpend} dataKey="amount" nameKey="label" innerRadius={50} outerRadius={90} paddingAngle={4}>
-                              {categorySpend.map((entry) => (
-                                <Cell key={entry.label} fill={entry.color} />
-                              ))}
-                            </Pie>
-                          </PieChart>
-                        </ResponsiveContainer>
+              {!spendCollapsed && (
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <div className="flex flex-col items-center justify-center">
+                    {categorySpend.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-center text-sm text-white/60">
+                        Загрузите данные транзакций, чтобы увидеть разбивку по категориям.
                       </div>
-                      <div className="mt-4 w-full space-y-2 text-sm text-white/70">
-                        {categorySpend.map((entry) => (
-                          <div key={entry.label} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
-                            <div className="flex items-center gap-2">
-                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                              <span>{entry.label}</span>
+                    ) : (
+                      <>
+                        <div className="h-64 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Tooltip
+                                formatter={(value: number) => formatCurrency(value)}
+                                contentStyle={{
+                                  backgroundColor: '#0f172a',
+                                  borderRadius: 12,
+                                  border: '1px solid rgba(255,255,255,0.1)',
+                                  color: '#fff',
+                                }}
+                              />
+                              <Pie data={categorySpend} dataKey="amount" nameKey="label" innerRadius={50} outerRadius={90} paddingAngle={4}>
+                                {categorySpend.map((entry) => (
+                                  <Cell key={entry.label} fill={entry.color} />
+                                ))}
+                              </Pie>
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="mt-4 w-full space-y-2 text-sm text-white/70">
+                          {categorySpend.map((entry) => (
+                            <div key={entry.label} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                                <span>{entry.label}</span>
+                              </div>
+                              <span className="text-white/60">{formatCurrency(entry.amount)}</span>
                             </div>
-                            <span className="text-white/60">{formatCurrency(entry.amount)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={spend} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                        <XAxis dataKey="date" stroke="#94a3b8" />
+                        <YAxis stroke="#94a3b8" />
+                        <Tooltip
+                          formatter={(value: number) => formatCurrency(value)}
+                          contentStyle={{
+                            backgroundColor: '#0f172a',
+                            borderRadius: 12,
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#fff',
+                          }}
+                        />
+                        <Line type="monotone" dataKey="out" stroke="#f97316" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={spend} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                      <XAxis dataKey="date" stroke="#94a3b8" />
-                      <YAxis stroke="#94a3b8" />
-                      <Tooltip
-                        formatter={(value: number) => formatCurrency(value)}
-                        contentStyle={{
-                          backgroundColor: '#0f172a',
-                          borderRadius: 12,
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          color: '#fff',
-                        }}
-                      />
-                      <Line type="monotone" dataKey="out" stroke="#f97316" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+              )}
             </div>
           </div>
           <div className="space-y-6 xl:col-span-4">
@@ -1617,8 +1652,8 @@ export default function Dashboard() {
               backgrounds={weatherBackgrounds}
               effects={weatherEffects}
             />
-            <div className="card">
-              <div className="flex items-center justify-between">
+            <div className="card space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
                     <CalendarDays className="h-5 w-5 text-white" />
@@ -1646,13 +1681,13 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-white/50">
+              <div className="grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-white/50">
                 {dayNames.map((name) => (
                   <div key={name}>{name}</div>
                 ))}
               </div>
 
-              <div className="mt-2 grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-7 gap-2">
                 {weeks.flat().map((date) => {
                   const iso = toISODate(date);
                   const dayEvents = eventsByDate.get(iso) || [];
@@ -1671,7 +1706,11 @@ export default function Dashboard() {
                       <div className="flex h-full flex-col justify-between">
                         <div className="flex items-center justify-between text-[11px]">
                           <span>{date.getDate()}</span>
-                          {dayEvents.length > 0 && <span className="rounded-full bg-purple-400/40 px-1 text-[10px] text-purple-100">{dayEvents.length}</span>}
+                          {dayEvents.length > 0 && (
+                            <span className="rounded-full bg-purple-400/40 px-1 text-[10px] text-purple-100">
+                              {dayEvents.length}
+                            </span>
+                          )}
                         </div>
                         {dayEvents.slice(0, 2).map((event) => (
                           <div key={event.id} className="truncate text-[10px] text-white/60">
@@ -1685,10 +1724,13 @@ export default function Dashboard() {
               </div>
 
               {upcomingEvents.length > 0 && (
-                <div className="mt-4 space-y-2">
+                <div className="space-y-2">
                   <div className="text-xs uppercase tracking-wide text-white/50">Ближайшие события</div>
                   {upcomingEvents.map((event) => (
-                    <div key={event.id} className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+                    <div
+                      key={event.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2"
+                    >
                       <div className="text-sm text-white/80">{event.title}</div>
                       <div className="flex items-center gap-2 text-xs text-white/50">
                         <Clock className="h-3.5 w-3.5" />
@@ -1704,46 +1746,53 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-
-            <div className="card">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                  <Target className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <div className="text-lg font-semibold text-white">Цели на год</div>
-                  <div className="text-xs uppercase tracking-wide text-white/50">
-                    {goals.length > 0 ? `${goals.length} активных целей` : 'Целей пока нет'}
+            <div className="card space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
+                    <Target className="h-5 w-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-lg font-semibold text-white">Цели на год</div>
+                    <div className="text-xs uppercase tracking-wide text-white/50">
+                      {goals.length > 0 ? `${goals.length} активных целей` : 'Целей пока нет'}
+                    </div>
                   </div>
                 </div>
+                <CollapseToggle
+                  collapsed={goalsCollapsed}
+                  onToggle={() => setGoalsCollapsed((prev) => !prev)}
+                />
               </div>
 
-              <div className="mt-5 space-y-3">
-                {goals.slice(0, 4).map((goal) => (
-                  <div key={goal.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-white">{goal.title}</div>
-                      <div className="text-xs text-white/50">Стрик: {goal.streak_current}</div>
+              {!goalsCollapsed && (
+                <div className="space-y-3">
+                  {goals.slice(0, 4).map((goal) => (
+                    <div key={goal.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-white">{goal.title}</div>
+                        <div className="text-xs text-white/50">Стрик: {goal.streak_current}</div>
+                      </div>
+                      <div className="mt-3">
+                        <ProgressBar value={goal.completion_pct} color="from-purple-400 to-pink-400" />
+                      </div>
+                      <div className="mt-2 flex justify-between text-xs text-white/60">
+                        <span>Прогресс</span>
+                        <span>{goal.completion_pct}%</span>
+                      </div>
                     </div>
-                    <div className="mt-3">
-                      <ProgressBar value={goal.completion_pct} color="from-purple-400 to-pink-400" />
+                  ))}
+                  {goals.length === 0 && (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                      Добавьте цели, чтобы отслеживать годовой прогресс.
                     </div>
-                    <div className="mt-2 flex justify-between text-xs text-white/60">
-                      <span>Прогресс</span>
-                      <span>{goal.completion_pct}%</span>
-                    </div>
-                  </div>
-                ))}
-                {goals.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
-                    Добавьте цели, чтобы отслеживать годовой прогресс.
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className="card">
-              <div className="flex items-center justify-between">
+            <div className="card space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
                     <Banknote className="h-5 w-5 text-white" />
@@ -1753,80 +1802,94 @@ export default function Dashboard() {
                     <div className="text-xs uppercase tracking-wide text-white/50">Ежемесячные платежи</div>
                   </div>
                 </div>
-                <button
-                  onClick={startAdd}
-                  className="flex items-center gap-2 rounded-full bg-emerald-500/80 px-3 py-1.5 text-xs font-semibold text-black hover:bg-emerald-400"
-                >
-                  <Plus className="h-4 w-4" /> Добавить
-                </button>
-              </div>
-
-              <div className="mt-4">
-                <div className="text-xs uppercase tracking-wide text-white/50">Заплачено в месяц</div>
-                <div className="text-2xl font-semibold text-white mt-1">{formatCurrency(monthly)}</div>
-                <div className="text-xs text-white/50 mt-1">Остаток долга: {formatCurrency(loanRemainingTotal)}</div>
-                <div className="mt-4 h-2 rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300"
-                    style={{ width: `${Math.max(0, Math.min(100, loanOverviewProgress))}%` }}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={startAdd}
+                    className="flex items-center gap-2 rounded-full bg-emerald-500/80 px-3 py-1.5 text-xs font-semibold text-black hover:bg-emerald-400"
+                  >
+                    <Plus className="h-4 w-4" /> Добавить
+                  </button>
+                  <CollapseToggle
+                    collapsed={loansCollapsed}
+                    onToggle={() => setLoansCollapsed((prev) => !prev)}
                   />
                 </div>
-                <div className="mt-2 flex justify-between text-xs text-white/60">
-                  <span>Прогресс выплат</span>
-                  <span>{loanOverviewProgress}%</span>
-                </div>
               </div>
 
-              <div className="mt-5 space-y-3">
-                {loans.map((loan) => {
-                  const ratio = loan.payment_monthly + loan.remaining;
-                  const loanProgress = ratio > 0 ? Math.round((loan.payment_monthly / ratio) * 100) : 0;
-                  return (
-                    <div key={loan.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-white">{loan.bank}</div>
-                          <div className="text-xs text-white/50">День платежа: {loan.due_day || '—'}</div>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-white/60">
-                          <button
-                            onClick={() => startEdit(loan)}
-                            className="rounded-full bg-white/10 px-2 py-1 hover:bg-white/20"
-                          >
-                            ✎
-                          </button>
-                          <button
-                            onClick={() => removeLoan(loan.id)}
-                            className="rounded-full bg-red-500/20 px-2 py-1 text-red-100 hover:bg-red-500/40"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between text-xs text-white/60">
-                        <span>Ежемесячно: {formatCurrency(loan.payment_monthly)}</span>
-                        <span>Остаток: {formatCurrency(loan.remaining)}</span>
-                      </div>
-                      <div className="mt-3">
-                        <ProgressBar value={loanProgress} color="from-emerald-400 to-lime-300" />
-                      </div>
-                      <div className="mt-2 text-xs text-white/60">Прогресс выплаты: {loanProgress}%</div>
-                      {loan.tags.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1">
-                          {loan.tags.map((tag) => (
-                            <TagBadge key={tag.id} tag={tag} compact />
-                          ))}
-                        </div>
-                      )}
+              {loansCollapsed ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
+                  Блок кредитов скрыт. Разверните, чтобы следить за платежами и остатком.
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-3">
+                    <div className="text-xs uppercase tracking-wide text-white/50">Заплачено в месяц</div>
+                    <div className="text-2xl font-semibold text-white">{formatCurrency(monthly)}</div>
+                    <div className="text-xs text-white/50">Остаток долга: {formatCurrency(loanRemainingTotal)}</div>
+                    <div className="h-2 rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300"
+                        style={{ width: `${Math.max(0, Math.min(100, loanOverviewProgress))}%` }}
+                      />
                     </div>
-                  );
-                })}
-                {loans.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
-                    Добавьте кредиты, чтобы отслеживать ежемесячные платежи и остаток.
+                    <div className="flex justify-between text-xs text-white/60">
+                      <span>Прогресс выплат</span>
+                      <span>{loanOverviewProgress}%</span>
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  <div className="space-y-3">
+                    {loans.map((loan) => {
+                      const ratio = loan.payment_monthly + loan.remaining;
+                      const loanProgress = ratio > 0 ? Math.round((loan.payment_monthly / ratio) * 100) : 0;
+                      return (
+                        <div key={loan.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-semibold text-white">{loan.bank}</div>
+                              <div className="text-xs text-white/50">День платежа: {loan.due_day || '—'}</div>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-white/60">
+                              <button
+                                onClick={() => startEdit(loan)}
+                                className="rounded-full bg-white/10 px-2 py-1 hover:bg-white/20"
+                              >
+                                ✎
+                              </button>
+                              <button
+                                onClick={() => removeLoan(loan.id)}
+                                className="rounded-full bg-red-500/20 px-2 py-1 text-red-100 hover:bg-red-500/40"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between text-xs text-white/60">
+                            <span>Ежемесячно: {formatCurrency(loan.payment_monthly)}</span>
+                            <span>Остаток: {formatCurrency(loan.remaining)}</span>
+                          </div>
+                          <div className="mt-3">
+                            <ProgressBar value={loanProgress} color="from-emerald-400 to-lime-300" />
+                          </div>
+                          <div className="mt-2 text-xs text-white/60">Прогресс выплаты: {loanProgress}%</div>
+                          {loan.tags.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-1">
+                              {loan.tags.map((tag) => (
+                                <TagBadge key={tag.id} tag={tag} compact />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {loans.length === 0 && (
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                        Добавьте кредиты, чтобы отслеживать ежемесячные платежи и остаток.
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

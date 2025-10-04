@@ -4,10 +4,12 @@ import classNames from 'classnames';
 import { Image as ImageIcon, Link2, MapPin, Palette, Sparkles, User, type LucideIcon } from 'lucide-react';
 import Shell from '../components/Shell';
 import { Modal } from '../components/ui/Modal';
+import CollapseToggle from '../components/ui/CollapseToggle';
 import { api, resolveApiUrl } from '../api';
 import { useAuth } from '../AuthContext';
 import { useNotifications } from '../notifications/NotificationProvider';
 import { useReorderableList } from '../hooks/useReorderableList';
+import { usePersistentCollapse } from '../hooks/usePersistentCollapse';
 import { AVATAR_FRAME_OPTIONS, DEFAULT_AVATAR_FRAME_ID, getAvatarFrameOption, resolveAvatarFrameId } from '../constants/avatarFrames';
 import {
   PolarAngleAxis,
@@ -903,6 +905,9 @@ export default function ProfileFull() {
   const [nextEvent, setNextEvent] = useState<any | null>(null);
   const [lifeRadar, setLifeRadar] = useState<LifeRadarState | null>(null);
   const [lifeRadarLoading, setLifeRadarLoading] = useState(false);
+  const [overviewCollapsed, setOverviewCollapsed] = usePersistentCollapse('profile:overview');
+  const [lifeRadarCollapsed, setLifeRadarCollapsed] = usePersistentCollapse('profile:life-radar');
+  const [journalCollapsed, setJournalCollapsed] = usePersistentCollapse('profile:journal');
 
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
@@ -1374,35 +1379,59 @@ export default function ProfileFull() {
       </div>
 
       {/* ---------- Панель с тремя блоками ---------- */}
-      <div className="grid md:grid-cols-3 gap-4 mt-6" {...overviewBlocksLayout.getContainerProps()}>
-        {overviewBlocksLayout.items.map((block) => {
-          const dragProps = overviewBlocksLayout.getDraggableProps(block.id);
-          const isDragging = overviewBlocksLayout.activeId === String(block.id);
-          const isDropTarget = overviewBlocksLayout.overId === String(block.id) && !isDragging;
-          return (
-            <div
-              key={block.id}
-              {...dragProps}
-              data-dragging={isDragging ? 'true' : undefined}
-              data-drop-target={isDropTarget ? 'true' : undefined}
-              className={classNames(
-                'card px-4 py-3 sm:px-5 sm:py-4 transition-all duration-200 ease-out select-none',
-                { 'cursor-grab active:cursor-grabbing': dragProps.draggable },
-                {
-                  'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-xl shadow-black/40': isDragging,
-                  'border-white/30 ring-1 ring-white/40': isDropTarget,
-                },
-              )}
-            >
-              {block.render()}
-            </div>
-          );
-        })}
-      </div>
+      <section className="mt-6 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-lg font-semibold text-white">Обзор</div>
+          <CollapseToggle
+            collapsed={overviewCollapsed}
+            onToggle={() => setOverviewCollapsed((prev) => !prev)}
+          />
+        </div>
+        {overviewCollapsed ? (
+          <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-3 text-sm text-white/50">
+            Блок «Обзор» скрыт. Нажмите «Развернуть», чтобы вновь показать карточки.
+          </div>
+        ) : (
+          <div
+            className="grid gap-4 md:grid-cols-3"
+            {...overviewBlocksLayout.getContainerProps()}
+          >
+            {overviewBlocksLayout.items.map((block) => {
+              const dragProps = overviewBlocksLayout.getDraggableProps(block.id);
+              const isDragging = overviewBlocksLayout.activeId === String(block.id);
+              const isDropTarget = overviewBlocksLayout.overId === String(block.id) && !isDragging;
+              return (
+                <div
+                  key={block.id}
+                  {...dragProps}
+                  data-dragging={isDragging ? 'true' : undefined}
+                  data-drop-target={isDropTarget ? 'true' : undefined}
+                  className={classNames(
+                    'card px-4 py-3 sm:px-5 sm:py-4 transition-all duration-200 ease-out select-none',
+                    { 'cursor-grab active:cursor-grabbing': dragProps.draggable },
+                    {
+                      'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-xl shadow-black/40': isDragging,
+                      'border-white/30 ring-1 ring-white/40': isDropTarget,
+                    },
+                  )}
+                >
+                  {block.render()}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-      <div className="card mt-6">
-        <div className="font-medium mb-3">Индекс жизни</div>
-        {lifeRadarLoading ? (
+      <div className="card mt-6 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="font-medium">Индекс жизни</div>
+          <CollapseToggle
+            collapsed={lifeRadarCollapsed}
+            onToggle={() => setLifeRadarCollapsed((prev) => !prev)}
+          />
+        </div>
+        {lifeRadarCollapsed ? null : lifeRadarLoading ? (
           <div className="grid gap-6 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
             <div className="h-64 rounded-3xl bg-white/5 animate-pulse" />
             <div className="space-y-3">
@@ -1485,9 +1514,17 @@ export default function ProfileFull() {
       </div>
 
       {/* ---------- Лента дневника ---------- */}
-      <div className="card mt-6">
-        <div className="font-medium mb-2">Последние события</div>
-        {visibleJournal.length > 0 ? (
+      <div className="card mt-6 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="font-medium">Последние события</div>
+          <CollapseToggle
+            collapsed={journalCollapsed}
+            onToggle={() => setJournalCollapsed((prev) => !prev)}
+          />
+        </div>
+        {journalCollapsed ? (
+          <div className="text-sm text-white/60">Лента скрыта. Нажмите «Развернуть», чтобы показать события.</div>
+        ) : visibleJournal.length > 0 ? (
           <div className="space-y-3">
             {visibleJournal.map((j: any) => {
               const { icon, tone } = getFeedVisuals(j.type);
