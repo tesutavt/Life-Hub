@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { createApp } from './app/createApp.js';
 import { openDB } from './utils.js';
-import { scheduleFitnessSync } from './routes-fitness.js';
+import { scheduleFitnessSync } from './routes/fitness/index.js'
 
 await openDB();
 scheduleFitnessSync();

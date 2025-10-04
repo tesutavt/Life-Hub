@@ -1671,10 +1671,6 @@ export default function Dashboard() {
                   >
                     ›
                   </button>
-                  <CollapseToggle
-                    collapsed={calendarCollapsed}
-                    onToggle={() => setCalendarCollapsed((prev) => !prev)}
-                  />
                 </div>
               </div>
 
