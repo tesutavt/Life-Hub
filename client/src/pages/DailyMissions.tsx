@@ -277,81 +277,84 @@ export default function DailyMissions() {
             </div>
           </div>
         </div>
-      </div>
 
-      {loading ? (
-        <div className="mt-6 flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 py-16 text-slate-200/80">
-          <Loader2 className="mr-3 h-5 w-5 animate-spin" /> Загружаем задания…
-        </div>
-      ) : missions.length === 0 ? (
-        <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-10 text-center text-slate-200/70">
-          На сегодня нет заданий. Загляните позже!
-        </div>
-      ) : (
-        <div className="relative mt-6 w-full overflow-hidden">
-          <div ref={missionsContainerRef} className="flex w-full min-w-0 gap-4 overflow-x-auto pb-4 pr-12 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            {missions.map((mission) => {
-              const claiming = claimingId === mission.id;
-              const progressLabel = formatProgressLabel(mission);
-              const statusColor = mission.reward_claimed
-                ? 'bg-emerald-400/10 text-emerald-200'
-                : mission.completed
-                ? 'bg-amber-400/10 text-amber-200'
-                : 'bg-white/10 text-slate-200/70';
-
-              return (
-                <div
-                  key={mission.id}
-                  className="relative flex w-[280px] min-w-[260px] flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 text-white shadow-lg shadow-brand-night/20 transition hover:border-amber-300/60 hover:bg-white/10"
-                >
-                  <div className={`inline-flex items-center justify-center rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-wide ${statusColor}`}>
-                    {progressLabel}
-                  </div>
-                  <div className="min-h-[72px] flex-1 text-center">
-                    <h3 className="text-lg font-semibold text-white/90">{mission.title}</h3>
-                    {mission.description ? (
-                      <p className="mt-2 text-sm text-slate-200/70">{mission.description}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center justify-center gap-2 text-sm font-medium text-amber-200">
-                    +{formatActivity(mission.points)}
-                    <Flame size={16} className="text-amber-300" />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleClaimReward(mission).catch(() => {})}
-                    disabled={!mission.claimable || claiming}
-                    className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-amber-400 via-rose-400 to-purple-500 px-4 py-2 text-sm font-semibold text-brand-night transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {claiming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    {mission.reward_claimed
-                      ? 'Награда получена'
-                      : mission.claimable
-                      ? 'Забрать награду'
-                      : 'Выполняется'}
-                  </button>
-                </div>
-              );
-            })}
+        {loading ? (
+          <div className="flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 py-16 text-slate-200/80">
+            <Loader2 className="mr-3 h-5 w-5 animate-spin" /> Загружаем задания…
           </div>
-          {canScrollRight ? (
+        ) : missions.length === 0 ? (
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-10 text-center text-slate-200/70">
+            На сегодня нет заданий. Загляните позже!
+          </div>
+        ) : (
+          <div className="relative w-full overflow-hidden">
             <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-brand-night via-brand-night/40 to-transparent"
-            />
-          ) : null}
-          {canScrollRight ? (
-            <button
-              type="button"
-              onClick={handleScrollRight}
-              className="absolute right-4 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-3 text-white shadow-lg transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-amber-300"
-              aria-label="Показать следующие задания"
+              ref={missionsContainerRef}
+              className="flex w-full min-w-0 gap-4 overflow-x-auto pb-4 pr-12 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             >
-              <ChevronRight className="h-5 w-5" />
-            </button>
-          ) : null}
-        </div>
-      )}
+              {missions.map((mission) => {
+                const claiming = claimingId === mission.id;
+                const progressLabel = formatProgressLabel(mission);
+                const statusColor = mission.reward_claimed
+                  ? 'bg-emerald-400/10 text-emerald-200'
+                  : mission.completed
+                  ? 'bg-amber-400/10 text-amber-200'
+                  : 'bg-white/10 text-slate-200/70';
+
+                return (
+                  <div
+                    key={mission.id}
+                    className="relative flex w-[280px] min-w-[260px] shrink-0 flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 text-white shadow-lg shadow-brand-night/20 transition hover:border-amber-300/60 hover:bg-white/10"
+                  >
+                    <div className={`inline-flex items-center justify-center rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-wide ${statusColor}`}>
+                      {progressLabel}
+                    </div>
+                    <div className="min-h-[72px] flex-1 text-center">
+                      <h3 className="text-lg font-semibold text-white/90">{mission.title}</h3>
+                      {mission.description ? (
+                        <p className="mt-2 text-sm text-slate-200/70">{mission.description}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center justify-center gap-2 text-sm font-medium text-amber-200">
+                      +{formatActivity(mission.points)}
+                      <Flame size={16} className="text-amber-300" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleClaimReward(mission).catch(() => {})}
+                      disabled={!mission.claimable || claiming}
+                      className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-amber-400 via-rose-400 to-purple-500 px-4 py-2 text-sm font-semibold text-brand-night transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {claiming ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                      {mission.reward_claimed
+                        ? 'Награда получена'
+                        : mission.claimable
+                        ? 'Забрать награду'
+                        : 'Выполняется'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {canScrollRight ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-brand-night via-brand-night/40 to-transparent"
+              />
+            ) : null}
+            {canScrollRight ? (
+              <button
+                type="button"
+                onClick={handleScrollRight}
+                className="absolute right-4 top-1/2 inline-flex -translate-y-1/2 items-center justify-center rounded-full bg-white/10 p-3 text-white shadow-lg transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                aria-label="Показать следующие задания"
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            ) : null}
+          </div>
+        )}
+      </div>
     </Shell>
   );
 }
