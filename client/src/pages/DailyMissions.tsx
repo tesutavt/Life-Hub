@@ -78,6 +78,11 @@ export default function DailyMissions() {
   const [editorSaving, setEditorSaving] = useState<boolean>(false);
   const [editingMission, setEditingMission] = useState<DailyMission | null>(null);
 
+  const dispatchWeeklyRefresh = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('life-weekly-missions-refresh'));
+  }, []);
+
   const loadMissions = useCallback(
     async (date: string, { silent = false }: { silent?: boolean } = {}) => {
       if (!silent) setLoading(true);
@@ -129,6 +134,7 @@ export default function DailyMissions() {
         );
       }
       await loadMissions(date, { silent: true });
+      dispatchWeeklyRefresh();
     } finally {
       setTogglingId(null);
     }
@@ -201,6 +207,7 @@ export default function DailyMissions() {
       notifySuccess: 'Задание удалено',
     });
     await loadMissions(selectedDate);
+    dispatchWeeklyRefresh();
   };
 
   const handlePrevDay = () => {
