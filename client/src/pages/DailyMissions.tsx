@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { Flame, Loader2, Sparkles } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api } from '../api';
 
@@ -40,8 +40,9 @@ const formatProgressLabel = (mission: DailyMission) => {
   const target = Math.max(1, Math.round(mission.target_value ?? 0));
   const current = Math.max(0, Math.round(Math.min(mission.progress_value ?? 0, target)));
   const unit = mission.progress_unit?.trim();
-  const unitSuffix = unit ? ` ${unit}` : '';
-  return `Прогресс ${numberFormatter.format(current)}/${numberFormatter.format(target)}${unitSuffix}`;
+  return unit
+    ? `Прогресс ${numberFormatter.format(current)}/${numberFormatter.format(target)} ${unit}`
+    : `Прогресс ${numberFormatter.format(current)}/${numberFormatter.format(target)}`;
 };
 
 const formatActivity = (value: number) => numberFormatter.format(Math.max(0, Math.round(value)));
@@ -50,11 +51,6 @@ export default function DailyMissions() {
   const [summary, setSummary] = useState<DailyMissionSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
-
-  const dispatchWeeklyRefresh = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent('life-weekly-missions-refresh'));
-  }, []);
 
   const loadMissions = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -77,11 +73,6 @@ export default function DailyMissions() {
   }, [loadMissions]);
 
   const missions = summary?.missions ?? [];
-  const progressWidth = useMemo(() => {
-    const pct = summary?.progress_pct ?? 0;
-    if (!Number.isFinite(pct) || pct <= 0) return '0%';
-    return `${Math.min(100, Math.max(0, Math.round(pct)))}%`;
-  }, [summary?.progress_pct]);
 
   const handleClaimReward = useCallback(
     async (mission: DailyMission) => {
@@ -96,7 +87,6 @@ export default function DailyMissions() {
         } else {
           await loadMissions({ silent: true });
         }
-        dispatchWeeklyRefresh();
       } catch (error) {
         await loadMissions({ silent: true }).catch(() => {});
         throw error;
@@ -104,17 +94,37 @@ export default function DailyMissions() {
         setClaimingId(null);
       }
     },
-    [claimingId, dispatchWeeklyRefresh, loadMissions, summary?.date]
+    [claimingId, loadMissions, summary?.date]
   );
 
   const targetPoints = summary?.target_points ?? 500;
   const totalPoints = summary?.total_points ?? 0;
   const remainingPoints = summary?.remaining_points ?? Math.max(0, targetPoints - totalPoints);
 
+  const milestoneValues = useMemo(() => {
+    const step = 100;
+    const target = Math.max(step, Math.round(targetPoints));
+    const values: number[] = [];
+    for (let value = step; value < target; value += step) {
+      values.push(value);
+    }
+    if (!values.includes(target)) {
+      values.push(target);
+    }
+    return values;
+  }, [targetPoints]);
+
+  const leadingProgress = useMemo(() => {
+    if (milestoneValues.length === 0) return 0;
+    const first = milestoneValues[0];
+    if (first <= 0) return 0;
+    return Math.max(0, Math.min(1, totalPoints / first));
+  }, [milestoneValues, totalPoints]);
+
   return (
     <Shell>
       <div className="flex flex-wrap items-center justify-between gap-6 rounded-3xl border border-white/10 bg-white/5 p-6">
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="flex items-center gap-2 text-sm uppercase tracking-wide text-slate-300/80">
             <Sparkles size={18} className="text-amber-300" />
             Ежедневные задания
@@ -128,30 +138,100 @@ export default function DailyMissions() {
                   })
                 : 'Сегодня'}
             </span>
-            <span className="text-sm font-normal text-slate-200/80">
-              Заберите наград на {formatActivity(targetPoints)} активности, чтобы закрыть дневную планку.
+            <span className="flex flex-wrap items-center gap-2 text-sm font-normal text-slate-200/80">
+              Заберите награды на {formatActivity(targetPoints)}
+              <Flame size={16} className="text-amber-300" />
+              за день.
             </span>
           </div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm text-slate-200/80">
-              <span>Прогресс активности</span>
-              <span>
-                {formatActivity(totalPoints)} / {formatActivity(targetPoints)}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-200/80">
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold text-white/90">
+                <span className="uppercase tracking-wide text-slate-200/70">Собрано</span>
+                <span className="inline-flex items-center gap-1 text-base">
+                  {formatActivity(totalPoints)}
+                  <Flame size={16} className="text-amber-300" />
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1">
+                Цель {formatActivity(targetPoints)}
+                <Flame size={14} className="text-amber-300" />
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1">
+                Осталось {formatActivity(remainingPoints)}
+                <Flame size={14} className="text-amber-300" />
               </span>
             </div>
-            <div className="h-3 w-full overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-amber-300 via-orange-400 to-rose-500 transition-all duration-500"
-                style={{ width: progressWidth }}
-              />
-            </div>
+            {milestoneValues.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="absolute left-0 top-0 h-full bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500 transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.round(leadingProgress * 100))}%` }}
+                    />
+                  </div>
+                  {milestoneValues.map((value, index) => {
+                    const prevValue = index === 0 ? 0 : milestoneValues[index - 1];
+                    const segmentTotal = Math.max(1, value - prevValue);
+                    const circleProgress = Math.max(
+                      0,
+                      Math.min(1, (totalPoints - prevValue) / segmentTotal)
+                    );
+                    const achieved = totalPoints >= value;
+                    const nextValue = milestoneValues[index + 1];
+                    const connectorFill = nextValue
+                      ? Math.max(0, Math.min(1, (totalPoints - value) / Math.max(1, nextValue - value)))
+                      : 0;
+
+                    return (
+                      <React.Fragment key={value}>
+                        <div
+                          className={`relative flex h-16 w-16 flex-col items-center justify-center overflow-hidden rounded-full border-2 text-xs font-semibold transition ${
+                            achieved
+                              ? 'border-amber-300/80 bg-white/20 text-white shadow-[0_0_18px_rgba(251,191,36,0.35)]'
+                              : 'border-white/15 bg-white/5 text-slate-200/70'
+                          }`}
+                        >
+                          <div
+                            className="absolute inset-1 rounded-full bg-gradient-to-br from-amber-300/40 via-rose-400/30 to-purple-500/30 transition-opacity"
+                            style={{ opacity: circleProgress }}
+                            aria-hidden="true"
+                          />
+                          <span className="text-[11px] font-semibold tracking-wide">
+                            +{formatActivity(value)}
+                          </span>
+                          <Flame
+                            size={18}
+                            className={achieved ? 'text-amber-300 drop-shadow' : 'text-slate-200/70'}
+                          />
+                        </div>
+                        {nextValue ? (
+                          <div className="relative h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+                            <div
+                              className="absolute left-0 top-0 h-full bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500 transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.round(connectorFill * 100))}%` }}
+                            />
+                          </div>
+                        ) : null}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+                <div className="text-xs uppercase tracking-wide text-slate-300/60">
+                  Мини-награды каждые 100 очков
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-wrap items-center gap-3 text-xs text-slate-200/80">
-              <span className="rounded-full bg-white/10 px-3 py-1">Осталось {formatActivity(remainingPoints)} очков</span>
               <span className="rounded-full bg-white/10 px-3 py-1">
                 Выполнено {summary?.completed_count ?? 0} из {summary?.total_count ?? 0}
               </span>
               <span className="rounded-full bg-white/10 px-3 py-1">
                 Наград получено {summary?.claimed_count ?? 0}
+              </span>
+              <span className="rounded-full bg-white/10 px-3 py-1">
+                Получено XP {formatActivity(summary?.xp_earned ?? 0)}
               </span>
             </div>
           </div>
@@ -168,11 +248,10 @@ export default function DailyMissions() {
         </div>
       ) : (
         <div className="mt-6">
-          <div className="flex gap-4 overflow-x-auto pb-4">
+          <div className="flex w-full gap-4 overflow-x-auto pb-4">
             {missions.map((mission) => {
               const claiming = claimingId === mission.id;
               const progressLabel = formatProgressLabel(mission);
-              const activityLabel = `+${formatActivity(mission.points)} активности`;
               const statusColor = mission.reward_claimed
                 ? 'bg-emerald-400/10 text-emerald-200'
                 : mission.completed
@@ -184,8 +263,7 @@ export default function DailyMissions() {
                   key={mission.id}
                   className="relative flex w-[280px] min-w-[260px] flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 text-white shadow-lg shadow-brand-night/20 transition hover:border-amber-300/60 hover:bg-white/10"
                 >
-                  <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ${statusColor}`}>
-                    <CheckCircle2 size={16} />
+                  <div className={`inline-flex items-center justify-center rounded-full px-4 py-1 text-xs font-semibold uppercase tracking-wide ${statusColor}`}>
                     {progressLabel}
                   </div>
                   <div className="min-h-[72px] flex-1 text-center">
@@ -194,12 +272,9 @@ export default function DailyMissions() {
                       <p className="mt-2 text-sm text-slate-200/70">{mission.description}</p>
                     ) : null}
                   </div>
-                  <div className="text-center text-sm font-medium text-amber-200">{activityLabel}</div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber-300 via-rose-400 to-purple-500 transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(0, Math.round(mission.progress_pct ?? 0)))}%` }}
-                    />
+                  <div className="flex items-center justify-center gap-2 text-sm font-medium text-amber-200">
+                    +{formatActivity(mission.points)}
+                    <Flame size={16} className="text-amber-300" />
                   </div>
                   <button
                     type="button"

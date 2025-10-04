@@ -144,20 +144,6 @@ CREATE TABLE IF NOT EXISTS daily_mission_completions(
   FOREIGN KEY(mission_id) REFERENCES daily_missions(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS weekly_mission_completions(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
-  mission_key TEXT NOT NULL,
-  week_start TEXT NOT NULL,
-  week_end TEXT NOT NULL,
-  progress_value INTEGER DEFAULT 0,
-  reward_points INTEGER DEFAULT 0,
-  reward_xp INTEGER DEFAULT 0,
-  completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, mission_key, week_start),
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
 -- Calendar & life
 CREATE TABLE IF NOT EXISTS calendar_events(
   id INTEGER PRIMARY KEY AUTOINCREMENT,

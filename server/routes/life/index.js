@@ -209,12 +209,6 @@ const sanitizeMissionXp = (value, fallback = DEFAULT_MISSION_XP) =>
 const sanitizeMissionSortOrder = (value, fallback = 0) =>
   clampMissionNumber(value, { fallback, min: -1000, max: 1000 });
 
-const sanitizeWeeklyRewardPoints = (value, fallback = 0) =>
-  clampMissionNumber(value, { fallback, min: 0, max: 10000 });
-
-const sanitizeWeeklyRewardXp = (value, fallback = 0) =>
-  clampMissionNumber(value, { fallback, min: 0, max: 10000 });
-
 const sanitizeDateParam = (value, fallback = todayISO()) => {
   if (typeof value !== 'string') return fallback;
   const trimmed = value.trim();
@@ -228,70 +222,6 @@ const toNumber = (value, fallback = 0) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
 };
-
-const startOfWeek = (isoDate) => {
-  const date = new Date(`${isoDate}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) {
-    const fallback = new Date();
-    const fallbackDay = fallback.getUTCDay();
-    const fallbackDiff = fallbackDay === 0 ? 6 : fallbackDay - 1;
-    fallback.setUTCDate(fallback.getUTCDate() - fallbackDiff);
-    return toISODate(fallback);
-  }
-  const day = date.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1;
-  date.setUTCDate(date.getUTCDate() - diff);
-  return toISODate(date);
-};
-
-const endOfWeek = (isoDate) => {
-  const start = new Date(`${startOfWeek(isoDate)}T00:00:00Z`);
-  start.setUTCDate(start.getUTCDate() + 6);
-  return toISODate(start);
-};
-
-const WEEKLY_MISSION_DEFINITIONS = [
-  {
-    key: 'complete_15_daily',
-    title: 'Закройте 15 ежедневных заданий',
-    description: 'Выполните любые ежедневные задания в течение недели. Прогресс засчитывается автоматически.',
-    target: 15,
-    reward_points: 300,
-    reward_xp: 250,
-    progress_source: 'total_completions',
-    progress_unit: 'missions',
-  },
-  {
-    key: 'earn_2000_points',
-    title: 'Заработайте 2000 очков активности',
-    description: 'Соберите очки активности, выполняя ежедневные задания и достигая дневных целей.',
-    target: 2000,
-    reward_points: 400,
-    reward_xp: 300,
-    progress_source: 'total_points',
-    progress_unit: 'points',
-  },
-  {
-    key: 'perfect_days_3',
-    title: 'Соберите максимум активности 3 раза',
-    description: 'Достигните 500 очков активности минимум в трёх разных днях недели.',
-    target: 3,
-    reward_points: 350,
-    reward_xp: 300,
-    progress_source: 'perfect_days',
-    progress_unit: 'days',
-  },
-  {
-    key: 'active_days_5',
-    title: 'Будьте активны 5 дней',
-    description: 'Закрывайте хотя бы одно ежедневное задание в разные дни недели.',
-    target: 5,
-    reward_points: 300,
-    reward_xp: 250,
-    progress_source: 'active_days',
-    progress_unit: 'days',
-  },
-];
 
 const parseBooleanParam = (value, fallback = true) => {
   if (typeof value === 'boolean') return value;
@@ -312,7 +242,9 @@ const mapDailyMissionRow = (row) => ({
   points: sanitizeMissionPoints(row.points, DEFAULT_MISSION_POINTS),
   xp_reward: sanitizeMissionXp(
     row.xp_reward,
-    row.xp_reward == null ? Math.max(DEFAULT_MISSION_XP, Math.round(sanitizeMissionPoints(row.points, DEFAULT_MISSION_POINTS) / 2)) : DEFAULT_MISSION_XP
+    row.xp_reward == null
+      ? Math.max(DEFAULT_MISSION_XP, Math.round(sanitizeMissionPoints(row.points, DEFAULT_MISSION_POINTS) / 2))
+      : DEFAULT_MISSION_XP
   ),
   sort_order: sanitizeMissionSortOrder(row.sort_order, 0),
   is_active: !!row.is_active,
@@ -508,157 +440,6 @@ const computeDailyMissionProgress = (definition, stats) => {
   }
 };
 
-const computeWeeklyMissionProgress = (definition, stats) => {
-  switch (definition.progress_source) {
-    case 'total_points':
-      return stats.totalPoints;
-    case 'perfect_days':
-      return stats.perfectDays;
-    case 'active_days':
-      return stats.activeDays;
-    case 'total_completions':
-    default:
-      return stats.totalCompletions;
-  }
-};
-
-const loadWeeklyMissionSummary = async (db, userId, date) => {
-  const weekStart = startOfWeek(date);
-  const weekEnd = endOfWeek(date);
-
-  const completions = await db.all(
-    'SELECT date, points_awarded FROM daily_mission_completions WHERE user_id=? AND date BETWEEN ? AND ?',
-    [userId, weekStart, weekEnd]
-  );
-
-  const dayStats = new Map();
-  completions.forEach((entry) => {
-    const sanitizedPoints = sanitizeMissionPoints(entry.points_awarded, 0);
-    const existing = dayStats.get(entry.date) || { points: 0, completions: 0 };
-    existing.points += sanitizedPoints;
-    existing.completions += 1;
-    dayStats.set(entry.date, existing);
-  });
-
-  const totalPoints = Array.from(dayStats.values()).reduce((sum, item) => sum + item.points, 0);
-  const totalCompletions = completions.length;
-  const perfectDays = Array.from(dayStats.values()).filter(
-    (item) => item.points >= DAILY_MISSION_TARGET_POINTS
-  ).length;
-  const activeDays = dayStats.size;
-
-  const completionRows = await db.all(
-    'SELECT mission_key, reward_points, reward_xp, completed_at FROM weekly_mission_completions WHERE user_id=? AND week_start=?',
-    [userId, weekStart]
-  );
-
-  const completionMap = new Map();
-  let totalRewardPoints = 0;
-  let totalRewardXp = 0;
-  completionRows.forEach((row) => {
-    const rewardPoints = sanitizeWeeklyRewardPoints(row.reward_points, 0);
-    const rewardXp = sanitizeWeeklyRewardXp(row.reward_xp, 0);
-    completionMap.set(row.mission_key, {
-      mission_key: row.mission_key,
-      reward_points: rewardPoints,
-      reward_xp: rewardXp,
-      completed_at: row.completed_at || null,
-    });
-    totalRewardPoints += rewardPoints;
-    totalRewardXp += rewardXp;
-  });
-
-  const stats = { totalPoints, totalCompletions, perfectDays, activeDays };
-  const missions = [];
-
-  for (const definition of WEEKLY_MISSION_DEFINITIONS) {
-    const rawProgress = computeWeeklyMissionProgress(definition, stats);
-    const rewardPoints = sanitizeWeeklyRewardPoints(definition.reward_points, 0);
-    const rewardXp = sanitizeWeeklyRewardXp(definition.reward_xp, 0);
-    let completionRow = completionMap.get(definition.key);
-
-    if (!completionRow && rawProgress >= definition.target) {
-      const completedAt = new Date().toISOString();
-      await db.run(
-        'INSERT INTO weekly_mission_completions(user_id, mission_key, week_start, week_end, progress_value, reward_points, reward_xp, completed_at) VALUES(?,?,?,?,?,?,?,?)',
-        [userId, definition.key, weekStart, weekEnd, rawProgress, rewardPoints, rewardXp, completedAt]
-      );
-
-      if (rewardXp > 0) {
-        const xpRow = (await db.get('SELECT xp FROM user_xp WHERE user_id=?', [userId])) || { xp: 0 };
-        const newXp = (xpRow.xp || 0) + rewardXp;
-        const level = levelFromXp(newXp);
-        await db.run(
-          'INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
-          [userId, newXp, level, newXp, level]
-        );
-      }
-
-      await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)', [
-        userId,
-        'weekly_mission_completed',
-        'Еженедельная задача выполнена',
-        definition.title,
-        JSON.stringify({
-          mission_key: definition.key,
-          week_start: weekStart,
-          week_end: weekEnd,
-          xp: rewardXp,
-          points: rewardPoints,
-        }),
-        completedAt,
-      ]);
-
-      completionRow = {
-        mission_key: definition.key,
-        reward_points: rewardPoints,
-        reward_xp: rewardXp,
-        completed_at: completedAt,
-      };
-      completionMap.set(definition.key, completionRow);
-      totalRewardPoints += rewardPoints;
-      totalRewardXp += rewardXp;
-    }
-
-    const completed = !!completionRow;
-    const progressValue = completed ? Math.max(rawProgress, definition.target) : rawProgress;
-    const clampedProgress = definition.target > 0 ? Math.min(progressValue, definition.target) : progressValue;
-    const progressPct = definition.target > 0 ? Math.min(100, Math.round((clampedProgress * 100) / definition.target)) : 0;
-
-    missions.push({
-      key: definition.key,
-      title: definition.title,
-      description: definition.description || null,
-      target_value: definition.target,
-      progress_value: progressValue,
-      progress_pct: progressPct,
-      progress_unit: definition.progress_unit,
-      reward_points: rewardPoints,
-      reward_xp: rewardXp,
-      completed,
-      completed_at: completionRow?.completed_at || null,
-    });
-  }
-
-  const completedCount = missions.filter((mission) => mission.completed).length;
-
-  return {
-    week_start: weekStart,
-    week_end: weekEnd,
-    updated_at: new Date().toISOString(),
-    total_points: totalPoints,
-    total_completions: totalCompletions,
-    perfect_days: perfectDays,
-    active_days: activeDays,
-    reward_points_earned: totalRewardPoints,
-    reward_xp_earned: totalRewardXp,
-    completed_count: completedCount,
-    total_count: missions.length,
-    missions,
-    daily_target_points: DAILY_MISSION_TARGET_POINTS,
-  };
-};
-
 const loadDailyMissionSummary = async (db, userId, date, { includeInactive = false } = {}) => {
   const rows = await db.all(
     `SELECT id, user_id, title, description, points, xp_reward, sort_order, is_active, definition_key, created_at, updated_at
@@ -734,14 +515,6 @@ const fetchDailyMission = (db, userId, missionId) =>
     'SELECT id, user_id, title, description, points, xp_reward, sort_order, is_active, definition_key, created_at, updated_at FROM daily_missions WHERE id=? AND user_id=?',
     [missionId, userId]
   );
-
-router.get('/weekly-missions', async (req, res) => {
-  const db = await getDB();
-  const userId = req.user.uid;
-  const date = sanitizeDateParam(typeof req.query?.date === 'string' ? req.query.date : '', todayISO());
-  const payload = await loadWeeklyMissionSummary(db, userId, date);
-  res.json(payload);
-});
 
 router.get('/daily-missions', async (req, res) => {
   const db = await getDB();

@@ -73,35 +73,6 @@ const FALLBACK_AVATAR = 'https://api.dicebear.com/9.x/identicon/svg';
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [weeklyOverlayOpen, setWeeklyOverlayOpen] = useState(false);
-  const [weeklyHasUpdate, setWeeklyHasUpdate] = useState(false);
-
-  useEffect(() => {
-    const handleOpen = () => setWeeklyOverlayOpen(true);
-    window.addEventListener('life-weekly-missions-open', handleOpen);
-    return () => window.removeEventListener('life-weekly-missions-open', handleOpen);
-  }, []);
-
-  useEffect(() => {
-    const handleRefresh = () => {
-      if (!weeklyOverlayOpen) {
-        setWeeklyHasUpdate(true);
-      }
-    };
-    window.addEventListener('life-weekly-missions-refresh', handleRefresh);
-    return () => window.removeEventListener('life-weekly-missions-refresh', handleRefresh);
-  }, [weeklyOverlayOpen]);
-
-  useEffect(() => {
-    if (weeklyOverlayOpen) {
-      setWeeklyHasUpdate(false);
-    }
-  }, [weeklyOverlayOpen]);
-
-  const handleWeeklySummaryLoaded = useCallback((_: WeeklyMissionSummary) => {
-    setWeeklyHasUpdate(false);
-  }, []);
-
   return (
     <div
       className="min-h-screen grid text-slate-100 transition-[grid-template-columns] duration-300"
