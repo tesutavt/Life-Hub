@@ -11,6 +11,7 @@ import {
   Target,
   NotebookPen,
   CheckSquare,
+  Sparkles,
   Plane,
   Share2,
   Settings as SettingsIcon,
@@ -57,6 +58,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { to: '/year-goals', label: 'Цели на год', icon: Target, counterKey: 'goals', group: 'learning' },
   { to: '/pages', label: 'Страницы', icon: NotebookPen, group: 'lifestyle' },
   { to: '/habits', label: 'Привычки', icon: CheckSquare, group: 'lifestyle' },
+  { to: '/daily-missions', label: 'Ежедневные задания', icon: Sparkles, group: 'lifestyle' },
   { to: '/travel', label: 'Путешествие', icon: Plane, group: 'lifestyle' },
   { to: '/socials', label: 'Соцсети', icon: Share2, group: 'lifestyle' },
   { to: '/reports', label: 'Отчёты', icon: BarChart3, group: 'system' },
@@ -70,7 +72,6 @@ const FALLBACK_AVATAR = 'https://api.dicebear.com/9.x/identicon/svg';
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
   return (
     <div
       className="min-h-screen grid text-slate-100 transition-[grid-template-columns] duration-300"
