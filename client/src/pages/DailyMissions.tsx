@@ -139,7 +139,8 @@ export default function DailyMissions() {
     if (!node) return;
     const scrollAmount = Math.max(280, Math.round(node.clientWidth * 0.8));
     node.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-  }, []);
+    window.requestAnimationFrame(updateScrollState);
+  }, [updateScrollState]);
 
   const milestoneValues = useMemo(() => {
     const step = 100;
@@ -287,12 +288,11 @@ export default function DailyMissions() {
           На сегодня нет заданий. Загляните позже!
         </div>
       ) : (
-        <div className="relative mt-6">
-          <div className="overflow-hidden">
-            <div
-              ref={missionsContainerRef}
-              className="flex w-full gap-4 overflow-x-auto pb-4 pr-10 scroll-smooth"
-            >
+        <div className="relative mt-6 overflow-hidden">
+          <div
+            ref={missionsContainerRef}
+            className="flex w-full gap-4 overflow-x-hidden pb-4 pr-16 scroll-smooth [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          >
             {missions.map((mission) => {
               const claiming = claimingId === mission.id;
               const progressLabel = formatProgressLabel(mission);
@@ -338,10 +338,12 @@ export default function DailyMissions() {
             })}
             </div>
           </div>
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-brand-night via-brand-night/40 to-transparent"
-          />
+          {canScrollRight ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-brand-night via-brand-night/40 to-transparent"
+            />
+          ) : null}
           {canScrollRight ? (
             <button
               type="button"
