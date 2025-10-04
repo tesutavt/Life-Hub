@@ -78,6 +78,119 @@ const DAILY_MISSION_TARGET_POINTS = 500;
 const DEFAULT_MISSION_POINTS = 100;
 const DEFAULT_MISSION_XP = 50;
 
+const DAILY_MISSION_DEFINITIONS = [
+  {
+    key: 'steps_5000',
+    title: 'Сделайте 5000 шагов',
+    description: 'Прогуляйтесь или займитесь любимой активностью, чтобы пройти не менее пяти тысяч шагов за день.',
+    points: 140,
+    xp_reward: 80,
+    sort_order: 0,
+    target_value: 5000,
+    progress_unit: 'шагов',
+    progress_source: 'steps',
+  },
+  {
+    key: 'move_minutes_30',
+    title: 'Двигайтесь 30 минут',
+    description: 'Наберите минимум полчаса движения: прогулка, тренировка или активная зарядка — всё засчитывается.',
+    points: 120,
+    xp_reward: 70,
+    sort_order: 1,
+    target_value: 30,
+    progress_unit: 'минут',
+    progress_source: 'move_minutes',
+  },
+  {
+    key: 'burn_300_calories',
+    title: 'Сожгите 300 активных калорий',
+    description: 'Достигните дневной цели по активным калориям, чтобы почувствовать прилив энергии.',
+    points: 150,
+    xp_reward: 80,
+    sort_order: 2,
+    target_value: 300,
+    progress_unit: 'ккал',
+    progress_source: 'active_calories',
+  },
+  {
+    key: 'habit_checks_two',
+    title: 'Отметьте две привычки',
+    description: 'Закрепите полезные ритуалы: отметьте минимум две привычки в трекере за сегодня.',
+    points: 130,
+    xp_reward: 70,
+    sort_order: 3,
+    target_value: 2,
+    progress_unit: 'привычек',
+    progress_source: 'habit_checks',
+  },
+  {
+    key: 'goal_update',
+    title: 'Обновите цель',
+    description: 'Добавьте прогресс к одной из годовых целей и не упускайте фокус.',
+    points: 160,
+    xp_reward: 90,
+    sort_order: 4,
+    target_value: 1,
+    progress_unit: 'обновлений',
+    progress_source: 'goal_updates',
+  },
+  {
+    key: 'calendar_entry',
+    title: 'Запланируйте событие',
+    description: 'Добавьте встречу, тренировку или заметку в календарь на сегодня.',
+    points: 110,
+    xp_reward: 60,
+    sort_order: 5,
+    target_value: 1,
+    progress_unit: 'событий',
+    progress_source: 'calendar_events',
+  },
+  {
+    key: 'journal_entry',
+    title: 'Запишите мысль',
+    description: 'Сделайте запись в дневник, чтобы сохранить эмоции и идеи.',
+    points: 140,
+    xp_reward: 80,
+    sort_order: 6,
+    target_value: 1,
+    progress_unit: 'записей',
+    progress_source: 'journal_entries',
+  },
+  {
+    key: 'language_practice',
+    title: 'Практикуйтесь в языке',
+    description: 'Отметьте хотя бы одну страницу или упражнение в языковом модуле.',
+    points: 150,
+    xp_reward: 90,
+    sort_order: 7,
+    target_value: 1,
+    progress_unit: 'упражнений',
+    progress_source: 'language_progress',
+  },
+  {
+    key: 'course_progress',
+    title: 'Продвиньтесь в обучении',
+    description: 'Закройте одну страницу курса или урок, чтобы двигаться к новым знаниям.',
+    points: 170,
+    xp_reward: 100,
+    sort_order: 8,
+    target_value: 1,
+    progress_unit: 'страниц',
+    progress_source: 'course_progress',
+  },
+  {
+    key: 'sleep_well',
+    title: 'Выспитесь не менее 7 часов',
+    description: 'Наберите 420 минут сна, чтобы восстановить силы.',
+    points: 180,
+    xp_reward: 110,
+    sort_order: 9,
+    target_value: 420,
+    progress_unit: 'минут',
+    progress_source: 'sleep_minutes',
+  },
+];
+
 const clampMissionNumber = (value, { fallback = 0, min = 0, max = 100000 } = {}) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -109,6 +222,11 @@ const sanitizeDateParam = (value, fallback = todayISO()) => {
   const test = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(test.getTime())) return fallback;
   return trimmed;
+};
+
+const toNumber = (value, fallback = 0) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
 };
 
 const startOfWeek = (isoDate) => {
@@ -198,26 +316,195 @@ const mapDailyMissionRow = (row) => ({
   ),
   sort_order: sanitizeMissionSortOrder(row.sort_order, 0),
   is_active: !!row.is_active,
+  definition_key: row.definition_key || null,
   created_at: row.created_at || null,
   updated_at: row.updated_at || null,
 });
 
-const ensureDailyMissionDefaults = async (db, userId) => {
-  const countRow = await db.get('SELECT COUNT(*) AS cnt FROM daily_missions WHERE user_id=?', [userId]);
-  if ((countRow?.cnt || 0) > 0) return;
-  const defaults = [
-    { title: 'Войдите в Life Hub', description: 'Проверьте план на день и соберите награды.', points: 100, xp: 50 },
-    { title: 'Отметьте одну привычку', description: 'Завершите любое активное привычное действие.', points: 100, xp: 50 },
-    { title: 'Обновите прогресс цели', description: 'Сделайте шаг к одной из своих целей.', points: 100, xp: 50 },
-    { title: 'Заполните журнал', description: 'Добавьте запись или заметку в журнал.', points: 100, xp: 50 },
-    { title: 'Найдите минутку для себя', description: 'Сделайте паузу, вдохните и наградите себя.', points: 100, xp: 50 },
-  ];
-  for (let index = 0; index < defaults.length; index += 1) {
-    const mission = defaults[index];
+const ensureDailyMissionSchema = async (db) => {
+  try {
+    await db.run('ALTER TABLE daily_missions ADD COLUMN definition_key TEXT');
+  } catch (error) {
+    const message = String(error?.message || error).toLowerCase();
+    if (!message.includes('duplicate column')) {
+      // ignore if the column already exists, rethrow otherwise
+      throw error;
+    }
+  }
+  try {
     await db.run(
-      'INSERT INTO daily_missions(user_id,title,description,points,xp_reward,sort_order,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',
-      [userId, mission.title, mission.description, mission.points, mission.xp, index, 1]
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_missions_user_definition ON daily_missions(user_id, definition_key)'
     );
+  } catch {
+    // ignore
+  }
+};
+
+const ensureDailyMissionDefaults = async (db, userId) => {
+  await ensureDailyMissionSchema(db);
+  const existing = await db.all(
+    'SELECT id, definition_key, title FROM daily_missions WHERE user_id=? ORDER BY id ASC',
+    [userId]
+  );
+
+  const byKey = new Map();
+  existing.forEach((row) => {
+    if (row.definition_key) {
+      byKey.set(row.definition_key, row);
+    }
+  });
+
+  for (let index = 0; index < DAILY_MISSION_DEFINITIONS.length; index += 1) {
+    const definition = DAILY_MISSION_DEFINITIONS[index];
+    let row = byKey.get(definition.key);
+
+    if (!row) {
+      row = existing.find((entry) => !entry.definition_key && entry.title === definition.title) || null;
+      if (row) {
+        await db.run('UPDATE daily_missions SET definition_key=? WHERE id=?', [definition.key, row.id]);
+        row.definition_key = definition.key;
+        byKey.set(definition.key, row);
+      }
+    }
+
+    if (!row) {
+      const result = await db.run(
+        'INSERT INTO daily_missions(user_id,title,description,points,xp_reward,sort_order,is_active,definition_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',
+        [
+          userId,
+          definition.title,
+          definition.description,
+          definition.points,
+          definition.xp_reward,
+          definition.sort_order ?? index,
+          1,
+          definition.key,
+        ]
+      );
+      row = { id: result.lastID, definition_key: definition.key };
+      byKey.set(definition.key, row);
+    } else {
+      await db.run(
+        'UPDATE daily_missions SET title=?, description=?, points=?, xp_reward=?, sort_order=?, is_active=1, definition_key=?, updated_at=CURRENT_TIMESTAMP WHERE id=?',
+        [
+          definition.title,
+          definition.description,
+          definition.points,
+          definition.xp_reward,
+          definition.sort_order ?? index,
+          definition.key,
+          row.id,
+        ]
+      );
+    }
+  }
+
+  if (DAILY_MISSION_DEFINITIONS.length > 0) {
+    const placeholders = DAILY_MISSION_DEFINITIONS.map(() => '?').join(',');
+    const params = [userId, ...DAILY_MISSION_DEFINITIONS.map((item) => item.key)];
+    await db.run(
+      `DELETE FROM daily_missions WHERE user_id=? AND (definition_key IS NULL OR definition_key NOT IN (${placeholders}))`,
+      params
+    );
+  } else {
+    await db.run('DELETE FROM daily_missions WHERE user_id=?', [userId]);
+  }
+};
+
+const collectDailyMissionStats = async (db, userId, date) => {
+  const [
+    activity,
+    daily,
+    sleep,
+    habitChecks,
+    goalUpdates,
+    calendarEvents,
+    journalEntries,
+    languagePages,
+    languagePdfPages,
+    coursePages,
+    coursePdfPages,
+  ] = await Promise.all([
+    db.get('SELECT steps, calories, move_minutes, active_minutes FROM fitness_activity WHERE user_id=? AND date=?', [
+      userId,
+      date,
+    ]),
+    db.get('SELECT active_calories FROM fitness_daily WHERE user_id=? AND date=?', [userId, date]),
+    db.get('SELECT duration_minutes FROM fitness_sleep WHERE user_id=? AND date=?', [userId, date]),
+    db.get('SELECT COUNT(*) AS count FROM habit_checks WHERE user_id=? AND date=?', [userId, date]),
+    db.get('SELECT COUNT(*) AS count FROM yearly_goal_logs WHERE user_id=? AND date=?', [userId, date]),
+    db.get('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id=? AND date=?', [userId, date]),
+    db.get('SELECT COUNT(*) AS count FROM journal WHERE user_id=? AND date=?', [userId, date]),
+    db.get(
+      'SELECT COUNT(*) AS count FROM language_pages WHERE user_id=? AND done=1 AND COALESCE(substr(done_at,1,10),"")=?',
+      [userId, date]
+    ),
+    db.get(
+      'SELECT COUNT(*) AS count FROM language_pdf_pages WHERE user_id=? AND done=1 AND COALESCE(substr(done_at,1,10),"")=?',
+      [userId, date]
+    ),
+    db.get(
+      'SELECT COUNT(*) AS count FROM course_pages WHERE user_id=? AND done=1 AND COALESCE(substr(done_at,1,10),"")=?',
+      [userId, date]
+    ),
+    db.get(
+      'SELECT COUNT(*) AS count FROM course_pdf_pages WHERE user_id=? AND done=1 AND COALESCE(substr(done_at,1,10),"")=?',
+      [userId, date]
+    ),
+  ]);
+
+  return {
+    activity: activity || null,
+    daily: daily || null,
+    sleep: sleep || null,
+    habitChecks: toNumber(habitChecks?.count, 0),
+    goalUpdates: toNumber(goalUpdates?.count, 0),
+    calendarEvents: toNumber(calendarEvents?.count, 0),
+    journalEntries: toNumber(journalEntries?.count, 0),
+    languagePages: toNumber(languagePages?.count, 0),
+    languagePdfPages: toNumber(languagePdfPages?.count, 0),
+    coursePages: toNumber(coursePages?.count, 0),
+    coursePdfPages: toNumber(coursePdfPages?.count, 0),
+  };
+};
+
+const getDailyMissionDefinitionForRow = (mission) => {
+  if (!mission) return null;
+  if (mission.definition_key) {
+    const matched = DAILY_MISSION_DEFINITIONS.find((entry) => entry.key === mission.definition_key);
+    if (matched) return matched;
+  }
+  return DAILY_MISSION_DEFINITIONS.find((entry) => entry.sort_order === mission.sort_order) || null;
+};
+
+const computeDailyMissionProgress = (definition, stats) => {
+  if (!definition) return 0;
+  switch (definition.progress_source) {
+    case 'steps':
+      return Math.max(0, toNumber(stats.activity?.steps, 0));
+    case 'move_minutes':
+      return Math.max(0, toNumber(stats.activity?.move_minutes ?? stats.activity?.active_minutes, 0));
+    case 'active_calories':
+      return Math.max(
+        0,
+        toNumber(stats.daily?.active_calories, 0) || toNumber(stats.activity?.calories, 0)
+      );
+    case 'habit_checks':
+      return Math.max(0, stats.habitChecks || 0);
+    case 'goal_updates':
+      return Math.max(0, stats.goalUpdates || 0);
+    case 'calendar_events':
+      return Math.max(0, stats.calendarEvents || 0);
+    case 'journal_entries':
+      return Math.max(0, stats.journalEntries || 0);
+    case 'language_progress':
+      return Math.max(0, (stats.languagePages || 0) + (stats.languagePdfPages || 0));
+    case 'course_progress':
+      return Math.max(0, (stats.coursePages || 0) + (stats.coursePdfPages || 0));
+    case 'sleep_minutes':
+      return Math.max(0, Math.round(toNumber(stats.sleep?.duration_minutes, 0)));
+    default:
+      return 0;
   }
 };
 
@@ -374,7 +661,7 @@ const loadWeeklyMissionSummary = async (db, userId, date) => {
 
 const loadDailyMissionSummary = async (db, userId, date, { includeInactive = false } = {}) => {
   const rows = await db.all(
-    `SELECT id, user_id, title, description, points, xp_reward, sort_order, is_active, created_at, updated_at
+    `SELECT id, user_id, title, description, points, xp_reward, sort_order, is_active, definition_key, created_at, updated_at
      FROM daily_missions
      WHERE user_id=?${includeInactive ? '' : ' AND is_active=1'}
      ORDER BY sort_order ASC, id ASC`,
@@ -391,13 +678,33 @@ const loadDailyMissionSummary = async (db, userId, date, { includeInactive = fal
     completionMap.set(entry.mission_id, entry);
   });
 
+  const stats = await collectDailyMissionStats(db, userId, date);
+
   const missions = rows.map((row) => {
     const base = mapDailyMissionRow(row);
+    const definition = getDailyMissionDefinitionForRow(base);
+    const targetValue = Math.max(1, toNumber(definition?.target_value, 1));
+    const rawProgress = computeDailyMissionProgress(definition, stats);
+    const clampedProgress = targetValue > 0 ? Math.min(rawProgress, targetValue) : rawProgress;
+    const progressPct = targetValue > 0 ? Math.min(100, Math.round((clampedProgress * 100) / targetValue)) : 0;
     const completion = completionMap.get(row.id);
+    const rewardClaimed = !!completion;
+    const completed = rawProgress >= targetValue;
     return {
       ...base,
-      completed: !!completion,
-      completed_at: completion?.completed_at || null,
+      title: definition?.title ?? base.title,
+      description: definition?.description ?? base.description,
+      points: sanitizeMissionPoints(definition?.points ?? base.points, base.points),
+      xp_reward: sanitizeMissionXp(definition?.xp_reward ?? base.xp_reward, base.xp_reward),
+      target_value: targetValue,
+      progress_value: rawProgress,
+      progress_pct: progressPct,
+      progress_unit: definition?.progress_unit || null,
+      completed,
+      completed_at: completed ? completion?.completed_at || null : null,
+      reward_claimed: rewardClaimed,
+      reward_claimed_at: completion?.completed_at || null,
+      claimable: completed && !rewardClaimed,
     };
   });
 
@@ -406,6 +713,7 @@ const loadDailyMissionSummary = async (db, userId, date, { includeInactive = fal
   const target = DAILY_MISSION_TARGET_POINTS;
   const progressPct = target > 0 ? Math.min(100, Math.round((totalPoints * 100) / target)) : 0;
   const remaining = Math.max(0, target - totalPoints);
+  const completedCount = missions.filter((mission) => mission.completed).length;
 
   return {
     date,
@@ -413,7 +721,8 @@ const loadDailyMissionSummary = async (db, userId, date, { includeInactive = fal
     total_points: totalPoints,
     remaining_points: remaining,
     progress_pct: progressPct,
-    completed_count: completions.length,
+    completed_count: completedCount,
+    claimed_count: completions.length,
     total_count: rows.length,
     xp_earned: xpEarned,
     missions,
@@ -422,7 +731,7 @@ const loadDailyMissionSummary = async (db, userId, date, { includeInactive = fal
 
 const fetchDailyMission = (db, userId, missionId) =>
   db.get(
-    'SELECT id, user_id, title, description, points, xp_reward, sort_order, is_active, created_at, updated_at FROM daily_missions WHERE id=? AND user_id=?',
+    'SELECT id, user_id, title, description, points, xp_reward, sort_order, is_active, definition_key, created_at, updated_at FROM daily_missions WHERE id=? AND user_id=?',
     [missionId, userId]
   );
 
@@ -446,91 +755,11 @@ router.get('/daily-missions', async (req, res) => {
   res.json(payload);
 });
 
-router.post('/daily-missions', async (req, res) => {
-  const db = await getDB();
-  const userId = req.user.uid;
-  const points = sanitizeMissionPoints(req.body?.points, DEFAULT_MISSION_POINTS);
-  const xpFallback = Math.max(DEFAULT_MISSION_XP, Math.round(points / 2));
-  const xpReward = sanitizeMissionXp(req.body?.xp_reward, xpFallback);
-  const missionData = {
-    title: sanitizeRequiredText(req.body?.title, 'Без названия'),
-    description: sanitizeOptionalText(req.body?.description, 1024),
-    points,
-    xp_reward: xpReward,
-    sort_order: sanitizeMissionSortOrder(req.body?.sort_order, 0),
-    is_active: parseBooleanParam(req.body?.is_active, true) ? 1 : 0,
-  };
+const respondMissionReadOnly = (res) => res.status(405).json({ error: 'mission management is disabled' });
 
-  const result = await db.run(
-    'INSERT INTO daily_missions(user_id,title,description,points,xp_reward,sort_order,is_active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',
-    [userId, missionData.title, missionData.description, missionData.points, missionData.xp_reward, missionData.sort_order, missionData.is_active]
-  );
-
-  const mission = await fetchDailyMission(db, userId, result.lastID);
-  res.json({ mission: { ...mapDailyMissionRow(mission), completed: false, completed_at: null } });
-});
-
-router.put('/daily-missions/:id', async (req, res) => {
-  const missionId = Number.parseInt(req.params.id, 10);
-  if (!Number.isInteger(missionId)) {
-    return res.status(400).json({ error: 'invalid mission id' });
-  }
-  const db = await getDB();
-  const existing = await fetchDailyMission(db, req.user.uid, missionId);
-  if (!existing) {
-    return res.status(404).json({ error: 'mission not found' });
-  }
-
-  const points = sanitizeMissionPoints(
-    req.body?.points,
-    existing?.points ?? DEFAULT_MISSION_POINTS
-  );
-  const xpFallback =
-    req.body?.xp_reward == null && existing?.xp_reward == null
-      ? Math.max(DEFAULT_MISSION_XP, Math.round(points / 2))
-      : existing?.xp_reward ?? DEFAULT_MISSION_XP;
-  const xpReward = sanitizeMissionXp(req.body?.xp_reward ?? existing?.xp_reward, xpFallback);
-
-  const updated = {
-    title: sanitizeRequiredText(req.body?.title ?? existing.title, existing.title || 'Без названия'),
-    description: sanitizeOptionalText(
-      req.body?.description ?? existing.description,
-      1024
-    ),
-    points,
-    xp_reward: xpReward,
-    sort_order: sanitizeMissionSortOrder(req.body?.sort_order ?? existing.sort_order, existing.sort_order ?? 0),
-    is_active: parseBooleanParam(req.body?.is_active ?? existing.is_active, !!existing.is_active) ? 1 : 0,
-  };
-
-  await db.run(
-    'UPDATE daily_missions SET title=?, description=?, points=?, xp_reward=?, sort_order=?, is_active=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?',
-    [
-      updated.title,
-      updated.description,
-      updated.points,
-      updated.xp_reward,
-      updated.sort_order,
-      updated.is_active,
-      missionId,
-      req.user.uid,
-    ]
-  );
-
-  const mission = await fetchDailyMission(db, req.user.uid, missionId);
-  res.json({ mission: mapDailyMissionRow(mission) });
-});
-
-router.delete('/daily-missions/:id', async (req, res) => {
-  const missionId = Number.parseInt(req.params.id, 10);
-  if (!Number.isInteger(missionId)) {
-    return res.status(400).json({ error: 'invalid mission id' });
-  }
-  const db = await getDB();
-  await db.run('DELETE FROM daily_missions WHERE id=? AND user_id=?', [missionId, req.user.uid]);
-  await db.run('DELETE FROM daily_mission_completions WHERE mission_id=? AND user_id=?', [missionId, req.user.uid]);
-  res.json({ ok: true });
-});
+router.post('/daily-missions', (req, res) => respondMissionReadOnly(res));
+router.put('/daily-missions/:id', (req, res) => respondMissionReadOnly(res));
+router.delete('/daily-missions/:id', (req, res) => respondMissionReadOnly(res));
 
 router.post('/daily-missions/:id/complete', async (req, res) => {
   const missionId = Number.parseInt(req.params.id, 10);
@@ -538,6 +767,7 @@ router.post('/daily-missions/:id/complete', async (req, res) => {
     return res.status(400).json({ error: 'invalid mission id' });
   }
   const db = await getDB();
+  await ensureDailyMissionDefaults(db, req.user.uid);
   const mission = await fetchDailyMission(db, req.user.uid, missionId);
   if (!mission) {
     return res.status(404).json({ error: 'mission not found' });
@@ -547,101 +777,79 @@ router.post('/daily-missions/:id/complete', async (req, res) => {
   }
 
   const date = sanitizeDateParam(req.body?.date, todayISO());
+  const baseMission = mapDailyMissionRow(mission);
+  const definition = getDailyMissionDefinitionForRow(baseMission);
+  const targetValue = Math.max(1, toNumber(definition?.target_value, 1));
+  const stats = await collectDailyMissionStats(db, req.user.uid, date);
+  const progressValue = computeDailyMissionProgress(definition, stats);
+
+  if (progressValue < targetValue) {
+    return res.status(400).json({
+      error: 'mission requirements not met',
+      progress_value: progressValue,
+      target_value: targetValue,
+    });
+  }
+
   const completion = await db.get(
     'SELECT id, points_awarded, xp_awarded FROM daily_mission_completions WHERE user_id=? AND mission_id=? AND date=?',
     [req.user.uid, missionId, date]
   );
 
-  if (!completion) {
-    const points = sanitizeMissionPoints(mission.points, DEFAULT_MISSION_POINTS);
-    const xpFallback = mission.xp_reward == null
-      ? Math.max(DEFAULT_MISSION_XP, Math.round(points / 2))
-      : mission.xp_reward;
-    const xpReward = sanitizeMissionXp(mission.xp_reward, xpFallback);
-    const ts = new Date().toISOString();
-
-    await db.run(
-      'INSERT INTO daily_mission_completions(user_id, mission_id, date, points_awarded, xp_awarded, completed_at) VALUES(?,?,?,?,?,?)',
-      [req.user.uid, missionId, date, points, xpReward, ts]
-    );
-
-    const xpRow = (await db.get('SELECT xp FROM user_xp WHERE user_id=?', [req.user.uid])) || { xp: 0 };
-    const newXp = (xpRow.xp || 0) + xpReward;
-    const level = levelFromXp(newXp);
-    await db.run(
-      'INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
-      [req.user.uid, newXp, level, newXp, level]
-    );
-    await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)', [
-      req.user.uid,
-      'daily_mission_completed',
-      'Ежедневное задание выполнено',
-      mission.title || '',
-      JSON.stringify({ mission_id: missionId, date, points, xp: xpReward }),
-      ts,
-    ]);
-
+  if (completion) {
     const summary = await loadDailyMissionSummary(db, req.user.uid, date);
     const mapped = summary.missions.find((item) => item.id === missionId) || {
-      ...mapDailyMissionRow(mission),
+      ...baseMission,
       completed: true,
-      completed_at: ts,
+      reward_claimed: true,
     };
-    return res.json({ mission: mapped, summary, xp: { value: newXp, level } });
+    return res.json({ mission: mapped, summary, already_completed: true });
   }
 
-  const summary = await loadDailyMissionSummary(db, req.user.uid, date);
-  const mapped = summary.missions.find((item) => item.id === missionId);
-  res.json({ mission: mapped || mapDailyMissionRow(mission), summary, already_completed: true });
-});
+  const points = sanitizeMissionPoints(definition?.points ?? mission.points, DEFAULT_MISSION_POINTS);
+  const xpFallback =
+    definition?.xp_reward == null && mission.xp_reward == null
+      ? Math.max(DEFAULT_MISSION_XP, Math.round(points / 2))
+      : definition?.xp_reward ?? mission.xp_reward ?? DEFAULT_MISSION_XP;
+  const xpReward = sanitizeMissionXp(definition?.xp_reward ?? mission.xp_reward, xpFallback);
+  const ts = new Date().toISOString();
 
-router.delete('/daily-missions/:id/complete', async (req, res) => {
-  const missionId = Number.parseInt(req.params.id, 10);
-  if (!Number.isInteger(missionId)) {
-    return res.status(400).json({ error: 'invalid mission id' });
-  }
-  const date = sanitizeDateParam(typeof req.query?.date === 'string' ? req.query.date : '', todayISO());
-  const db = await getDB();
-  const completion = await db.get(
-    'SELECT id, points_awarded, xp_awarded FROM daily_mission_completions WHERE user_id=? AND mission_id=? AND date=?',
-    [req.user.uid, missionId, date]
+  await db.run(
+    'INSERT INTO daily_mission_completions(user_id, mission_id, date, points_awarded, xp_awarded, completed_at) VALUES(?,?,?,?,?,?)',
+    [req.user.uid, missionId, date, points, xpReward, ts]
   );
 
-  let xpPayload = null;
-  if (completion) {
-    await db.run('DELETE FROM daily_mission_completions WHERE id=?', [completion.id]);
-    const xpDelta = sanitizeMissionXp(completion.xp_awarded, 0);
-    if (xpDelta > 0) {
-      const xpRow = (await db.get('SELECT xp FROM user_xp WHERE user_id=?', [req.user.uid])) || { xp: 0 };
-      const newXp = Math.max(0, (xpRow.xp || 0) - xpDelta);
-      const level = levelFromXp(newXp);
-      await db.run(
-        'INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
-        [req.user.uid, newXp, level, newXp, level]
-      );
-      xpPayload = { value: newXp, level };
-      await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)', [
-        req.user.uid,
-        'daily_mission_reverted',
-        'Ежедневное задание отменено',
-        '',
-        JSON.stringify({ mission_id: missionId, date, xp_removed: xpDelta }),
-        new Date().toISOString(),
-      ]);
-    }
-  }
+  const xpRow = (await db.get('SELECT xp FROM user_xp WHERE user_id=?', [req.user.uid])) || { xp: 0 };
+  const newXp = (xpRow.xp || 0) + xpReward;
+  const level = levelFromXp(newXp);
+  await db.run(
+    'INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
+    [req.user.uid, newXp, level, newXp, level]
+  );
+  await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)', [
+    req.user.uid,
+    'daily_mission_completed',
+    'Ежедневное задание выполнено',
+    mission.title || '',
+    JSON.stringify({ mission_id: missionId, date, points, xp: xpReward }),
+    ts,
+  ]);
 
   const summary = await loadDailyMissionSummary(db, req.user.uid, date);
-  let mapped = summary.missions.find((item) => item.id === missionId);
-  if (!mapped) {
-    const mission = await fetchDailyMission(db, req.user.uid, missionId);
-    if (mission) {
-      mapped = { ...mapDailyMissionRow(mission), completed: false, completed_at: null };
-    }
-  }
-
-  res.json({ mission: mapped, summary, xp: xpPayload });
+  const mapped =
+    summary.missions.find((item) => item.id === missionId) ||
+    {
+      ...baseMission,
+      completed: true,
+      reward_claimed: true,
+      reward_claimed_at: ts,
+    };
+  res.json({ mission: mapped, summary, xp: { value: newXp, level } });
 });
+
+router.delete('/daily-missions/:id/complete', (req, res) =>
+  res.status(405).json({ error: 'mission rewards cannot be revoked' })
+);
 
 async function recomputeGoal(db, userId, goalId) {
   const goal = await db.get('SELECT * FROM yearly_goals WHERE id=? AND user_id=?', [goalId, userId]);

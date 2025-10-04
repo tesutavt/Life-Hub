@@ -124,8 +124,10 @@ CREATE TABLE IF NOT EXISTS daily_missions(
   xp_reward INTEGER DEFAULT 50,
   sort_order INTEGER DEFAULT 0,
   is_active INTEGER DEFAULT 1,
+  definition_key TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT,
+  UNIQUE(user_id, definition_key),
   FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
