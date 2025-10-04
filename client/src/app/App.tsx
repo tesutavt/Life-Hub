@@ -111,26 +111,6 @@ export default function App() {
         <ReportReminders />
         <Outlet />
       </main>
-      <WeeklyMissionsOverlay
-        open={weeklyOverlayOpen}
-        onClose={() => setWeeklyOverlayOpen(false)}
-        onSummaryLoaded={handleWeeklySummaryLoaded}
-      />
-      <button
-        type="button"
-        onClick={() => setWeeklyOverlayOpen(true)}
-        className="group fixed bottom-6 right-6 z-40 inline-flex items-center gap-3 rounded-full border border-white/10 bg-gradient-to-r from-amber-400 via-rose-400 to-purple-500 px-5 py-3 text-sm font-semibold text-brand-night shadow-[0_12px_30px_rgba(15,23,42,0.45)] transition hover:brightness-110"
-        aria-label="Открыть еженедельные задания"
-      >
-        <Sparkles size={18} className="drop-shadow-sm" />
-        Еженедельные задания
-        {weeklyHasUpdate ? (
-          <span className="relative inline-flex h-2.5 w-2.5 items-center justify-center">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70 opacity-75" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
-          </span>
-        ) : null}
-      </button>
     </div>
   );
 }
