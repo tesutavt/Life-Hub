@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import classNames from 'classnames';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
@@ -11,6 +11,7 @@ import {
   Target,
   NotebookPen,
   CheckSquare,
+  Sparkles,
   Plane,
   Share2,
   Settings as SettingsIcon,
@@ -31,6 +32,7 @@ import SiteSearch from '../components/SiteSearch';
 import { Modal } from '../components/ui/Modal';
 import ReportReminders from '../components/reports/ReportReminders';
 import { getAvatarFrameOption, resolveAvatarFrameId } from '../constants/avatarFrames';
+import WeeklyMissionsOverlay, { WeeklyMissionSummary } from '../components/WeeklyMissionsOverlay';
 
 type MenuCounters = {
   languages: number;
@@ -57,6 +59,7 @@ export const MENU_ITEMS: MenuItem[] = [
   { to: '/year-goals', label: 'Цели на год', icon: Target, counterKey: 'goals', group: 'learning' },
   { to: '/pages', label: 'Страницы', icon: NotebookPen, group: 'lifestyle' },
   { to: '/habits', label: 'Привычки', icon: CheckSquare, group: 'lifestyle' },
+  { to: '/daily-missions', label: 'Ежедневные задания', icon: Sparkles, group: 'lifestyle' },
   { to: '/travel', label: 'Путешествие', icon: Plane, group: 'lifestyle' },
   { to: '/socials', label: 'Соцсети', icon: Share2, group: 'lifestyle' },
   { to: '/reports', label: 'Отчёты', icon: BarChart3, group: 'system' },
@@ -70,6 +73,34 @@ const FALLBACK_AVATAR = 'https://api.dicebear.com/9.x/identicon/svg';
 
 export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [weeklyOverlayOpen, setWeeklyOverlayOpen] = useState(false);
+  const [weeklyHasUpdate, setWeeklyHasUpdate] = useState(false);
+
+  useEffect(() => {
+    const handleOpen = () => setWeeklyOverlayOpen(true);
+    window.addEventListener('life-weekly-missions-open', handleOpen);
+    return () => window.removeEventListener('life-weekly-missions-open', handleOpen);
+  }, []);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      if (!weeklyOverlayOpen) {
+        setWeeklyHasUpdate(true);
+      }
+    };
+    window.addEventListener('life-weekly-missions-refresh', handleRefresh);
+    return () => window.removeEventListener('life-weekly-missions-refresh', handleRefresh);
+  }, [weeklyOverlayOpen]);
+
+  useEffect(() => {
+    if (weeklyOverlayOpen) {
+      setWeeklyHasUpdate(false);
+    }
+  }, [weeklyOverlayOpen]);
+
+  const handleWeeklySummaryLoaded = useCallback((_: WeeklyMissionSummary) => {
+    setWeeklyHasUpdate(false);
+  }, []);
 
   return (
     <div
@@ -109,6 +140,26 @@ export default function App() {
         <ReportReminders />
         <Outlet />
       </main>
+      <WeeklyMissionsOverlay
+        open={weeklyOverlayOpen}
+        onClose={() => setWeeklyOverlayOpen(false)}
+        onSummaryLoaded={handleWeeklySummaryLoaded}
+      />
+      <button
+        type="button"
+        onClick={() => setWeeklyOverlayOpen(true)}
+        className="group fixed bottom-6 right-6 z-40 inline-flex items-center gap-3 rounded-full border border-white/10 bg-gradient-to-r from-amber-400 via-rose-400 to-purple-500 px-5 py-3 text-sm font-semibold text-brand-night shadow-[0_12px_30px_rgba(15,23,42,0.45)] transition hover:brightness-110"
+        aria-label="Открыть еженедельные задания"
+      >
+        <Sparkles size={18} className="drop-shadow-sm" />
+        Еженедельные задания
+        {weeklyHasUpdate ? (
+          <span className="relative inline-flex h-2.5 w-2.5 items-center justify-center">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/70 opacity-75" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
+          </span>
+        ) : null}
+      </button>
     </div>
   );
 }
