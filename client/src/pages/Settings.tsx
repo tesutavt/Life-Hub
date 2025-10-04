@@ -12,7 +12,8 @@ import {
   normalizeNotificationPreferences,
 } from "../types/ui";
 import { notifyNotificationSettingsChange } from "../notifications/settingsBus";
-import SocialIntegrations from "./settings/sections/SocialIntegrations";
+import TelegramSettings from "./settings/sections/TelegramSettings";
+import TwitchSettings from "./settings/sections/TwitchSettings";
 import GoogleIntegration from "./settings/sections/GoogleIntegration";
 import WeatherIntegration from "./settings/sections/WeatherIntegration";
 import InterfacePreferences from "./settings/sections/InterfacePreferences";
@@ -38,6 +39,15 @@ const defaultSocialTemplates = {
   stream: "Привет! В эфире: {stream_title}\nhttps://twitch.tv/{channel}",
   video: "Новое видео: {video_title}\n{video_url}",
 };
+
+const SETTINGS_TABS = [
+  { id: "system", label: "Системные" },
+  { id: "telegram", label: "Telegram" },
+  { id: "twitch", label: "Twitch" },
+  { id: "other", label: "Прочее" },
+] as const;
+
+type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 
 const FALLBACK_OPENWEATHER_KEY = (() => {
   const raw = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined;
@@ -111,6 +121,7 @@ export default function Settings() {
   const [timersLoading, setTimersLoading] = useState(true);
   const [commandsBusy, setCommandsBusy] = useState(false);
   const [timersBusy, setTimersBusy] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("system");
   const handleSocialChange = useCallback((updates: Partial<SocialSettings>) => {
     setSocialForm((prev) => ({ ...prev, ...updates }));
   }, []);
@@ -321,6 +332,7 @@ export default function Settings() {
         setSocialForm({
           tg_bot_token: socials.settings?.tg_bot_token || "",
           tg_chat_id: socials.settings?.tg_chat_id || "",
+          tg_personal_chat_id: socials.settings?.tg_personal_chat_id || "",
           twitch_channel: socials.settings?.twitch_channel || "",
           youtube_channel_id: socials.settings?.youtube_channel_id || "",
           tg_stream_template: socials.settings?.tg_stream_template || defaultSocialTemplates.stream,
@@ -332,6 +344,7 @@ export default function Settings() {
         setSocialForm({
           tg_bot_token: "",
           tg_chat_id: "",
+          tg_personal_chat_id: "",
           twitch_channel: "",
           youtube_channel_id: "",
           tg_stream_template: defaultSocialTemplates.stream,
@@ -597,7 +610,23 @@ export default function Settings() {
     <Shell>
       <div className="text-2xl font-semibold mb-4">Настройки интеграций</div>
 
-      <div className="flex justify-start sm:justify-end mb-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
+        <div className="flex flex-wrap items-center gap-2">
+          {SETTINGS_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 rounded-full border text-sm transition ${
+                activeTab === tab.id
+                  ? 'bg-white text-black border-white'
+                  : 'bg-white/10 text-white/70 border-white/20 hover:bg-white/20'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <QuickSetupMaster
           social={socialForm}
           onSocialChange={handleSocialChange}
@@ -611,75 +640,93 @@ export default function Settings() {
       </div>
 
       <div className="grid gap-6">
-        <SocialIntegrations
-          form={socialForm}
-          onChange={handleSocialChange}
-          onSubmit={saveSocials}
-          saving={saving}
-          commands={commands}
-          commandsLoading={commandsLoading}
-          commandsBusy={commandsBusy}
-          onAddCommand={addCommand}
-          onUpdateCommandField={updateCommandField}
-          onSaveCommand={saveCommand}
-          onDeleteCommand={deleteCommand}
-          timers={timers}
-          timersLoading={timersLoading}
-          timersBusy={timersBusy}
-          onAddTimer={addTimer}
-          onUpdateTimerField={updateTimerField}
-          onSaveTimer={saveTimer}
-          onDeleteTimer={deleteTimer}
-          formatTimerDate={formatTimerDate}
-        />
+        {activeTab === "system" && (
+          <>
+            <SystemSettings
+              favicon={favicon}
+              onChange={setFavicon}
+              onSubmit={saveSystemSettings}
+              saving={savingSystem}
+            />
+            <InterfacePreferences
+              showMenuCounters={showMenuCounters}
+              savingUi={savingUi}
+              onToggleMenuCounters={updateMenuCountersVisibility}
+              menuItems={MENU_ITEMS}
+              hiddenMenuItems={hiddenMenuItems}
+              onHiddenItemsChange={applyHiddenMenuItems}
+              notificationPreferences={notificationPreferences}
+              onNotificationPreferencesChange={applyNotificationPreferences}
+              hiddenMenuSummary={hiddenMenuSummary}
+              notificationSummary={notificationSummary}
+            />
+          </>
+        )}
 
-        <GoogleIntegration
-          value={google}
-          onChange={(value) => setGoogle(value)}
-          onSubmit={saveGoogle}
-          saving={savingGoogle}
-          authUrl={googleAuthUrl}
-        />
+        {activeTab === "telegram" && (
+          <TelegramSettings
+            form={socialForm}
+            onChange={handleSocialChange}
+            onSubmit={saveSocials}
+            saving={saving}
+          />
+        )}
 
-        <WeatherIntegration
-          apiKey={weatherApiKey}
-          backgrounds={weatherBackgrounds}
-          effects={weatherEffects}
-          onApiKeyChange={setWeatherApiKey}
-          onBackgroundChange={handleWeatherBackgroundChange}
-          onEffectChange={handleWeatherEffectChange}
-          onSubmit={saveWeather}
-          saving={savingWeather}
-        />
+        {activeTab === "twitch" && (
+          <TwitchSettings
+            form={socialForm}
+            onChange={handleSocialChange}
+            onSubmit={saveSocials}
+            saving={saving}
+            commands={commands}
+            commandsLoading={commandsLoading}
+            commandsBusy={commandsBusy}
+            onAddCommand={addCommand}
+            onUpdateCommandField={updateCommandField}
+            onSaveCommand={saveCommand}
+            onDeleteCommand={deleteCommand}
+            timers={timers}
+            timersLoading={timersLoading}
+            timersBusy={timersBusy}
+            onAddTimer={addTimer}
+            onUpdateTimerField={updateTimerField}
+            onSaveTimer={saveTimer}
+            onDeleteTimer={deleteTimer}
+            formatTimerDate={formatTimerDate}
+          />
+        )}
 
-        <SystemSettings
-          favicon={favicon}
-          onChange={setFavicon}
-          onSubmit={saveSystemSettings}
-          saving={savingSystem}
-        />
+        {activeTab === "other" && (
+          <>
+            <GoogleIntegration
+              value={google}
+              onChange={(value) => setGoogle(value)}
+              onSubmit={saveGoogle}
+              saving={savingGoogle}
+              authUrl={googleAuthUrl}
+            />
 
-        <ManualReportLauncher
-          period={manualPeriod}
-          onPeriodChange={handleManualPeriodChange}
-          onOpen={openManualReport}
-          loading={manualLoading}
-        />
+            <WeatherIntegration
+              apiKey={weatherApiKey}
+              backgrounds={weatherBackgrounds}
+              effects={weatherEffects}
+              onApiKeyChange={setWeatherApiKey}
+              onBackgroundChange={handleWeatherBackgroundChange}
+              onEffectChange={handleWeatherEffectChange}
+              onSubmit={saveWeather}
+              saving={savingWeather}
+            />
 
-        <InterfacePreferences
-          showMenuCounters={showMenuCounters}
-          savingUi={savingUi}
-          onToggleMenuCounters={updateMenuCountersVisibility}
-          menuItems={MENU_ITEMS}
-          hiddenMenuItems={hiddenMenuItems}
-          onHiddenItemsChange={applyHiddenMenuItems}
-          notificationPreferences={notificationPreferences}
-          onNotificationPreferencesChange={applyNotificationPreferences}
-          hiddenMenuSummary={hiddenMenuSummary}
-          notificationSummary={notificationSummary}
-        />
-
+            <ManualReportLauncher
+              period={manualPeriod}
+              onPeriodChange={handleManualPeriodChange}
+              onOpen={openManualReport}
+              loading={manualLoading}
+            />
+          </>
+        )}
       </div>
+
       <ManualReportModal
         open={manualOpen}
         onClose={closeManualReport}

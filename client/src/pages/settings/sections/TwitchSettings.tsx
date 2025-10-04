@@ -27,7 +27,7 @@ type Props = {
   formatTimerDate: (value: string | null | undefined) => string;
 };
 
-export default function SocialIntegrations({
+export default function TwitchSettings({
   form,
   onChange,
   onSubmit,
@@ -54,63 +54,24 @@ export default function SocialIntegrations({
 
   return (
     <form
-      id="settings-socials"
-      data-settings-section="socials"
+      id="settings-twitch"
+      data-settings-section="twitch"
       onSubmit={onSubmit}
       className="card space-y-4"
     >
       <div>
-        <div className="text-lg font-semibold mb-1">Telegram</div>
-        <p className="text-xs opacity-70">Заполните поля, чтобы бот мог отправлять сообщения и посты.</p>
+        <div className="text-lg font-semibold mb-1">Twitch</div>
+        <p className="text-xs opacity-70">
+          Настройте канал и бота для чата, а также автоматические команды и таймеры.
+        </p>
       </div>
-      <div className="grid md:grid-cols-2 gap-3">
-        <div className="flex flex-col gap-2">
-          <input
-            placeholder="Bot token"
-            value={form.tg_bot_token || ""}
-            onChange={updateField("tg_bot_token")}
-            className="px-3 py-2 rounded bg-white/10"
-          />
-          <input
-            placeholder="Chat ID"
-            value={form.tg_chat_id || ""}
-            onChange={updateField("tg_chat_id")}
-            className="px-3 py-2 rounded bg-white/10"
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <input
-            placeholder="Twitch канал (логин)"
-            value={form.twitch_channel || ""}
-            onChange={updateField("twitch_channel")}
-            className="px-3 py-2 rounded bg-white/10"
-          />
-          <input
-            placeholder="YouTube channelId (начинается с UC)"
-            value={form.youtube_channel_id || ""}
-            onChange={updateField("youtube_channel_id")}
-            className="px-3 py-2 rounded bg-white/10"
-          />
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs opacity-70">Шаблон сообщения о стриме</label>
-          <textarea
-            value={form.tg_stream_template || ""}
-            onChange={updateField("tg_stream_template")}
-            className="w-full px-3 py-2 rounded bg-white/10 min-h-[96px]"
-          />
-        </div>
-        <div>
-          <label className="text-xs opacity-70">Шаблон сообщения о видео</label>
-          <textarea
-            value={form.tg_video_template || ""}
-            onChange={updateField("tg_video_template")}
-            className="w-full px-3 py-2 rounded bg-white/10 min-h-[96px]"
-          />
-        </div>
+      <div className="space-y-3">
+        <input
+          placeholder="Twitch канал (логин)"
+          value={form.twitch_channel || ""}
+          onChange={updateField("twitch_channel")}
+          className="px-3 py-2 rounded bg-white/10"
+        />
       </div>
 
       <div className="border-t border-white/10 pt-4 space-y-4">

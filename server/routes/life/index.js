@@ -3,6 +3,7 @@ import { getDB, levelFromXp } from '../../utils.js';
 import { TAG_ENTITY_TYPES, fetchTagLinks, sortTags, syncTagLinks } from '../../tagUtils.js';
 import { upload, removeLocalUpload } from './storage.js';
 import { createUploadsRouter } from './uploads.js';
+import { ensureSocialSchema } from '../socials/index.js';
 
 const router = express.Router();
 
@@ -72,6 +73,56 @@ const normalizePdfUrl = (value) => {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, 2048);
+};
+
+const MAX_TELEGRAM_CAPTION = 1024;
+const MAX_REPORT_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB safety limit
+
+const decodePngDataUrl = (value) => {
+  if (typeof value !== 'string') return null;
+  const commaIndex = value.indexOf(',');
+  if (commaIndex === -1) return null;
+  const header = value.slice(0, commaIndex).toLowerCase();
+  if (!header.startsWith('data:image/png')) return null;
+  if (!header.includes('base64')) return null;
+  const base64 = value.slice(commaIndex + 1).trim();
+  if (!base64) return null;
+  try {
+    const buffer = Buffer.from(base64, 'base64');
+    if (!buffer.length) return null;
+    return buffer;
+  } catch {
+    return null;
+  }
+};
+
+const sendReportToTelegram = async (botToken, chatId, buffer, caption) => {
+  if (!botToken || !chatId || !buffer?.length) {
+    return { ok: false, description: 'missing_data' };
+  }
+  try {
+    const form = new FormData();
+    form.append('chat_id', chatId);
+    form.append('disable_notification', 'true');
+    const safeCaption = caption && typeof caption === 'string' ? caption.slice(0, MAX_TELEGRAM_CAPTION) : '';
+    if (safeCaption) {
+      form.append('caption', safeCaption);
+    }
+    const filename = `lifehub-report-${Date.now()}.png`;
+    form.append('photo', new Blob([buffer], { type: 'image/png' }), filename);
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await response.json().catch(() => null);
+    if (data && typeof data === 'object') {
+      return data;
+    }
+    return { ok: false, description: 'invalid_response' };
+  } catch (error) {
+    return { ok: false, description: error?.message || 'network_error' };
+  }
 };
 
 const DAILY_MISSION_TARGET_POINTS = 500;
@@ -4069,6 +4120,40 @@ router.get('/reports/period', async (req, res) => {
     report_id: reportData.report_id || stored?.id || null,
     report: reportData
   });
+});
+
+router.post('/reports/share', async (req, res) => {
+  const imageBuffer = decodePngDataUrl(req.body?.image);
+  if (!imageBuffer) {
+    return res.status(400).json({ error: 'invalid_image' });
+  }
+  if (imageBuffer.length > MAX_REPORT_IMAGE_BYTES) {
+    return res.status(413).json({ error: 'image_too_large' });
+  }
+  const captionRaw = typeof req.body?.caption === 'string' ? req.body.caption.trim() : '';
+  const caption = captionRaw ? captionRaw.slice(0, MAX_TELEGRAM_CAPTION) : '';
+
+  await ensureSocialSchema();
+  const db = await getDB();
+  const settings = await db.get(
+    'SELECT tg_bot_token, tg_personal_chat_id FROM social_settings WHERE user_id=?',
+    [req.user.uid]
+  );
+  const botToken = settings?.tg_bot_token ? String(settings.tg_bot_token).trim() : '';
+  const chatId = settings?.tg_personal_chat_id ? String(settings.tg_personal_chat_id).trim() : '';
+  if (!botToken || !chatId) {
+    return res.status(400).json({ error: 'telegram_not_configured' });
+  }
+
+  const result = await sendReportToTelegram(botToken, chatId, imageBuffer, caption);
+  if (!result?.ok) {
+    return res.status(502).json({
+      error: 'telegram_send_failed',
+      description: result?.description || result?.reason || null,
+    });
+  }
+
+  res.json({ ok: true, message_id: result?.result?.message_id ?? null });
 });
 
 router.get('/reports/history', async (req, res) => {

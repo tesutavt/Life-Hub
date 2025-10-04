@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS social_settings(
   user_id INTEGER PRIMARY KEY,
   tg_bot_token TEXT,
   tg_chat_id TEXT,
+  tg_personal_chat_id TEXT,
   twitch_channel TEXT,
   youtube_channel_id TEXT,
   tg_stream_template TEXT,
