@@ -427,7 +427,7 @@ const TopStat = ({
 }) => (
   <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
-      <Icon className="h-5 w-5 text-white" />
+      <Icon className="h-4 w-4 text-white" />
     </div>
     <div>
       <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
@@ -1352,7 +1352,7 @@ export default function Dashboard() {
   const goNextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
   return (
     <Shell>
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-3xl font-semibold text-white">Добро пожаловать!</div>
@@ -1393,13 +1393,13 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-12">
-          <div className="space-y-6 xl:col-span-8">
-            <div className="card space-y-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-4 xl:grid-cols-12">
+          <div className="space-y-4 xl:col-span-8">
+            <div className="card space-y-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                    <BookOpen className="h-5 w-5 text-white" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
+                    <BookOpen className="h-4 w-4 text-white" />
                   </div>
                   <div>
                     <div className="text-lg font-semibold text-white">Языки</div>
@@ -1420,9 +1420,9 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 {languages.slice(0, 6).map((lang) => (
-                  <div key={lang.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                  <div key={lang.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-semibold text-white">{lang.name}</div>
                       <div className="text-xs text-white/50">{lang.level || 'уровень ?'}</div>
@@ -1433,18 +1433,18 @@ export default function Dashboard() {
                   </div>
                 ))}
                 {languages.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
                     Добавьте языки, чтобы отслеживать прогресс.
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="card space-y-4">
+            <div className="card space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                    <Activity className="h-5 w-5 text-white" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
+                    <Activity className="h-4 w-4 text-white" />
                   </div>
                   <div>
                     <div className="text-lg font-semibold text-white">Курсы</div>
@@ -1467,7 +1467,7 @@ export default function Dashboard() {
               {!coursesCollapsed && (
                 <div className="space-y-3">
                   {activeCourses.slice(0, 5).map((course) => (
-                    <div key={course.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <div key={course.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="text-sm font-semibold text-white">{course.title}</div>
@@ -1487,7 +1487,7 @@ export default function Dashboard() {
                     </div>
                   ))}
                   {activeCourses.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
                       Пока нет активных курсов — самое время выбрать новый!
                     </div>
                   )}
@@ -1495,11 +1495,11 @@ export default function Dashboard() {
               )}
             </div>
 
-            <div className="card space-y-4">
+            <div className="card space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                    <HeartPulse className="h-5 w-5 text-white" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
+                    <HeartPulse className="h-4 w-4 text-white" />
                   </div>
                   <div>
                     <div className="text-lg font-semibold text-white">Mi Fitness</div>
@@ -1552,11 +1552,11 @@ export default function Dashboard() {
               )}
             </div>
 
-            <div className="card space-y-4">
+            <div className="card space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                    <PieChartIcon className="h-5 w-5 text-white" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
+                    <PieChartIcon className="h-4 w-4 text-white" />
                   </div>
                   <div>
                     <div className="text-lg font-semibold text-white">Расходы</div>
@@ -1573,7 +1573,7 @@ export default function Dashboard() {
                 <div className="grid gap-6 lg:grid-cols-2">
                   <div className="flex flex-col items-center justify-center">
                     {categorySpend.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-center text-sm text-white/60">
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-center text-sm text-white/60">
                         Загрузите данные транзакций, чтобы увидеть разбивку по категориям.
                       </div>
                     ) : (
@@ -1635,7 +1635,7 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <div className="space-y-6 xl:col-span-4">
+          <div className="space-y-4 xl:col-span-4">
             <WeatherCard
               weather={weather}
               status={weatherStatus}
@@ -1645,11 +1645,11 @@ export default function Dashboard() {
               backgrounds={weatherBackgrounds}
               effects={weatherEffects}
             />
-            <div className="card space-y-4">
+            <div className="card space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                    <CalendarDays className="h-5 w-5 text-white" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
+                    <CalendarDays className="h-4 w-4 text-white" />
                   </div>
                   <div>
                     <div className="text-lg font-semibold text-white">Календарь</div>
@@ -1739,11 +1739,11 @@ export default function Dashboard() {
                   </div>
                 )}
             </div>
-            <div className="card space-y-4">
+            <div className="card space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                    <Target className="h-5 w-5 text-white" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
+                    <Target className="h-4 w-4 text-white" />
                   </div>
                   <div>
                     <div className="text-lg font-semibold text-white">Цели на год</div>
@@ -1761,7 +1761,7 @@ export default function Dashboard() {
               {!goalsCollapsed && (
                 <div className="space-y-3">
                   {goals.slice(0, 4).map((goal) => (
-                    <div key={goal.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                    <div key={goal.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold text-white">{goal.title}</div>
                         <div className="text-xs text-white/50">Стрик: {goal.streak_current}</div>
@@ -1776,7 +1776,7 @@ export default function Dashboard() {
                     </div>
                   ))}
                   {goals.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
                       Добавьте цели, чтобы отслеживать годовой прогресс.
                     </div>
                   )}
@@ -1784,11 +1784,11 @@ export default function Dashboard() {
               )}
             </div>
 
-            <div className="card space-y-4">
+            <div className="card space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                    <Banknote className="h-5 w-5 text-white" />
+                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
+                    <Banknote className="h-4 w-4 text-white" />
                   </div>
                   <div>
                     <div className="text-lg font-semibold text-white">Кредиты</div>
@@ -1810,7 +1810,7 @@ export default function Dashboard() {
               </div>
 
               {loansCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-5 text-sm text-white/60">
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/60">
                   Блок кредитов скрыт. Разверните, чтобы следить за платежами и остатком.
                 </div>
               ) : (
@@ -1836,7 +1836,7 @@ export default function Dashboard() {
                       const ratio = loan.payment_monthly + loan.remaining;
                       const loanProgress = ratio > 0 ? Math.round((loan.payment_monthly / ratio) * 100) : 0;
                       return (
-                        <div key={loan.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                        <div key={loan.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
                           <div className="flex items-center justify-between">
                             <div>
                               <div className="text-sm font-semibold text-white">{loan.bank}</div>
@@ -1876,7 +1876,7 @@ export default function Dashboard() {
                       );
                     })}
                     {loans.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-6 text-sm text-white/60">
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
                         Добавьте кредиты, чтобы отслеживать ежемесячные платежи и остаток.
                       </div>
                     )}

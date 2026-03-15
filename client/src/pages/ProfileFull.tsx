@@ -1379,7 +1379,7 @@ export default function ProfileFull() {
       </div>
 
       {/* ---------- Панель с тремя блоками ---------- */}
-      <section className="mt-6 space-y-3">
+      <section className="mt-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-lg font-semibold text-white">Обзор</div>
           <CollapseToggle
@@ -1393,7 +1393,7 @@ export default function ProfileFull() {
           </div>
         ) : (
           <div
-            className="grid gap-4 md:grid-cols-3"
+            className="grid gap-3 md:grid-cols-3"
             {...overviewBlocksLayout.getContainerProps()}
           >
             {overviewBlocksLayout.items.map((block) => {
@@ -1407,7 +1407,7 @@ export default function ProfileFull() {
                   data-dragging={isDragging ? 'true' : undefined}
                   data-drop-target={isDropTarget ? 'true' : undefined}
                   className={classNames(
-                    'card px-4 py-3 sm:px-5 sm:py-4 transition-all duration-200 ease-out select-none',
+                    'card px-3 py-2.5 sm:px-4 sm:py-3 transition-all duration-200 ease-out select-none',
                     { 'cursor-grab active:cursor-grabbing': dragProps.draggable },
                     {
                       'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-xl shadow-black/40': isDragging,
@@ -1423,7 +1423,7 @@ export default function ProfileFull() {
         )}
       </section>
 
-      <div className="card mt-6 space-y-3">
+      <div className="card mt-4 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="font-medium">Индекс жизни</div>
           <CollapseToggle
@@ -1432,7 +1432,7 @@ export default function ProfileFull() {
           />
         </div>
         {lifeRadarCollapsed ? null : lifeRadarLoading ? (
-          <div className="grid gap-6 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
             <div className="h-64 rounded-3xl bg-white/5 animate-pulse" />
             <div className="space-y-3">
               <div className="h-4 w-2/3 rounded-full bg-white/5 animate-pulse" />
@@ -1443,7 +1443,7 @@ export default function ProfileFull() {
             </div>
           </div>
         ) : lifeRadar ? (
-          <div className="grid gap-6 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
             <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarChartData} outerRadius="70%">
@@ -1514,7 +1514,7 @@ export default function ProfileFull() {
       </div>
 
       {/* ---------- Лента дневника ---------- */}
-      <div className="card mt-6 space-y-3">
+      <div className="card mt-4 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="font-medium">Последние события</div>
           <CollapseToggle
@@ -1655,7 +1655,7 @@ export default function ProfileFull() {
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="Отображаемое имя"
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
                   />
                 </div>
 
@@ -1682,7 +1682,7 @@ export default function ProfileFull() {
                     value={profileLink}
                     onChange={(e) => setProfileLink(e.target.value)}
                     placeholder="example.com/me"
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
                   />
                   <p className="mt-1 text-xs text-white/45">
                     Ссылка появится под именем и откроется в новой вкладке.
@@ -1698,13 +1698,13 @@ export default function ProfileFull() {
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     placeholder="Например, Москва"
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
                   />
                 </div>
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+              <div className="space-y-4">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-3">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="flex items-center gap-2 text-sm font-medium text-white/80">
@@ -1726,7 +1726,7 @@ export default function ProfileFull() {
                       </div>
                     </div>
                     <div className="w-full sm:w-48">
-                      <label className="relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-black/40 px-4 py-6 text-center text-sm text-white/70 transition hover:border-brand-mint/60 hover:bg-brand-mint/10">
+                      <label className="relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-black/40 px-3 py-4 text-center text-sm text-white/70 transition hover:border-brand-mint/60 hover:bg-brand-mint/10">
                         <input
                           type="file"
                           accept="image/*"
@@ -1846,7 +1846,7 @@ export default function ProfileFull() {
                       )}
                     </div>
                     <div>
-                      <label className="relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-black/40 px-4 py-6 text-center text-sm text-white/70 transition hover:border-brand-mint/60 hover:bg-brand-mint/10">
+                      <label className="relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-black/40 px-3 py-4 text-center text-sm text-white/70 transition hover:border-brand-mint/60 hover:bg-brand-mint/10">
                         <input
                           type="file"
                           accept="image/*"
