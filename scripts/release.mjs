@@ -6,6 +6,7 @@
 //   node scripts/release.mjs major            # 1.1.0 → 2.0.0 (крупные несовместимые изменения)
 //   node scripts/release.mjs patch --dry-run  # только показать, что будет сделано
 //   node scripts/release.mjs patch --no-build # не пересобирать (взять уже собранные файлы)
+//   node scripts/release.mjs --publish-only   # доделать прерванный выпуск: только релиз на GitHub для текущей версии
 //
 // Что попадёт в описание релиза — раздел «## [Не выпущено]» в CHANGELOG.md. Пустой раздел — ошибка:
 // релиз без описания изменений не выпускается.
@@ -23,7 +24,8 @@ const args = process.argv.slice(2);
 const bump = args.find((a) => ['major', 'minor', 'patch'].includes(a));
 const dryRun = args.includes('--dry-run');
 const noBuild = args.includes('--no-build');
-if (!bump) {
+const publishOnly = args.includes('--publish-only');
+if (!bump && !publishOnly) {
   console.error('Укажите тип версии: major | minor | patch');
   process.exit(1);
 }
@@ -39,24 +41,31 @@ const run = (cmd, cwd = ROOT) => {
   if (!dryRun) execSync(cmd, { cwd, stdio: 'inherit', env });
 };
 
+// ── 0. Сначала забираем правки с GitHub (например, README, отредактированный на сайте) ──
+if (!publishOnly) run('git pull --no-rebase --no-edit origin main');
+
 // ── 1. Новая версия ──
 const current = JSON.parse(read('electron/package.json')).version;
 const [maj, min, pat] = current.split('.').map(Number);
-const next = bump === 'major' ? `${maj + 1}.0.0` : bump === 'minor' ? `${maj}.${min + 1}.0` : `${maj}.${min}.${pat + 1}`;
+const next = publishOnly ? current
+  : bump === 'major' ? `${maj + 1}.0.0` : bump === 'minor' ? `${maj}.${min + 1}.0` : `${maj}.${min}.${pat + 1}`;
 const tag = `v${next}`;
 console.log(`Версия: ${current} → ${next}`);
 
 // ── 2. Список изменений из CHANGELOG ──
 const changelog = read('CHANGELOG.md');
-const start = changelog.indexOf(UNRELEASED);
-if (start === -1) throw new Error(`В CHANGELOG.md нет раздела «${UNRELEASED}»`);
-const bodyStart = start + UNRELEASED.length;
+// При --publish-only описание берём из уже выпущенного раздела «## [X.Y.Z]»
+const header = publishOnly ? `## [${next}]` : UNRELEASED;
+const start = changelog.indexOf(header);
+if (start === -1) throw new Error(`В CHANGELOG.md нет раздела «${header}»`);
+const bodyStart = changelog.indexOf('\n', start) + 1;
 const nextSection = changelog.indexOf('\n## ', bodyStart);
 const notes = changelog.slice(bodyStart, nextSection === -1 ? undefined : nextSection).trim();
 if (!notes) throw new Error('Раздел «Не выпущено» в CHANGELOG.md пуст — опишите, что исправлено или добавлено');
 console.log(`\nЧто нового:\n${notes}\n`);
 
 // ── 3. Версия во всех частях проекта ──
+if (!publishOnly) {
 for (const rel of ['package.json', 'electron/package.json', 'client/package.json', 'server/package.json']) {
   write(rel, read(rel).replace(/"version":\s*"[^"]+"/, `"version": "${next}"`));
 }
@@ -71,12 +80,15 @@ write(
   'CHANGELOG.md',
   changelog.slice(0, start) + `${UNRELEASED}\n\n## [${next}] — ${date}\n\n${notes}\n` + (nextSection === -1 ? '' : changelog.slice(nextSection)),
 );
+// Бейдж версии в README: <img src="https://img.shields.io/badge/версия-X.Y.Z-…">
+write('README.md', read('README.md').replace(/(badge\/версия-)\d+\.\d+\.\d+(-)/, `$1${next}$2`));
+}
 
 // ── 4. Сборка ──
 const exe = file(`electron/dist/Life Hub Setup ${next}.exe`);
 const portable = file(`electron/dist/LifeHub-${next}-portable.exe`);
 const apk = file('android/app/build/outputs/apk/release/app-release.apk');
-if (!noBuild) {
+if (!noBuild && !publishOnly) {
   run('npm run electron:dist');
   // Полный путь: в некоторых окружениях cmd не ищет программы в текущей папке
   run(process.platform === 'win32' ? `"${file('android/gradlew.bat')}" assembleRelease -q` : './gradlew assembleRelease -q', file('android'));
@@ -91,11 +103,13 @@ if (!dryRun) {
 }
 
 // ── 5. Коммит, тег, пуш ──
+if (!publishOnly) {
 run('git add -A');
 const msgFile = file('.git/RELEASE_MSG');
 if (!dryRun) fs.writeFileSync(msgFile, `Релиз ${tag}\n\n${notes}\n`);
 run(`git commit -F "${msgFile}"`);
 run(`git tag -a ${tag} -m "Life Hub ${next}"`);
+}
 run('git push origin HEAD --follow-tags');
 
 // ── 6. Релиз на GitHub ──
