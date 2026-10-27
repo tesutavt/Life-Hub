@@ -1,12 +1,19 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
-import { Image as ImageIcon, Link2, MapPin, Palette, Sparkles, User, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, Image as ImageIcon, Link2, MapPin, Palette, Sparkles, User, type LucideIcon } from 'lucide-react';
+import ProfileActivity, { ShowcaseAchievement } from '../components/profile/ProfileActivity';
+import { ProfileAchievement } from '../components/profile/ProfileAchievements';
+import ProfileCustomizer from '../components/profile/ProfileCustomizer';
+import { DEFAULT_PROFILE_STYLE, ProfileStyle, presetCss, SHOWCASES, ShowcaseId } from '../components/profile/profileStyle';
+import { rarityStyle } from '../achievements';
+import { Link } from 'react-router-dom';
 import Shell from '../components/Shell';
 import { Modal } from '../components/ui/Modal';
 import CollapseToggle from '../components/ui/CollapseToggle';
 import { api, resolveApiUrl } from '../api';
 import { useAuth } from '../AuthContext';
+import { notifyProfileUpdated } from '../profileBus';
 import { useNotifications } from '../notifications/NotificationProvider';
 import { useReorderableList } from '../hooks/useReorderableList';
 import { usePersistentCollapse } from '../hooks/usePersistentCollapse';
@@ -41,6 +48,22 @@ type ProfileLanguage = {
   bannerUrl: string | null;
   bannerGradient: string | null;
   imageUrl: string | null;
+  streak: number;
+  progress: number;
+};
+
+type ProfileStats = {
+  languages: number;
+  courses: number;
+  courses_done: number;
+  words: number;
+  lessons: number;
+  goals: number;
+  goals_done: number;
+  habits: number;
+  pages: number;
+  trips: number;
+  active_days: number;
 };
 
 type ProfileOverviewBlock = {
@@ -382,7 +405,9 @@ const mapProfileLanguage = (entry: any, index: number): ProfileLanguage => ({
   level: entry.level ?? entry.level_label ?? null,
   bannerUrl: entry.banner_url ?? entry.bannerUrl ?? null,
   bannerGradient: entry.banner_gradient ?? entry.bannerGradient ?? null,
-  imageUrl: entry.image_url ?? entry.imageUrl ?? null
+  imageUrl: entry.image_url ?? entry.imageUrl ?? null,
+  streak: Number(entry.streak) || 0,
+  progress: Math.max(0, Math.min(100, Number(entry.courses_progress_pct) || 0)),
 });
 
 const getLanguageInitials = (name: string) => {
@@ -910,6 +935,7 @@ export default function ProfileFull() {
   const [journalCollapsed, setJournalCollapsed] = usePersistentCollapse('profile:journal');
 
   const [displayName, setDisplayName] = useState('');
+  const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [city, setCity] = useState('');
   const [profileLink, setProfileLink] = useState('');
@@ -921,8 +947,24 @@ export default function ProfileFull() {
   const [bannerPreviewUrl, setBannerPreviewUrl] = useState<string | null>(null);
   const [openEdit, setOpenEdit] = useState(false);
   const [activeEditTab, setActiveEditTab] = useState<'basic' | 'avatar'>('basic');
+  const [activeProfileTab, setActiveProfileTab] = useState<'languages' | 'events' | 'badges' | 'life'>('languages');
   const { token } = useAuth();
   const { pushError } = useNotifications();
+  const [achievementItems, setAchievementItems] = useState<ProfileAchievement[]>([]);
+  const [profileStyle, setProfileStyle] = useState<ProfileStyle>(DEFAULT_PROFILE_STYLE);
+  const [stats, setStats] = useState<ProfileStats | null>(null);
+  const [profileCourses, setProfileCourses] = useState<any[]>([]);
+  const [profileGoals, setProfileGoals] = useState<any[]>([]);
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+  const [showcaseIds, setShowcaseIds] = useState<number[]>([]);
+  useEffect(() => {
+    api.get('/api/achievements', { silentError: true }).then((res) => setAchievementItems(Array.isArray(res?.items) ? res.items : []));
+    api.get('/api/achievements/showcase', { silentError: true }).then((res) => setShowcaseIds(Array.isArray(res?.ids) ? res.ids : []));
+  }, []);
+  const showcaseItems = useMemo(
+    () => showcaseIds.map((id) => achievementItems.find((item) => item.id === id)).filter(Boolean) as ShowcaseAchievement[],
+    [showcaseIds, achievementItems]
+  );
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
   const profileLanguagesLayout = useReorderableList<ProfileLanguage>(
@@ -947,7 +989,7 @@ export default function ProfileFull() {
                     key={b.id}
                     className="p-2 rounded-xl bg-white/5 border border-white/10 text-center"
                   >
-                    <div className="text-xl leading-none">🏅</div>
+                    <div className="text-xl leading-none">{b.icon || '🏅'}</div>
                     <div className="text-[11px] mt-1 truncate text-white/70">{b.name}</div>
                   </div>
                 ))}
@@ -1049,7 +1091,10 @@ export default function ProfileFull() {
     try {
       const d = await api.get('/api/life/profile');
       setData(d);
+      setProfileStyle({ ...DEFAULT_PROFILE_STYLE, ...(d?.style || {}) });
+      setStats(d?.stats || null);
       setDisplayName(d?.user?.name || '');
+      setUsername(d?.user?.username || '');
       setBio(d?.user?.bio || '');
       setCity(d?.user?.city || '');
       setProfileLink(d?.user?.profile_url || '');
@@ -1125,7 +1170,8 @@ export default function ProfileFull() {
       setLanguages(languagesSource.map((entry: any, index: number) => mapProfileLanguage(entry, index)));
 
       const calendarItems = Array.isArray(cal?.items) ? cal.items : [];
-      const today = new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       const future = calendarItems
         .filter((x: any) => x.date >= today)
         .sort((a: any, b: any) => a.date.localeCompare(b.date));
@@ -1135,6 +1181,8 @@ export default function ProfileFull() {
       const goalItems = Array.isArray(goalsRes?.active) ? goalsRes.active : [];
       const courseItems = Array.isArray(coursesRes?.items) ? coursesRes.items : [];
       const travelItems = Array.isArray(travelRes?.items) ? travelRes.items : [];
+      setProfileCourses(courseItems);
+      setProfileGoals(goalItems);
 
       setLifeRadar(
         buildLifeRadar({
@@ -1223,6 +1271,7 @@ export default function ProfileFull() {
     }
     const fd = new FormData();
     fd.append('display_name', displayName);
+    fd.append('username', username.trim());
     fd.append('bio', bio);
     fd.append('city', city.trim());
     fd.append('profile_link', profileLink.trim());
@@ -1239,6 +1288,7 @@ export default function ProfileFull() {
 
     if (!res.ok) { alert('Ошибка сохранения'); return; }
     await load();
+    notifyProfileUpdated();
     setOpenEdit(false);
     alert('Профиль обновлён!');
   };
@@ -1287,6 +1337,7 @@ export default function ProfileFull() {
 
   const savedMainFrameId = resolveAvatarFrameId(data?.user?.avatar_frame_main);
   const savedMiniFrameId = resolveAvatarFrameId(data?.user?.avatar_frame_mini);
+  const badges = Array.isArray(data?.badges) ? data.badges : [];
   const savedProfileLink = typeof data?.user?.profile_url === 'string' ? data.user.profile_url.trim() : '';
   const profileLinkHref = savedProfileLink ? normalizeProfileLink(savedProfileLink) : '';
   const profileLinkLabel = savedProfileLink.replace(/^https?:\/\//i, '');
@@ -1304,26 +1355,203 @@ export default function ProfileFull() {
       icon: ImageIcon,
     },
   ];
+  const profileTabs: { id: 'languages' | 'events' | 'badges' | 'life'; label: string }[] = [
+    { id: 'languages', label: 'Языки' },
+    { id: 'events', label: 'События' },
+    { id: 'badges', label: 'Ачивки' },
+    { id: 'life', label: 'Индекс Жизни' },
+  ];
+  const earnedAchievements = achievementItems
+    .filter((item) => item.earned)
+    .sort((a, b) => (b.earned_at || '').localeCompare(a.earned_at || ''));
+  const recentAchievements = earnedAchievements.slice(0, 5);
+  const featuredAchievement =
+    (profileStyle.featured_id && earnedAchievements.find((item) => item.id === profileStyle.featured_id)) || null;
+  const backgroundCss = profileStyle.background_url
+    ? `linear-gradient(180deg, rgba(5,10,18,0.35) 0%, rgba(5,10,18,0.85) 70%, rgba(5,10,18,0.95) 100%), url(${resolveApiUrl(profileStyle.background_url)}) center top / cover no-repeat`
+    : presetCss(profileStyle.background_preset);
+  const sideStats: { label: string; value: React.ReactNode; to?: string }[] = [
+    { label: 'Языки', value: stats?.languages ?? languages.length, to: '/languages' },
+    { label: 'Курсы', value: stats ? `${stats.courses_done}/${stats.courses}` : '—', to: '/courses' },
+    { label: 'Уроков пройдено', value: stats?.lessons ?? 0 },
+    { label: 'Слов в словаре', value: stats?.words ?? 0, to: '/languages' },
+    { label: 'Достижения', value: `${earnedAchievements.length}/${achievementItems.length || 0}`, to: '/achievements' },
+    { label: 'Цели года', value: stats ? `${stats.goals_done} ✓ · ${stats.goals}` : '—', to: '/year-goals' },
+    { label: 'Привычки', value: stats?.habits ?? 0, to: '/habits' },
+    { label: 'Страницы', value: stats?.pages ?? 0, to: '/pages' },
+    { label: 'Путешествия', value: stats?.trips ?? 0, to: '/travel' },
+    { label: 'Активных дней', value: stats?.active_days ?? 0 },
+  ];
+
+  const glass = 'rounded-2xl border border-white/10 bg-black/45 backdrop-blur-md';
+  const showcaseTitle = (id: ShowcaseId) => SHOWCASES.find((s) => s.id === id)!;
+
+  const renderShowcase = (id: ShowcaseId) => {
+    const meta = showcaseTitle(id);
+    let body: React.ReactNode = null;
+    if (id === 'achievements') {
+      body = showcaseItems.length ? (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {showcaseItems.map((item) => {
+            const r = rarityStyle(item.rarity);
+            return (
+              <div key={item.id} title={item.description || item.title} className={classNames('flex flex-col items-center rounded-xl border bg-gradient-to-br p-2 text-center', r.ring, r.bg)}>
+                <span className="text-3xl">{item.icon}</span>
+                <span className="mt-1 line-clamp-2 text-[10px] leading-tight text-white/80">{item.title}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <EmptyHint onClick={() => setCustomizerOpen(true)}>Закрепите до 6 ачивок — они будут красоваться здесь.</EmptyHint>
+      );
+    } else if (id === 'languages') {
+      body = languages.length ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {languages.map((language, index) => {
+            const avatarUrl = resolveMediaUrl(language.imageUrl);
+            return (
+              <Link key={language.id} to="/languages" className="relative overflow-hidden rounded-xl border border-white/10 transition hover:-translate-y-0.5">
+                <div className="absolute inset-0" style={getLanguageBannerStyle(language, index)} />
+                <div className="absolute inset-0 bg-black/55" />
+                <div className="relative flex items-center gap-3 p-3">
+                  <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-lg border border-white/15 bg-black/40 text-xs font-semibold">
+                    {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" /> : getLanguageInitials(language.name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-white">{language.name}</div>
+                    <div className="text-[11px] text-white/70">
+                      {language.level || 'A1'}
+                      {language.streak ? ` · 🔥 ${language.streak} дн.` : ''}
+                    </div>
+                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/15">
+                      <div className="h-full rounded-full bg-brand-mint" style={{ width: `${language.progress}%` }} />
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="text-sm text-white/50">Языков пока нет.</div>
+      );
+    } else if (id === 'courses') {
+      const active = profileCourses.filter((c) => (c.progress ?? 0) < 100).slice(0, 6);
+      body = active.length ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {active.map((course) => (
+            <Link key={course.id} to={course.learn_course_id ? `/learn/${course.learn_course_id}` : '/courses'} className="rounded-xl bg-white/5 p-3 transition hover:bg-white/10">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate text-white">{course.locked ? '🔒 ' : ''}{course.title}</span>
+                <span className="text-xs text-white/60">{course.progress ?? 0}%</span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-[#58cc02]" style={{ width: `${course.progress ?? 0}%` }} />
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm text-white/50">Активных курсов нет.</div>
+      );
+    } else if (id === 'goals') {
+      body = profileGoals.length ? (
+        <div className="space-y-2.5">
+          {profileGoals.slice(0, 6).map((goal) => (
+            <div key={goal.id}>
+              <div className="flex justify-between text-sm">
+                <span className="truncate text-white">{goal.title}</span>
+                <span className="text-xs text-white/60">
+                  {goal.completed}/{goal.target}
+                </span>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-amber-300" style={{ width: `${Math.min(100, goal.completion_pct || 0)}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm text-white/50">Целей на год пока нет.</div>
+      );
+    } else if (id === 'activity') {
+      return (
+        <div key={id}>
+          <ProfileActivity hideSide />
+        </div>
+      );
+    } else if (id === 'radar') {
+      body = lifeRadar ? (
+        <div className="grid gap-3 md:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarChartData} outerRadius="70%">
+                <PolarGrid stroke="rgba(255,255,255,0.12)" />
+                <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(255,255,255,0.65)', fontSize: 11 }} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                <Radar dataKey="value" stroke="rgba(39,233,181,0.8)" fill="rgba(39,233,181,0.4)" isAnimationActive={false} />
+                <RechartsTooltip content={<LifeRadarTooltip />} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {lifeRadar.metrics.map((metric) => (
+              <div key={metric.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 text-sm">
+                <span className="text-white/80">{metric.label}</span>
+                <span className="font-semibold text-brand-mint">{metric.value}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-white/50">{lifeRadarLoading ? 'Считаем…' : 'Нет данных'}</div>
+      );
+    } else if (id === 'feed') {
+      body = journal.length ? (
+        <div className="space-y-2">
+          {journal.slice(0, 8).map((j: any) => {
+            const { icon, tone } = getFeedVisuals(j.type);
+            return (
+              <div key={j.id || `${j.type}_${j.ts}`} className="flex items-start gap-3 rounded-xl bg-white/5 p-2.5">
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone}`}>{icon}</div>
+                <div className="min-w-0 flex-1 text-sm">
+                  <div className="flex justify-between gap-2 text-[11px] text-white/45">
+                    <span>{formatFeedDate(j.ts ?? j.tsValue)}</span>
+                    <span>{getFeedTypeLabel(j.type)}</span>
+                  </div>
+                  {j.title && <div className="truncate font-medium text-white">{j.title}</div>}
+                  {j.text && <div className="line-clamp-2 text-xs text-white/65">{j.text}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="text-sm text-white/50">Записей пока нет.</div>
+      );
+    }
+    return (
+      <section key={id} className={classNames(glass, 'p-4')}>
+        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em] text-white/60">
+          <span className="text-base">{meta.emoji}</span> {meta.title}
+        </div>
+        {body}
+      </section>
+    );
+  };
 
   return (
     <Shell>
-      <div className="relative overflow-hidden rounded-3xl border border-brand-slate/40 bg-brand-night/85 shadow-brand-soft">
-        <div
-          className="relative h-40 bg-gradient-to-r from-purple-600/40 to-blue-600/40"
-          style={{
-            backgroundImage: data?.user?.banner_url
-              ? `url(${resolveApiUrl(data.user.banner_url)})`
-              : undefined,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center'
-          }}
-        >
-          <div className="absolute inset-0 bg-black/30" />
-        </div>
-        <div className="relative px-5 pb-5 pt-8 sm:pt-10">
-          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-            <div className="flex items-end gap-4">
-              <div className="relative -mt-14 sm:-mt-16">
+      <div className="relative overflow-hidden rounded-3xl border border-white/10" style={{ background: backgroundCss }}>
+        <div className="space-y-4 p-3 sm:p-5">
+          {/* Шапка: аватар, имя, уровень */}
+          <div className={classNames(glass, 'overflow-hidden')}>
+            {data?.user?.banner_url && (
+              <div className="h-28 bg-cover bg-center sm:h-36" style={{ backgroundImage: `url(${resolveApiUrl(data.user.banner_url)})` }} />
+            )}
+            <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
+              <div className={classNames('shrink-0', data?.user?.banner_url && '-mt-14 sm:-mt-16')}>
                 {renderFramedAvatar(
                   savedMainFrameId,
                   'w-24 h-24 sm:w-28 sm:h-28',
@@ -1331,266 +1559,182 @@ export default function ProfileFull() {
                   data?.user?.name || 'Аватар профиля'
                 )}
               </div>
-              <div className="mt-4 sm:mt-0">
-                <div className="text-lg sm:text-xl font-semibold">
-                  {data?.user?.name || 'Мой профиль'}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-xl font-semibold text-white sm:text-2xl">
+                  <span className="truncate">{data?.user?.name || 'Мой профиль'}</span>
+                  {data?.user?.is_verified ? <BadgeCheck className="h-5 w-5 shrink-0 text-sky-300" /> : null}
                 </div>
-                {savedProfileLink && profileLinkHref && (
-                  <a
-                    href={profileLinkHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-brand-mint/90 hover:text-brand-mint"
-                  >
-                    <Link2 size={14} className="opacity-70" />
-                    <span className="truncate max-w-[200px] sm:max-w-[240px]">{profileLinkLabel}</span>
-                  </a>
-                )}
-                {data?.user?.city && (
-                  <div className="mt-1 flex items-center gap-2 text-sm text-white/70">
-                    <MapPin className="h-4 w-4 opacity-70" />
-                    <span>{data.user.city}</span>
-                  </div>
-                )}
-                {data?.user?.bio && (
-                  <div className="text-sm opacity-70">{data.user.bio}</div>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <div>
-              <div className="text-sm text-white/70">
-                Уровень {level} · XP {xp}
-              </div>
-              <div className="w-full h-2 bg-white/10 rounded mt-2 overflow-hidden">
-                <div className="h-2 bg-brand-mint" style={{ width: `${prog}%` }} />
-              </div>
-            </div>
-
-            <button
-              onClick={() => setOpenEdit(true)}
-              className="justify-self-end px-3 py-1.5 rounded-xl border border-white/20 bg-white/10 text-xs font-medium uppercase tracking-wide text-white/80 transition hover:border-brand-mint/60 hover:text-brand-mint"
-            >
-              ✎ Изменить профиль
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ---------- Панель с тремя блоками ---------- */}
-      <section className="mt-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-lg font-semibold text-white">Обзор</div>
-          <CollapseToggle
-            collapsed={overviewCollapsed}
-            onToggle={() => setOverviewCollapsed((prev) => !prev)}
-          />
-        </div>
-        {overviewCollapsed ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-3 text-sm text-white/50">
-            Блок «Обзор» скрыт. Нажмите «Развернуть», чтобы вновь показать карточки.
-          </div>
-        ) : (
-          <div
-            className="grid gap-3 md:grid-cols-3"
-            {...overviewBlocksLayout.getContainerProps()}
-          >
-            {overviewBlocksLayout.items.map((block) => {
-              const dragProps = overviewBlocksLayout.getDraggableProps(block.id);
-              const isDragging = overviewBlocksLayout.activeId === String(block.id);
-              const isDropTarget = overviewBlocksLayout.overId === String(block.id) && !isDragging;
-              return (
-                <div
-                  key={block.id}
-                  {...dragProps}
-                  data-dragging={isDragging ? 'true' : undefined}
-                  data-drop-target={isDropTarget ? 'true' : undefined}
-                  className={classNames(
-                    'card px-3 py-2.5 sm:px-4 sm:py-3 transition-all duration-200 ease-out select-none',
-                    { 'cursor-grab active:cursor-grabbing': dragProps.draggable },
-                    {
-                      'ring-2 ring-white/70 border-white/40 scale-[0.99] shadow-xl shadow-black/40': isDragging,
-                      'border-white/30 ring-1 ring-white/40': isDropTarget,
-                    },
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/60">
+                  {data?.user?.username && <span>@{data.user.username}</span>}
+                  {data?.user?.city && (
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="h-3.5 w-3.5" /> {data.user.city}
+                    </span>
                   )}
-                >
-                  {block.render()}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <div className="card mt-4 space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="font-medium">Индекс жизни</div>
-          <CollapseToggle
-            collapsed={lifeRadarCollapsed}
-            onToggle={() => setLifeRadarCollapsed((prev) => !prev)}
-          />
-        </div>
-        {lifeRadarCollapsed ? null : lifeRadarLoading ? (
-          <div className="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
-            <div className="h-64 rounded-3xl bg-white/5 animate-pulse" />
-            <div className="space-y-3">
-              <div className="h-4 w-2/3 rounded-full bg-white/5 animate-pulse" />
-              <div className="h-3 w-1/2 rounded-full bg-white/5 animate-pulse" />
-              <div className="h-3 w-full rounded-full bg-white/5 animate-pulse" />
-              <div className="h-3 w-5/6 rounded-full bg-white/5 animate-pulse" />
-              <div className="h-3 w-3/4 rounded-full bg-white/5 animate-pulse" />
-            </div>
-          </div>
-        ) : lifeRadar ? (
-          <div className="grid gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarChartData} outerRadius="70%">
-                  <PolarGrid stroke="rgba(255,255,255,0.12)" />
-                  <PolarAngleAxis
-                    dataKey="subject"
-                    tick={{ fill: 'rgba(255,255,255,0.65)', fontSize: 12 }}
-                    stroke="rgba(255,255,255,0.3)"
-                  />
-                  <PolarRadiusAxis
-                    angle={30}
-                    domain={[0, 100]}
-                    tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 10 }}
-                    stroke="rgba(255,255,255,0.15)"
-                  />
-                  <Radar
-                    name="Показатель"
-                    dataKey="value"
-                    stroke="rgba(34,197,94,0.75)"
-                    fill="rgba(34,197,94,0.45)"
-                    fillOpacity={0.45}
-                  />
-                  <RechartsTooltip content={<LifeRadarTooltip />} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <div className="text-sm text-white/70">
-                  Среднее значение: <span className="font-semibold text-white">{lifeRadar.average}%</span>
-                </div>
-                <div className="mt-1 text-xs text-white/50">
-                  Покрытие данных: {lifeRadar.confidence}% · все показатели рассчитаны на основе фактических записей.
-                </div>
-                {lifeRadar.highlight && lifeRadar.lowlight && (
-                  <div className="mt-3 space-y-1 text-sm text-white/70">
-                    <div>
-                      Сильная сторона — <span className="text-white">{lifeRadar.highlight.label}</span> ({lifeRadar.highlight.value}%).
-                    </div>
-                    <div>
-                      Зона роста — <span className="text-white">{lifeRadar.lowlight.label}</span> ({lifeRadar.lowlight.value}%).
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div className="space-y-2">
-                {lifeRadar.metrics.map((metric) => (
-                  <div
-                    key={metric.id}
-                    className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 transition hover:border-brand-mint/40 hover:bg-brand-mint/10"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-white">{metric.label}</div>
-                        <div className="text-[11px] uppercase tracking-wide text-white/40">{metric.sampleLabel}</div>
-                      </div>
-                      <div className="text-sm font-semibold text-brand-mint">{metric.value}%</div>
-                    </div>
-                    <div className="mt-2 text-xs leading-relaxed text-white/65">{metric.description}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm text-white/60">Не удалось построить диаграмму — попробуйте обновить страницу.</div>
-        )}
-      </div>
-
-      {/* ---------- Лента дневника ---------- */}
-      <div className="card mt-4 space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="font-medium">Последние события</div>
-          <CollapseToggle
-            collapsed={journalCollapsed}
-            onToggle={() => setJournalCollapsed((prev) => !prev)}
-          />
-        </div>
-        {journalCollapsed ? (
-          <div className="text-sm text-white/60">Лента скрыта. Нажмите «Развернуть», чтобы показать события.</div>
-        ) : visibleJournal.length > 0 ? (
-          <div className="space-y-3">
-            {visibleJournal.map((j: any) => {
-              const { icon, tone } = getFeedVisuals(j.type);
-              const dateLabel = formatFeedDate(j.ts ?? j.tsValue);
-              const typeLabel = getFeedTypeLabel(j.type);
-              const pagePreviewStyle = getPagePreviewStyle(j);
-              const previewBackgroundStyle = pagePreviewStyle
-                ? {
-                    ...pagePreviewStyle,
-                    backgroundRepeat: 'no-repeat',
-                    backgroundSize: (pagePreviewStyle as any).backgroundSize ?? 'cover',
-                    backgroundPosition: (pagePreviewStyle as any).backgroundPosition ?? 'center'
-                  }
-                : null;
-              return (
-                <div
-                  key={j.id || `${j.type}_${j.ts}`}
-                  className="relative overflow-hidden rounded-3xl border border-white/10 bg-brand-night/75 backdrop-blur"
-                >
-                  <div className="relative z-10 flex items-start gap-3 p-3 sm:p-4 pr-4 sm:pr-40">
-                    <div
-                      className={`flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-lg font-semibold ${tone} shadow-lg shadow-black/50`}
-                    >
-                      <span>{icon}</span>
-                    </div>
-                    <div className="flex-1 min-w-0 text-sm text-white/80">
-                      <div className="flex flex-wrap items-center gap-2 justify-between text-xs text-white/50">
-                        <span className="whitespace-nowrap">{dateLabel}</span>
-                        {typeLabel && <span className="font-medium text-white/60">{typeLabel}</span>}
-                      </div>
-                      {j.title && (
-                        <div className="mt-1 font-semibold text-white truncate sm:whitespace-normal">
-                          {j.title}
-                        </div>
-                      )}
-                      {j.text && (
-                        <div className="mt-1 whitespace-pre-line text-[13px] leading-relaxed text-white/80">
-                          {j.text}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {previewBackgroundStyle && (
-                    <div
-                      className="hidden sm:block absolute inset-y-0 right-0 w-36 md:w-48 overflow-hidden"
-                      style={PAGE_PREVIEW_MASK_STYLE}
-                    >
-                      <div className="absolute inset-0" style={previewBackgroundStyle} />
-                      <div className="absolute inset-0" style={PAGE_PREVIEW_OVERLAY_STYLE} />
-                      <div className="absolute inset-0 bg-black/15" />
-                    </div>
+                  {savedProfileLink && profileLinkHref && (
+                    <a href={profileLinkHref} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-mint/90 hover:text-brand-mint">
+                      <Link2 size={14} /> <span className="max-w-[220px] truncate">{profileLinkLabel}</span>
+                    </a>
                   )}
                 </div>
-              );
-            })}
-            <div
-              ref={visibleCount < journal.length ? loadMoreRef : null}
-              className={`text-center text-xs opacity-60 ${visibleCount < journal.length ? 'py-2' : ''}`}
-            >
-              {visibleCount < journal.length ? 'Загружаем ещё записи…' : null}
+                {data?.user?.bio && <div className="mt-2 max-w-2xl whitespace-pre-line text-sm text-white/80">{data.user.bio}</div>}
+              </div>
+              <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+                <div className="flex items-center gap-3">
+                  <div className="text-right text-sm text-white/70">
+                    Уровень
+                    <div className="text-[11px] text-white/45">{xp} XP</div>
+                  </div>
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-brand-mint text-lg font-extrabold text-white shadow-[0_0_18px_rgba(39,233,181,0.45)]">
+                    {level}
+                  </div>
+                </div>
+                <div className="h-1.5 w-40 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full bg-brand-mint" style={{ width: `${prog}%` }} />
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setCustomizerOpen(true)} className="rounded-xl border border-white/20 bg-white/10 px-3 py-1.5 text-xs text-white/85 hover:border-brand-mint/60 hover:text-brand-mint">
+                    🎨 Оформление
+                  </button>
+                  <button type="button" onClick={() => setOpenEdit(true)} className="rounded-xl border border-white/20 bg-white/10 px-3 py-1.5 text-xs text-white/85 hover:border-brand-mint/60 hover:text-brand-mint">
+                    ✎ Профиль
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        ) : (
-          <div className="opacity-70 text-sm">Записей пока нет</div>
-        )}
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="min-w-0 space-y-4">
+              {/* Главное достижение + 5 последних — как в Steam */}
+              <section className={classNames(glass, 'grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_auto]')}>
+                {featuredAchievement ? (
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={classNames(
+                        'flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl border-2 bg-gradient-to-br text-6xl',
+                        rarityStyle(featuredAchievement.rarity).ring,
+                        rarityStyle(featuredAchievement.rarity).bg,
+                        rarityStyle(featuredAchievement.rarity).glow
+                      )}
+                    >
+                      {featuredAchievement.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] uppercase tracking-[0.2em] text-white/45">Главное достижение</div>
+                      <div className="text-lg font-bold text-white">{featuredAchievement.title}</div>
+                      {featuredAchievement.description && <div className="text-sm text-white/65">{featuredAchievement.description}</div>}
+                      <div className={classNames('mt-1 text-xs', rarityStyle(featuredAchievement.rarity).text)}>{rarityStyle(featuredAchievement.rarity).label}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setCustomizerOpen(true)} className="flex items-center gap-4 rounded-2xl border-2 border-dashed border-white/15 p-3 text-left hover:border-amber-300/50">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white/5 text-4xl">⭐</div>
+                    <div>
+                      <div className="font-semibold text-white">Выберите главное достижение</div>
+                      <div className="text-xs text-white/50">Им вы гордитесь больше всего — оно будет крупно вверху профиля</div>
+                    </div>
+                  </button>
+                )}
+                <div className="md:border-l md:border-white/10 md:pl-4">
+                  <div className="mb-2 flex items-center justify-between gap-4 text-xs">
+                    <span className="uppercase tracking-[0.15em] text-white/50">Последние достижения</span>
+                    <Link to="/achievements" className="text-white/45 hover:text-brand-mint">
+                      {earnedAchievements.length} из {achievementItems.length}
+                    </Link>
+                  </div>
+                  <div className="flex gap-2">
+                    {recentAchievements.map((item) => {
+                      const r = rarityStyle(item.rarity);
+                      return (
+                        <div key={item.id} title={item.title} className={classNames('flex h-12 w-12 items-center justify-center rounded-xl border bg-gradient-to-br text-2xl transition hover:-translate-y-0.5', r.ring, r.bg)}>
+                          {item.icon}
+                        </div>
+                      );
+                    })}
+                    {Array.from({ length: Math.max(0, 5 - recentAchievements.length) }).map((_, i) => (
+                      <div key={`empty-${i}`} className="h-12 w-12 rounded-xl border border-dashed border-white/10" />
+                    ))}
+                  </div>
+                </div>
+              </section>
+
+              {profileStyle.showcases.map(renderShowcase)}
+              {profileStyle.showcases.length === 0 && (
+                <EmptyHint onClick={() => setCustomizerOpen(true)}>Все витрины скрыты — нажмите, чтобы выбрать, что показывать в профиле.</EmptyHint>
+              )}
+            </div>
+
+            {/* Боковая панель: счётчики, как в Steam/Twitter */}
+            <aside className="space-y-4">
+              <div className={classNames(glass, 'p-4')}>
+                <div className="mb-2 text-xs uppercase tracking-[0.15em] text-white/50">Статистика</div>
+                <div className="divide-y divide-white/5">
+                  {sideStats.map((row) => {
+                    const content = (
+                      <>
+                        <span className="text-white/65">{row.label}</span>
+                        <span className="font-semibold text-white">{row.value}</span>
+                      </>
+                    );
+                    return row.to ? (
+                      <Link key={row.label} to={row.to} className="flex items-center justify-between py-1.5 text-sm hover:text-brand-mint">
+                        {content}
+                      </Link>
+                    ) : (
+                      <div key={row.label} className="flex items-center justify-between py-1.5 text-sm">
+                        {content}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {languages.length > 0 && (
+                <div className={classNames(glass, 'p-4')}>
+                  <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-[0.15em] text-white/50">
+                    <span>Языки</span>
+                    <span className="text-lg font-bold text-white">{languages.length}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {languages.map((language) => (
+                      <div key={language.id} className="flex items-center justify-between text-sm">
+                        <span className="truncate text-white/85">{language.name}</span>
+                        <span className="rounded-full bg-white/10 px-2 text-[11px] text-white/70">{language.level || 'A1'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className={classNames(glass, 'p-4')}>
+                <div className="mb-2 text-xs uppercase tracking-[0.15em] text-white/50">Ближайшее событие</div>
+                {nextEvent ? (
+                  <div className="text-sm">
+                    <div className="font-semibold text-white">{nextEvent.title}</div>
+                    <div className="text-white/55">{nextEvent.date}</div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-white/50">Событий нет</div>
+                )}
+              </div>
+            </aside>
+          </div>
+        </div>
       </div>
+
+      <ProfileCustomizer
+        open={customizerOpen}
+        onClose={() => setCustomizerOpen(false)}
+        style={profileStyle}
+        achievements={achievementItems}
+        pinnedIds={showcaseIds}
+        onSaved={() => {
+          load();
+          notifyProfileUpdated();
+          api.get('/api/achievements/showcase', { silentError: true }).then((res) => setShowcaseIds(Array.isArray(res?.ids) ? res.ids : []));
+        }}
+      />
 
       {/* ---------- Модалка редактирования ---------- */}
 
@@ -1657,6 +1801,20 @@ export default function ProfileFull() {
                     placeholder="Отображаемое имя"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
                   />
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-white/80">
+                    <Link2 size={16} className="opacity-70" />
+                    Username
+                  </label>
+                  <input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="human1"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-brand-mint/60 focus:outline-none"
+                  />
+                  <p className="mt-1 text-xs text-white/45">Публичный адрес профиля: /{username.trim() || 'username'}</p>
                 </div>
 
                 <div>
@@ -1901,5 +2059,13 @@ export default function ProfileFull() {
       </Modal>
 
     </Shell>
+  );
+}
+
+function EmptyHint({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="w-full rounded-xl border border-dashed border-white/15 p-4 text-left text-sm text-white/55 hover:border-brand-mint/40 hover:text-white">
+      {children}
+    </button>
   );
 }

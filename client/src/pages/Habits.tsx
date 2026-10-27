@@ -11,7 +11,10 @@ type Habit = { id: number; title: string; target_per_week?: number; tags: TagOpt
 type ChecksMap = Record<number, boolean>;
 type WeekMap = Record<string, ChecksMap>;
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Местная дата YYYY-MM-DD: toISOString() даёт UTC и сдвигает день назад в часовых поясах восточнее Гринвича
+const localISO = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const todayISO = () => localISO(new Date());
 
 function startOfWeek(date: Date) {
   const clone = new Date(date);
@@ -26,7 +29,7 @@ function weekDates(base: Date) {
   return [...Array(7)].map((_, index) => {
     const date = new Date(monday);
     date.setDate(monday.getDate() + index);
-    return date.toISOString().slice(0, 10);
+    return localISO(date);
   });
 }
 

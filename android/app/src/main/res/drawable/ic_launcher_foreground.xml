@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Буква «L» в безопасной зоне адаптивной иконки (66dp по центру) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF051824"
+        android:pathData="M42,32 L50,32 Q53,32 53,35 L53,64 L68,64 Q71,64 71,67 L71,73 Q71,76 68,76 L42,76 Q39,76 39,73 L39,35 Q39,32 42,32 Z" />
+</vector>

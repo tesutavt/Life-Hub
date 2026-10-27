@@ -90,18 +90,6 @@ export default function LanguageMaster({ tagOptions, onCreated }: LanguageMaster
                 ))}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs uppercase tracking-wide text-white/60">Минут сегодня</label>
-              <input
-                type="number"
-                min={0}
-                value={form.minutes_today}
-                onChange={(event) =>
-                  setForm({ ...form, minutes_today: Math.max(0, Number(event.target.value) || 0) })
-                }
-                className="px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-white/40 outline-none transition"
-              />
-            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input

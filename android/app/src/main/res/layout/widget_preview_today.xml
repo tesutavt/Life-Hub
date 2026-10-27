@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="14dp" android:background="@drawable/widget_preview_bg">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Ср, 22 октября" android:textSize="12sp" android:textColor="#99E9FCF6" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="🔥 7   +60 XP" android:textSize="22sp" android:textColor="#E9FCF6" android:textStyle="bold" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Задания дня · 240/500" android:textSize="11sp" android:textColor="#99E9FCF6" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="✅ Осталось привычек: 2" android:textSize="12sp" android:textColor="#E9FCF6" />
+
+</LinearLayout>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Modal } from "../ui/Modal";
-import ReportView from "./ReportView";
+import ReportView, { reportHasActivity } from "./ReportView";
 import { ReportData, ReportPeriodResponse } from "../../types/reports";
 
 type ReportPeriod = "daily" | "weekly" | "monthly";
@@ -76,8 +76,11 @@ export default function ReportReminders() {
         try {
           const response = (await api.get(`/api/life/reports/period?period=${period}`)) as ReportPeriodResponse;
           if (cancelled) return;
-          if (response?.report) {
+          if (response?.report && reportHasActivity(response.report)) {
             upcoming.push(response.report);
+          } else if (response?.report) {
+            // Пустой период не показываем, но запоминаем, чтобы не спрашивать снова
+            markPeriodSeen(period, key);
           }
         } catch {
           // ignore fetch errors
@@ -85,7 +88,7 @@ export default function ReportReminders() {
       }
       if (!cancelled && upcoming.length > 0) {
         setQueue(upcoming);
-        setCurrent(upcoming[0]);
+        setCurrent(upcoming[0] ?? null);
       }
     })();
     return () => {

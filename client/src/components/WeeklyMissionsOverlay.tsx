@@ -167,7 +167,7 @@ export function WeeklyMissionsOverlay({ open, onClose, onSummaryLoaded }: Weekly
       open={open}
       onClose={onClose}
       overlayClassName="bg-brand-deep/80 backdrop-blur-xl"
-      contentClassName="w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-brand-night/95 via-brand-night/90 to-brand-deep/90 shadow-brand-soft"
+      contentClassName="w-full max-w-5xl max-h-[85vh] overflow-y-auto rounded-3xl border border-white/10 bg-gradient-to-br from-brand-night/95 via-brand-night/90 to-brand-deep/90 shadow-brand-soft"
       containerClassName="items-center justify-center"
       closeOnOverlayClick
     >

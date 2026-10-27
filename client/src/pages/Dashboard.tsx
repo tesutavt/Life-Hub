@@ -9,6 +9,9 @@ import TagSelector from '../components/tags/TagSelector';
 import { Modal } from '../components/ui/Modal';
 import CollapseToggle from '../components/ui/CollapseToggle';
 import { usePersistentCollapse } from '../hooks/usePersistentCollapse';
+import { DEFAULT_LAYOUT, useDashboardLayout, viewOf, WidgetConfig, WidgetId, WIDGETS } from '../components/dashboard/dashboardLayout';
+import ExpenseModal from '../components/finance/ExpenseModal';
+import { openMissionsDiary } from '../components/missions/missionsBus';
 import {
   loadWeatherBackgrounds,
   loadWeatherEffects,
@@ -37,12 +40,9 @@ import {
   Banknote,
   BookOpen,
   CalendarDays,
-  Clock,
   Flame,
   Footprints,
   HeartPulse,
-  CloudRain,
-  Droplets,
   Moon,
   PieChart as PieChartIcon,
   Loader2,
@@ -50,7 +50,12 @@ import {
   Plus,
   Target,
   TrendingUp,
-  Wind,
+  Check,
+  LayoutGrid,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  EyeOff,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -162,6 +167,85 @@ type LoanSummary = {
   tags: TagOption[];
 };
 
+type LoanFormValue = { bank: string; payment_monthly: number; remaining: number; due_day: string };
+
+type LoanFormModalProps = {
+  mode: 'create' | 'edit';
+  open: boolean;
+  onClose: () => void;
+  form: LoanFormValue;
+  onFormChange: (next: LoanFormValue) => void;
+  tagOptions: TagOption[];
+  selectedTagIds: number[];
+  onTagsChange: (next: number[]) => void;
+  onSubmit: () => void;
+};
+
+function LoanFormModal({
+  mode,
+  open,
+  onClose,
+  form,
+  onFormChange,
+  tagOptions,
+  selectedTagIds,
+  onTagsChange,
+  onSubmit,
+}: LoanFormModalProps) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      contentClassName="w-full max-w-sm space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+    >
+      <div className="text-lg font-medium mb-2">{mode === 'edit' ? 'Редактировать кредит' : 'Добавить кредит'}</div>
+      <input
+        placeholder="Банк"
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+        value={form.bank}
+        onChange={(e) => onFormChange({ ...form, bank: e.target.value })}
+      />
+      <input
+        placeholder="Ежемесячный платёж"
+        type="number"
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+        value={form.payment_monthly}
+        onChange={(e) => onFormChange({ ...form, payment_monthly: Number(e.target.value) })}
+      />
+      <input
+        placeholder="Остаток"
+        type="number"
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+        value={form.remaining}
+        onChange={(e) => onFormChange({ ...form, remaining: Number(e.target.value) })}
+      />
+      <input
+        placeholder="День платежа"
+        className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+        value={form.due_day}
+        onChange={(e) => onFormChange({ ...form, due_day: e.target.value })}
+      />
+      <TagSelector
+        tags={tagOptions}
+        selectedIds={selectedTagIds}
+        onChange={onTagsChange}
+        label="Теги кредита"
+        className="mt-2"
+        emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
+        onManageTags={() => window.open('/pages', '_blank')}
+      />
+      <div className="mt-4 flex justify-between">
+        <button onClick={onClose} className="rounded-full bg-white/10 px-4 py-2 hover:bg-white/20">
+          Отмена
+        </button>
+        <button onClick={onSubmit} className="rounded-full bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400">
+          {mode === 'edit' ? 'Сохранить' : 'Добавить'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 type LanguageSummary = {
   id: number;
   name: string;
@@ -203,9 +287,21 @@ type BankTransaction = {
   id: number;
   amount: number;
   description?: string;
+  category?: string | null;
   mcc?: number | null;
   ts: number;
 };
+
+type DashMissions = {
+  total_points: number;
+  target_points: number;
+  completed_count: number;
+  total_count: number;
+  xp_earned: number;
+  missions: { claimable: boolean }[];
+};
+type DashLearnCourse = { id: number; title: string; icon: string | null; lessons_done: number; lessons_total: number; progress_pct: number; locked?: boolean };
+type DashAchievement = { id: number; title: string; icon: string; description?: string | null };
 
 type FitnessMetrics = { steps: number; hr: number; sleepH: number; activeCalories: number };
 
@@ -224,40 +320,19 @@ type WeatherInfo = {
   city: string;
   country?: string;
   description: string;
-  condition: string;
   temperature: number;
-  feelsLike: number;
-  humidity: number;
-  windSpeed: number;
-  precipitationChance: number;
-  precipitationVolume: number;
-  icon?: string;
   localDate: Date;
   localDateLabel: string;
-  localTimeLabel: string;
   timeOfDay: WeatherTimeOfDay;
   mood: WeatherMood;
 };
 
 type WeatherErrorState = 'profile' | 'missing-key' | 'not-found' | 'fetch' | null;
 
-const WEATHER_TIME_LABELS: Record<WeatherTimeOfDay, string> = {
-  morning: 'Утро',
-  day: 'День',
-  evening: 'Вечер',
-  night: 'Ночь',
-};
-
 const weatherDateFormatter = new Intl.DateTimeFormat('ru-RU', {
   weekday: 'long',
   day: 'numeric',
   month: 'long',
-  timeZone: 'UTC',
-});
-
-const weatherTimeFormatter = new Intl.DateTimeFormat('ru-RU', {
-  hour: '2-digit',
-  minute: '2-digit',
   timeZone: 'UTC',
 });
 
@@ -336,44 +411,17 @@ const normalizeWeatherResponse = (payload: any, requestedCity: string): WeatherI
   const description = rawDescription ? rawDescription.charAt(0).toUpperCase() + rawDescription.slice(1) : '';
   const mood = resolveWeatherMood(`${rawMain} ${rawDescription}`);
   const temperatureRaw = Number(payload?.main?.temp);
-  const feelsLikeRaw = Number(payload?.main?.feels_like);
-  const humidityRaw = Number(payload?.main?.humidity);
-  const windRaw = Number(payload?.wind?.speed);
-  const rain1h = Number(payload?.rain?.['1h']);
-  const rain3h = Number(payload?.rain?.['3h']);
-  const snow1h = Number(payload?.snow?.['1h']);
-  const snow3h = Number(payload?.snow?.['3h']);
-  const precipitationVolumeRaw = [rain1h, rain3h, snow1h, snow3h].find((value) => Number.isFinite(value) && value > 0) ?? 0;
-  const precipitationChanceRaw = Number(payload?.clouds?.all);
 
   const cityName = typeof payload?.name === 'string' && payload.name.trim().length > 0 ? payload.name : requestedCity;
   const country = typeof payload?.sys?.country === 'string' ? payload.sys.country : undefined;
-
-  const humidity = Number.isFinite(humidityRaw) ? Math.max(0, Math.min(100, Math.round(humidityRaw))) : 0;
-  const windSpeed = Number.isFinite(windRaw) ? Math.max(0, windRaw) : 0;
-  const precipitationChance = Number.isFinite(precipitationChanceRaw)
-    ? Math.max(0, Math.min(100, Math.round(precipitationChanceRaw)))
-    : 0;
 
   return {
     city: cityName,
     country,
     description,
-    condition: rawMain,
     temperature: Number.isFinite(temperatureRaw) ? Math.round(temperatureRaw) : 0,
-    feelsLike: Number.isFinite(feelsLikeRaw)
-      ? Math.round(feelsLikeRaw)
-      : Number.isFinite(temperatureRaw)
-      ? Math.round(temperatureRaw)
-      : 0,
-    humidity,
-    windSpeed: Math.round(windSpeed * 10) / 10,
-    precipitationChance,
-    precipitationVolume: Math.round(Math.max(0, precipitationVolumeRaw) * 10) / 10,
-    icon: typeof weatherEntry?.icon === 'string' ? weatherEntry.icon : undefined,
     localDate,
     localDateLabel: weatherDateFormatter.format(localDate),
-    localTimeLabel: weatherTimeFormatter.format(localDate),
     timeOfDay: getWeatherTimeOfDay(localDate),
     mood,
   };
@@ -425,20 +473,20 @@ const TopStat = ({
   value: string;
   sub?: string;
 }) => (
-  <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10">
+  <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10">
       <Icon className="h-4 w-4 text-white" />
     </div>
-    <div>
-      <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
-      <div className="text-lg font-semibold text-white leading-tight">{value}</div>
-      {sub && <div className="text-xs text-white/50">{sub}</div>}
+    <div className="min-w-0">
+      <div className="truncate text-[10px] uppercase tracking-wide text-white/50">{label}</div>
+      <div className="truncate text-sm font-semibold leading-tight text-white">{value}</div>
+      {sub && <div className="truncate text-[10px] text-white/45">{sub}</div>}
     </div>
   </div>
 );
 
 const ProgressBar = ({ value, color = 'from-indigo-400 to-sky-400' }: { value: number; color?: string }) => (
-  <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
     <div
       className={classNames('h-full rounded-full bg-gradient-to-r', color)}
       style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
@@ -446,28 +494,29 @@ const ProgressBar = ({ value, color = 'from-indigo-400 to-sky-400' }: { value: n
   </div>
 );
 
-const CircleProgress = ({ value, size = 140, thickness = 16 }: { value: number; size?: number; thickness?: number }) => {
+const CircleProgress = ({ value, size = 112, thickness = 14 }: { value: number; size?: number; thickness?: number }) => {
   const clamped = Math.max(0, Math.min(100, value));
+  const compact = size < 90;
   return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+    <div className="relative flex shrink-0 items-center justify-center" style={{ width: size, height: size }} title="Средний прогресс">
       <div
-        className="absolute inset-0 rounded-full border border-white/5"
+        className="absolute inset-0 rounded-full"
         style={{ background: `conic-gradient(#8b5cf6 ${clamped * 3.6}deg, rgba(255,255,255,0.08) ${clamped * 3.6}deg)` }}
       />
       <div
-        className="absolute rounded-full bg-[#0b0b12]"
+        className="absolute rounded-full bg-brand-night"
         style={{ width: size - thickness * 2, height: size - thickness * 2 }}
       />
       <div className="relative text-center text-white">
-        <div className="text-3xl font-semibold leading-none">{clamped}%</div>
-        <div className="mt-2 text-xs uppercase tracking-wide text-white/50">Средний прогресс</div>
+        <div className={classNames('font-semibold leading-none', compact ? 'text-[11px]' : 'text-3xl')}>{clamped}%</div>
+        {!compact && <div className="mt-2 text-xs uppercase tracking-wide text-white/50">Средний прогресс</div>}
       </div>
     </div>
   );
 };
 
 const MiniSparkline = ({ data, color }: { data: { value: number }[]; color: string }) => (
-  <ResponsiveContainer width="100%" height={48}>
+  <ResponsiveContainer width="100%" height={28}>
     <LineChart data={data} margin={{ top: 6, bottom: 0, left: 0, right: 0 }}>
       <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} />
     </LineChart>
@@ -489,50 +538,18 @@ const FitnessStatCard = ({
   data: { value: number }[];
   color: string;
 }) => (
-  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-    <div className="flex items-center gap-3">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10">
-        <Icon className="h-4 w-4 text-white" />
-      </div>
-      <div>
-        <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
-        <div className="text-lg font-semibold text-white">
-          {value}
-          {unit && <span className="ml-1 text-xs font-normal text-white/60">{unit}</span>}
-        </div>
+  <div className="rounded-xl bg-black/25 px-2.5 py-2">
+    <div className="flex items-center gap-2">
+      <Icon className="h-3.5 w-3.5 shrink-0" style={{ color }} />
+      <div className="min-w-0 flex-1 truncate text-[10px] uppercase tracking-wide text-white/50">{label}</div>
+      <div className="text-sm font-semibold text-white">
+        {value}
+        {unit && <span className="ml-0.5 text-[10px] font-normal text-white/60">{unit}</span>}
       </div>
     </div>
-    <div className="mt-3 h-14">
+    <div className="mt-1 h-7">
       <MiniSparkline data={data} color={color} />
     </div>
-  </div>
-);
-
-const WeatherMetric = ({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: string;
-}) => (
-  <div className="rounded-2xl bg-white/15 px-3 py-2 backdrop-blur-sm">
-    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-white/70">
-      <Icon className="h-3.5 w-3.5" />
-      <span>{label}</span>
-    </div>
-    <div
-      className="mt-1 text-lg font-semibold text-white"
-      style={accent ? { color: accent } : undefined}
-    >
-      {value}
-    </div>
-    {sub && <div className="mt-0.5 text-[11px] text-white/75">{sub}</div>}
   </div>
 );
 
@@ -559,9 +576,6 @@ const WeatherCard = ({
       ? `${weather.city}, ${weather.country}`
       : weather.city
     : city;
-
-  const precipitationFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 0 });
-  const windFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 0 });
 
   let content: React.ReactNode;
 
@@ -651,62 +665,31 @@ const WeatherCard = ({
       </div>
     );
   } else if (weather) {
-    const precipitationValue = weather.precipitationVolume > 0
-      ? `${precipitationFormatter.format(weather.precipitationVolume)} мм`
-      : `${weather.precipitationChance}%`;
-    const precipitationSub = weather.precipitationVolume > 0
-      ? `Вероятность ~${weather.precipitationChance}%`
-      : weather.precipitationChance > 0
-      ? `Вероятность ~${weather.precipitationChance}%`
-      : 'Осадки не ожидаются';
-    const humidityValue = `${weather.humidity}%`;
-    const windValue = `${windFormatter.format(weather.windSpeed)} м/с`;
-
     content = (
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs uppercase tracking-wide text-white/70">Погода</div>
-            <div className="text-lg font-semibold leading-tight text-white">{locationLabel}</div>
-            {weather.description && (
-              <div className="text-sm text-white/80">{weather.description}</div>
-            )}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-white/85">{weather.description || 'Weather'}</div>
+          <div className="mt-1 text-4xl font-semibold leading-none text-white">
+            {weather.temperature}°
           </div>
-          <div className="text-right">
-            <div className="text-xs uppercase tracking-wide text-white/70">{WEATHER_TIME_LABELS[weather.timeOfDay]}</div>
-            <div className="text-sm font-medium text-white/90">{weather.localDateLabel}</div>
-            <div className="text-xs text-white/70">{weather.localTimeLabel}</div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex items-center gap-3">
-            {weather.icon && (
-              <img
-                src={`https://openweathermap.org/img/wn/${weather.icon}@2x.png`}
-                alt={weather.description || weather.condition || 'Погодные условия'}
-                className="h-16 w-16 drop-shadow-xl"
-                loading="lazy"
-              />
-            )}
-            <div>
-              <div
-                className="text-5xl font-bold leading-none"
-                style={{ color: visuals.accent }}
-              >
-                {weather.temperature}°C
-              </div>
-              <div className="mt-1 text-sm text-white/80">
-                Ощущается как {weather.feelsLike}°C
-              </div>
+          <div className="mt-1 flex items-center gap-4 text-sm text-white/85">
+            <div className="h-8 w-px bg-white/20" />
+            <div className="min-w-0">
+              <div className="truncate font-medium text-white">{weather.localDateLabel}</div>
+              <div className="mt-1 truncate text-white/80">{locationLabel}</div>
             </div>
           </div>
         </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <WeatherMetric icon={CloudRain} label="Осадки" value={precipitationValue} sub={precipitationSub} accent={visuals.accent} />
-          <WeatherMetric icon={Droplets} label="Влажность" value={humidityValue} />
-          <WeatherMetric icon={Wind} label="Ветер" value={windValue} />
+        <div className="relative h-16 w-16 shrink-0">
+          <div
+            className="absolute inset-0 rounded-full opacity-90 blur-2xl"
+            style={{ backgroundColor: 'rgba(255, 214, 102, 0.45)' }}
+          />
+          <div
+            className="absolute inset-2 rounded-full shadow-[0_12px_24px_rgba(255,140,0,0.25)]"
+            style={{ background: 'radial-gradient(circle at 35% 35%, #fff8bf 0%, #ffd35a 45%, #ff8a00 100%)' }}
+          />
+          <div className="absolute inset-[22%] rounded-full bg-white/25 blur-xl" />
         </div>
       </div>
     );
@@ -729,23 +712,26 @@ const WeatherCard = ({
     : { background: visuals.gradient };
 
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-white/10 text-white shadow-xl shadow-black/30">
+    <div className="relative overflow-hidden rounded-3xl border border-white/10 text-white shadow-xl shadow-black/20">
       <div className="absolute inset-0 transition-all duration-500" style={backgroundStyle} />
       <div className="absolute inset-0" style={{ background: visuals.overlay }} />
+      <div className="absolute left-[-18%] top-[-10%] h-36 w-36 rounded-full bg-white/10" />
+      <div className="absolute left-[55%] top-[-40%] h-48 w-48 rounded-full bg-cyan-300/15" />
+      <div className="absolute left-[65%] top-[-20%] h-40 w-40 rounded-full bg-teal-200/15" />
       {visuals.effectImage ? (
         <div
-          className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-60 mix-blend-screen weather-effect-layer"
+          className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-35 mix-blend-screen weather-effect-layer"
           style={{ backgroundImage: `url(${visuals.effectImage})` }}
         />
       ) : null}
-      <div className="absolute -top-24 -right-20 h-56 w-56 rounded-full bg-white/25 opacity-20 blur-3xl" />
-      <div className="relative z-10 p-6">{content}</div>
+      <div className="relative z-10 p-3.5">{content}</div>
     </div>
   );
 };
 
 const categorizeTransaction = (tx: BankTransaction) => {
   if (!tx || !Number.isFinite(Number(tx.amount)) || tx.amount >= 0) return null;
+  if (tx.category) return { label: tx.category, color: assignCategoryColor(tx.category) };
   if (typeof tx.mcc === 'number' && mccPresetMap.has(tx.mcc)) {
     const label = mccPresetMap.get(tx.mcc)!;
     return { label, color: assignCategoryColor(label) };
@@ -825,6 +811,9 @@ export default function Dashboard() {
   const [categorySpend, setCategorySpend] = useState<CategorySpend[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
+  const [calendarPreview, setCalendarPreview] = useState<{ iso: string; x: number; y: number; above: boolean; events: CalendarEvent[] } | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+  const calendarCardRef = useRef<HTMLDivElement | null>(null);
 
   const [editing, setEditing] = useState<LoanSummary | null>(null);
   const [adding, setAdding] = useState(false);
@@ -838,11 +827,44 @@ export default function Dashboard() {
   const [weatherError, setWeatherError] = useState<WeatherErrorState>(null);
   const [weatherBackgrounds, setWeatherBackgrounds] = useState<StoredWeatherBackgrounds>(loadWeatherBackgrounds);
   const [weatherEffects, setWeatherEffects] = useState<StoredWeatherEffects>(loadWeatherEffects);
-  const [coursesCollapsed, setCoursesCollapsed] = usePersistentCollapse('dashboard:courses');
-  const [fitnessCollapsed, setFitnessCollapsed] = usePersistentCollapse('dashboard:fitness');
-  const [spendCollapsed, setSpendCollapsed] = usePersistentCollapse('dashboard:spend');
-  const [goalsCollapsed, setGoalsCollapsed] = usePersistentCollapse('dashboard:goals');
-  const [loansCollapsed, setLoansCollapsed] = usePersistentCollapse('dashboard:loans');
+  const [topStatsCollapsed, setTopStatsCollapsed] = usePersistentCollapse('dashboard:top-stats');
+  const [layout, setLayout] = useDashboardLayout();
+  const [editMode, setEditMode] = useState(false);
+  const [dragId, setDragId] = useState<WidgetId | null>(null);
+  const [missions, setMissions] = useState<DashMissions | null>(null);
+  const [habits, setHabits] = useState<{ id: number; title: string }[]>([]);
+  const [habitsDone, setHabitsDone] = useState<Set<number>>(new Set());
+  const [learnCourses, setLearnCourses] = useState<DashLearnCourse[]>([]);
+  const [recentAchievements, setRecentAchievements] = useState<DashAchievement[]>([]);
+  const [recentTx, setRecentTx] = useState<BankTransaction[]>([]);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+
+  // Данные для новых блоков: задания, привычки, курсы-тренировки, ачивки
+  useEffect(() => {
+    const today = toISODate(new Date());
+    api.get('/api/life/daily-missions', { silentError: true }).then(setMissions).catch(() => {});
+    Promise.all([
+      api.get('/api/life/habits', { silentError: true }),
+      api.get(`/api/life/habits/checks?from=${today}&to=${today}`, { silentError: true }),
+    ])
+      .then(([h, c]) => {
+        setHabits((h?.items || []).map((x: any) => ({ id: x.id, title: x.title })));
+        setHabitsDone(new Set((c?.items || []).map((x: any) => x.habit_id)));
+      })
+      .catch(() => {});
+    api.get('/api/learn/courses', { silentError: true }).then((r) => setLearnCourses(r?.items || [])).catch(() => {});
+    api
+      .get('/api/achievements', { silentError: true })
+      .then((r) =>
+        setRecentAchievements(
+          (r?.items || [])
+            .filter((a: any) => a.earned)
+            .sort((a: any, b: any) => String(b.earned_at || '').localeCompare(String(a.earned_at || '')))
+            .slice(0, 6)
+        )
+      )
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -1056,8 +1078,8 @@ export default function Dashboard() {
       const today = new Date();
       const start = new Date(today);
       start.setDate(start.getDate() - 6);
-      const startIso = start.toISOString().slice(0, 10);
-      const endIso = today.toISOString().slice(0, 10);
+      const startIso = toISODate(start);
+      const endIso = toISODate(today);
 
       const [activityRes, heartRes, sleepRes] = await Promise.all([
         api.get(`/api/fitness/activity?start=${startIso}&end=${endIso}`, { silentError: true }),
@@ -1087,7 +1109,7 @@ export default function Dashboard() {
       const cursor = new Date(`${startIso}T00:00:00Z`);
       const end = new Date(`${endIso}T00:00:00Z`);
       while (cursor.getTime() <= end.getTime()) {
-        rangeDates.push(cursor.toISOString().slice(0, 10));
+        rangeDates.push(toISODate(cursor));
         cursor.setUTCDate(cursor.getUTCDate() + 1);
       }
 
@@ -1133,6 +1155,7 @@ export default function Dashboard() {
     try {
       const response = await api.get('/api/banks/transactions', { silentError: true });
       const items: BankTransaction[] = Array.isArray(response?.items) ? response.items : [];
+      setRecentTx(items.slice(0, 8));
       const byDay = new Map<string, number>();
       const categoryTotals = new Map<string, number>();
       const categoryColors = new Map<string, string>();
@@ -1350,645 +1373,715 @@ export default function Dashboard() {
 
   const goPrevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
   const goNextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-  return (
-    <Shell>
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-3xl font-semibold text-white">Добро пожаловать!</div>
-            <div className="text-sm text-white/60">
-              {new Date().toLocaleDateString('ru-RU', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-              })}
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <TopStat
-              icon={BookOpen}
-              label="Языки"
-              value={`${languages.length}`}
-              sub={`Средний прогресс: ${languagesAverage}%`}
-            />
-            <TopStat
-              icon={Activity}
-              label="Курсы"
-              value={`${activeCourses.length}`}
-              sub={`Средний прогресс: ${courseAverageProgress}%`}
-            />
-            <TopStat
-              icon={Target}
-              label="Цели"
-              value={`${goals.length}`}
-              sub={`Средний прогресс: ${goalsAverageProgress}%`}
-            />
-            <TopStat
-              icon={Banknote}
-              label="Расходы (7 дней)"
-              value={formatCurrency(spendTotal)}
-              sub="Сумма списаний"
-            />
-          </div>
+
+  const clearCalendarHoverTimer = () => {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
+
+  const startCalendarPreviewTimer = (iso: string, events: CalendarEvent[], target: HTMLDivElement) => {
+    clearCalendarHoverTimer();
+    if (!events.length) {
+      setCalendarPreview(null);
+      return;
+    }
+    hoverTimerRef.current = window.setTimeout(() => {
+      const rect = target.getBoundingClientRect();
+      const containerRect = calendarCardRef.current?.getBoundingClientRect();
+      if (!containerRect) return;
+      const popupWidth = 224;
+      const padding = 12;
+      const preferredX = rect.left + rect.width / 2 - containerRect.left;
+      const clampedX = Math.min(
+        containerRect.width - popupWidth / 2 - padding,
+        Math.max(popupWidth / 2 + padding, preferredX)
+      );
+      const above = rect.top - containerRect.top > 96;
+      const y = above
+        ? rect.top - containerRect.top - 8
+        : rect.bottom - containerRect.top + 8;
+      setCalendarPreview({
+        iso,
+        events,
+        x: clampedX,
+        y,
+        above,
+      });
+      hoverTimerRef.current = null;
+    }, 1400);
+  };
+
+  const stopCalendarPreview = () => {
+    clearCalendarHoverTimer();
+    setCalendarPreview(null);
+  };
+
+  useEffect(() => () => clearCalendarHoverTimer(), []);
+
+  // ───── Настраиваемый Дэшборд ─────
+  const moveWidgetBy = (id: WidgetId, delta: number) => {
+    const visible = layout.filter((w) => !w.hidden);
+    const index = visible.findIndex((w) => w.id === id);
+    const target = visible[index + delta];
+    if (!target) return;
+    moveWidgetTo(id, target.id, delta > 0);
+  };
+
+  const moveWidgetTo = (id: WidgetId, targetId: WidgetId, after = false) => {
+    const item = layout.find((w) => w.id === id);
+    if (!item) return;
+    const rest = layout.filter((w) => w.id !== id);
+    const targetIndex = rest.findIndex((w) => w.id === targetId);
+    rest.splice(after ? targetIndex + 1 : targetIndex, 0, item);
+    setLayout(rest);
+  };
+
+  const toggleHabit = async (habitId: number) => {
+    const done = habitsDone.has(habitId);
+    const next = new Set(habitsDone);
+    if (done) next.delete(habitId);
+    else next.add(habitId);
+    setHabitsDone(next);
+    await api.post('/api/life/habits/checks', { habit_id: habitId, date: todayIso, done: !done }, { silentSuccess: true });
+  };
+
+  const removeTransaction = async (id: number) => {
+    if (!window.confirm('Удалить эту запись?')) return;
+    await api.del(`/api/banks/transactions/${id}`, { silentSuccess: true });
+    await loadFinance();
+  };
+
+  const widgetHead = (id: WidgetId, sub: React.ReactNode, color: string, action?: React.ReactNode) => (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <div className={classNames('flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base', color)}>{WIDGETS[id].emoji}</div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-white">{WIDGETS[id].title}</div>
+          <div className="truncate text-[11px] text-white/50">{sub}</div>
         </div>
+      </div>
+      {action}
+    </div>
+  );
 
-        <div className="grid gap-4 xl:grid-cols-12">
-          <div className="space-y-4 xl:col-span-8">
-            <div className="card space-y-3">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                    <BookOpen className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">Языки</div>
-                    <div className="text-xs uppercase tracking-wide text-white/50">
-                      {languages.length > 0 ? `${languages.length} активных языков` : 'Нет активных языков'}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex flex-col items-center">
-                    <CircleProgress value={languagesAverage} />
-                    <div className="mt-3 text-sm text-white/60">
-                      {totalMinutesToday > 0
-                        ? `Сегодня: ${formatNumber(totalMinutesToday)} мин`
-                        : 'Сегодня занятий ещё не было'}
-                    </div>
-                  </div>
-                </div>
-              </div>
+  const emptyHint = (text: string, to?: string, label?: string) => (
+    <div className="rounded-xl border border-dashed border-white/10 p-3 text-xs text-white/60">
+      {text}{' '}
+      {to && (
+        <Link to={to} className="text-brand-mint hover:underline">
+          {label}
+        </Link>
+      )}
+    </div>
+  );
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                {languages.slice(0, 6).map((lang) => (
-                  <div key={lang.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-white">{lang.name}</div>
-                      <div className="text-xs text-white/50">{lang.level || 'уровень ?'}</div>
-                    </div>
-                    <div className="mt-3">
-                      <ProgressBar value={lang.courseProgressPct} color="from-violet-400 to-sky-400" />
-                    </div>
-                  </div>
-                ))}
-                {languages.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
-                    Добавьте языки, чтобы отслеживать прогресс.
-                  </div>
-                )}
-              </div>
-            </div>
+  const ringRow = (items: { key: string | number; label: string; value: number; sub?: string }[]) => (
+    <div className="grid grid-cols-3 gap-2">
+      {items.slice(0, 6).map((item) => (
+        <div key={item.key} className="flex flex-col items-center rounded-xl bg-black/25 p-2 text-center">
+          <CircleProgress value={item.value} size={52} thickness={6} />
+          <div className="mt-1 w-full truncate text-[11px] font-semibold text-white">{item.label}</div>
+          {item.sub && <div className="truncate text-[10px] text-white/50">{item.sub}</div>}
+        </div>
+      ))}
+    </div>
+  );
 
-            <div className="card space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                    <Activity className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">Курсы</div>
-                    <div className="text-xs uppercase tracking-wide text-white/50">
-                      {activeCourses.length > 0 ? `${activeCourses.length} курса в работе` : 'Нет активных курсов'}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs text-white/60">
-                    Средний прогресс: {courseAverageProgress}%
-                  </div>
-                  <CollapseToggle
-                    collapsed={coursesCollapsed}
-                    onToggle={() => setCoursesCollapsed((prev) => !prev)}
-                  />
+  const renderWidget = (config: WidgetConfig): React.ReactNode => {
+    const view = viewOf(config);
+    switch (config.id) {
+      case 'weather':
+        return (
+          <WeatherCard weather={weather} status={weatherStatus} city={weatherCity} error={weatherError} onRetry={loadWeather} backgrounds={weatherBackgrounds} effects={weatherEffects} />
+        );
+
+      case 'missions': {
+        const pct = missions ? Math.min(100, Math.round((missions.total_points * 100) / Math.max(1, missions.target_points))) : 0;
+        const claimable = missions?.missions.filter((m) => m.claimable).length || 0;
+        return (
+          <Link to="/daily-missions" onClick={(e) => { e.preventDefault(); openMissionsDiary(); }} className="card block space-y-2 !p-3 transition hover:border-amber-300/50">
+            {widgetHead('missions', missions ? `Выполнено ${missions.completed_count} из ${missions.total_count}` : 'загрузка…', 'bg-amber-400/15', claimable > 0 ? <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-brand-deep">🎁 {claimable}</span> : null)}
+            {view === 'ring' ? (
+              <div className="flex items-center gap-3">
+                <CircleProgress value={pct} size={64} thickness={7} />
+                <div className="text-sm text-white/80">
+                  <b className="text-white">{missions?.total_points ?? 0}</b> из {missions?.target_points ?? 500} очков
+                  <div className="text-xs text-white/50">+{missions?.xp_earned ?? 0} XP сегодня</div>
                 </div>
               </div>
+            ) : (
+              <div>
+                <ProgressBar value={pct} color="from-amber-300 via-rose-400 to-purple-500" />
+                <div className="mt-1 flex justify-between text-[11px] text-white/55">
+                  <span>{missions?.total_points ?? 0} / {missions?.target_points ?? 500} очков</span>
+                  <span>{pct}%</span>
+                </div>
+              </div>
+            )}
+          </Link>
+        );
+      }
 
-              {!coursesCollapsed && (
-                <div className="space-y-3">
-                  {activeCourses.slice(0, 5).map((course) => (
-                    <div key={course.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
+      case 'learn': {
+        const next = learnCourses.find((c) => c.progress_pct < 100 && !c.locked);
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead('learn', next ? `${next.lessons_done} из ${next.lessons_total} уроков` : 'курсов-тренировок пока нет', 'bg-[#58cc02]/20')}
+            {next ? (
+              <Link to={`/learn/${next.id}`} className="flex items-center gap-3 rounded-xl bg-black/25 p-2.5 transition hover:bg-black/40">
+                <span className="text-2xl">{next.icon || '📘'}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-white">{next.title}</span>
+                  <span className="mt-1 block">
+                    <ProgressBar value={next.progress_pct} color="from-[#58cc02] to-[#89e219]" />
+                  </span>
+                </span>
+                <span className="rounded-xl bg-[#58cc02] px-3 py-1.5 text-[11px] font-extrabold uppercase text-white">Дальше</span>
+              </Link>
+            ) : (
+              emptyHint('Импортируйте курс, сгенерированный ИИ, —', '/courses?template=1', 'шаблон и импорт')
+            )}
+          </div>
+        );
+      }
+
+      case 'habits': {
+        const done = habits.filter((h) => habitsDone.has(h.id)).length;
+        const pct = habits.length ? Math.round((done * 100) / habits.length) : 0;
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead('habits', habits.length ? `Сегодня ${done} из ${habits.length}` : 'привычек пока нет', 'bg-emerald-400/15')}
+            {!habits.length ? (
+              emptyHint('Добавьте первую привычку —', '/habits', 'перейти к привычкам')
+            ) : view === 'ring' ? (
+              <Link to="/habits" className="flex items-center gap-3">
+                <CircleProgress value={pct} size={64} thickness={7} />
+                <span className="text-sm text-white/70">{done === habits.length ? 'Все привычки на сегодня отмечены 🎉' : `Осталось ${habits.length - done}`}</span>
+              </Link>
+            ) : (
+              <div className="space-y-1">
+                {habits.slice(0, 6).map((habit) => {
+                  const checked = habitsDone.has(habit.id);
+                  return (
+                    <button
+                      key={habit.id}
+                      type="button"
+                      onClick={() => toggleHabit(habit.id)}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-left text-xs transition hover:bg-white/5"
+                    >
+                      <span className={classNames('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-black', checked ? 'border-brand-mint bg-brand-mint text-brand-deep' : 'border-white/30 bg-white/5')}>
+                        {checked ? '✓' : ''}
+                      </span>
+                      <span className={classNames('truncate', checked ? 'text-white/45 line-through' : 'text-white/85')}>{habit.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'languages':
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead('languages', totalMinutesToday > 0 ? `Сегодня: ${formatNumber(totalMinutesToday)} мин` : 'Сегодня занятий ещё не было', 'bg-violet-400/15')}
+            {!languages.length
+              ? emptyHint('Добавьте язык —', '/languages', 'к языкам')
+              : view === 'ring'
+              ? ringRow(languages.map((l) => ({ key: l.id, label: l.name, value: l.courseProgressPct, sub: `${l.minutesToday || 0} мин` })))
+              : (
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {languages.slice(0, 4).map((lang) => (
+                    <div key={lang.id} className="rounded-xl bg-black/25 px-2.5 py-2">
                       <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-white">{course.title}</div>
-                          {course.provider && <div className="text-xs text-white/50">{course.provider}</div>}
-                        </div>
-                        <div className="text-xs uppercase tracking-wide text-white/50">
-                          {(course.status ?? 'in-progress') === 'done' ? 'Готово' : 'В процессе'}
-                        </div>
+                        <div className="truncate text-xs font-semibold text-white">{lang.name}</div>
+                        <div className="text-[10px] text-white/50">{lang.minutesToday || 0} мин</div>
                       </div>
-                      <div className="mt-3">
-                        <ProgressBar value={course.progress} color="from-emerald-400 to-lime-300" />
-                      </div>
-                      <div className="mt-2 flex justify-between text-xs text-white/60">
-                        <span>Прогресс</span>
-                        <span>{course.progress}%</span>
+                      <div className="mt-1.5">
+                        <ProgressBar value={lang.courseProgressPct} color="from-violet-400 to-sky-400" />
                       </div>
                     </div>
                   ))}
-                  {activeCourses.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
-                      Пока нет активных курсов — самое время выбрать новый!
-                    </div>
-                  )}
                 </div>
               )}
-            </div>
-
-            <div className="card space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                    <HeartPulse className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">Mi Fitness</div>
-                    <div className="text-xs uppercase tracking-wide text-white/50">Последние 7 дней</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <a
-                    href={googleAuthUrl}
-                    className="rounded-full border border-white/10 bg-black/50 px-4 py-1 text-xs uppercase tracking-wide text-white/60 hover:bg-white/10"
-                  >
-                    Подключить Google Fit
-                  </a>
-                  <CollapseToggle
-                    collapsed={fitnessCollapsed}
-                    onToggle={() => setFitnessCollapsed((prev) => !prev)}
-                  />
-                </div>
-              </div>
-
-              {!fitnessCollapsed && (
-                <>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <FitnessStatCard icon={Footprints} label="Шаги" value={formatNumber(metrics.steps)} data={stepsSpark} color="#38bdf8" />
-                    <FitnessStatCard icon={Moon} label="Сон" value={metrics.sleepH.toFixed(1)} unit="ч" data={sleepSpark} color="#a855f7" />
-                    <FitnessStatCard icon={Flame} label="Калории" value={formatNumber(activeCaloriesToday)} data={caloriesSpark} color="#f97316" />
-                    <FitnessStatCard icon={TrendingUp} label="Активность" value={formatNumber(estimatedActiveMinutes)} unit="мин" data={activitySpark} color="#34d399" />
-                  </div>
-
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={series} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="stepsGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.6} />
-                            <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                        <XAxis dataKey="date" stroke="#94a3b8" />
-                        <YAxis stroke="#94a3b8" />
-                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
-                        <Area type="monotone" dataKey="steps" stroke="#38bdf8" fill="url(#stepsGradient)" strokeWidth={2} />
-                        <Line type="monotone" dataKey="hr" stroke="#facc15" strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="sleep" stroke="#a855f7" strokeWidth={2} dot={false} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="card space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                    <PieChartIcon className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">Расходы</div>
-                    <div className="text-xs uppercase tracking-wide text-white/50">Категории и динамика</div>
-                  </div>
-                </div>
-                <CollapseToggle
-                  collapsed={spendCollapsed}
-                  onToggle={() => setSpendCollapsed((prev) => !prev)}
-                />
-              </div>
-
-              {!spendCollapsed && (
-                <div className="grid gap-6 lg:grid-cols-2">
-                  <div className="flex flex-col items-center justify-center">
-                    {categorySpend.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-center text-sm text-white/60">
-                        Загрузите данные транзакций, чтобы увидеть разбивку по категориям.
-                      </div>
-                    ) : (
-                      <>
-                        <div className="h-64 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Tooltip
-                                formatter={(value: number) => formatCurrency(value)}
-                                contentStyle={{
-                                  backgroundColor: '#0f172a',
-                                  borderRadius: 12,
-                                  border: '1px solid rgba(255,255,255,0.1)',
-                                  color: '#fff',
-                                }}
-                              />
-                              <Pie data={categorySpend} dataKey="amount" nameKey="label" innerRadius={50} outerRadius={90} paddingAngle={4}>
-                                {categorySpend.map((entry) => (
-                                  <Cell key={entry.label} fill={entry.color} />
-                                ))}
-                              </Pie>
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-                        <div className="mt-4 w-full space-y-2 text-sm text-white/70">
-                          {categorySpend.map((entry) => (
-                            <div key={entry.label} className="flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
-                              <div className="flex items-center gap-2">
-                                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                                <span>{entry.label}</span>
-                              </div>
-                              <span className="text-white/60">{formatCurrency(entry.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={spend} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                        <XAxis dataKey="date" stroke="#94a3b8" />
-                        <YAxis stroke="#94a3b8" />
-                        <Tooltip
-                          formatter={(value: number) => formatCurrency(value)}
-                          contentStyle={{
-                            backgroundColor: '#0f172a',
-                            borderRadius: 12,
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            color: '#fff',
-                          }}
-                        />
-                        <Line type="monotone" dataKey="out" stroke="#f97316" strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
-          <div className="space-y-4 xl:col-span-4">
-            <WeatherCard
-              weather={weather}
-              status={weatherStatus}
-              city={weatherCity}
-              error={weatherError}
-              onRetry={loadWeather}
-              backgrounds={weatherBackgrounds}
-              effects={weatherEffects}
-            />
-            <div className="card space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                    <CalendarDays className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">Календарь</div>
-                    <div className="text-xs uppercase tracking-wide text-white/50">
-                      {currentMonth.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={goPrevMonth}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20"
-                  >
-                    ‹
-                  </button>
-                  <button
-                    onClick={goNextMonth}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20"
-                  >
-                    ›
-                  </button>
-                </div>
-              </div>
+        );
 
-              <div className="grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-wide text-white/50">
-                {dayNames.map((name) => (
-                  <div key={name}>{name}</div>
+      case 'courses':
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead('courses', activeCourses.length ? `В работе: ${activeCourses.length} · ${courseAverageProgress}%` : 'Нет активных курсов', 'bg-emerald-400/15')}
+            {!activeCourses.length
+              ? emptyHint('Самое время выбрать курс —', '/courses', 'к курсам')
+              : view === 'ring'
+              ? ringRow(activeCourses.map((c) => ({ key: c.id, label: c.title, value: c.progress })))
+              : (
+                <div className="space-y-1.5">
+                  {activeCourses.slice(0, 4).map((course) => (
+                    <div key={course.id} className="rounded-xl bg-black/25 px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 truncate text-xs font-semibold text-white">{course.title}</div>
+                        <div className="text-[11px] text-white/60">{course.progress}%</div>
+                      </div>
+                      <div className="mt-1.5">
+                        <ProgressBar value={course.progress} color="from-emerald-400 to-lime-300" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </div>
+        );
+
+      case 'goals':
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead('goals', goals.length ? `${goals.length} активных` : 'Целей пока нет', 'bg-pink-400/15')}
+            {!goals.length
+              ? emptyHint('Поставьте цель на год —', '/year-goals', 'к целям')
+              : view === 'ring'
+              ? ringRow(goals.map((g) => ({ key: g.id, label: g.title, value: g.completion_pct, sub: `🔥 ${g.streak_current}` })))
+              : (
+                <div className="space-y-1.5">
+                  {goals.slice(0, 4).map((goal) => (
+                    <div key={goal.id} className="rounded-xl bg-black/25 px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 truncate text-xs font-semibold text-white">{goal.title}</div>
+                        <div className="shrink-0 text-[11px] text-white/55">🔥 {goal.streak_current} · {goal.completion_pct}%</div>
+                      </div>
+                      <div className="mt-1.5">
+                        <ProgressBar value={goal.completion_pct} color="from-purple-400 to-pink-400" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </div>
+        );
+
+      case 'calendar':
+        if (view === 'upcoming') {
+          return (
+            <Link to="/calendar" className="card block space-y-2 !p-3">
+              {widgetHead('calendar', upcomingEvents.length ? 'ближайшие события' : 'событий впереди нет', 'bg-sky-400/15')}
+              <div className="space-y-1">
+                {upcomingEvents.map((event) => (
+                  <div key={event.id} className="flex items-center gap-2 rounded-xl bg-black/25 px-2.5 py-1.5 text-xs">
+                    <span className="w-16 shrink-0 text-white/50">{new Date(event.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+                    <span className="truncate text-white/85">{event.title}</span>
+                  </div>
                 ))}
               </div>
-
-              <div className="grid grid-cols-7 gap-2">
-                {weeks.flat().map((date) => {
-                  const iso = toISODate(date);
-                  const dayEvents = eventsByDate.get(iso) || [];
-                  const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
-                  const isToday = iso === todayIso;
-                  return (
-                    <div
-                      key={`${iso}-${date.getDate()}`}
-                      className={classNames(
-                        'aspect-square rounded-2xl border border-white/5 p-2 text-xs text-white/70 transition',
-                        isCurrentMonth ? 'bg-white/5' : 'bg-black/20 text-white/30',
-                        isToday && 'border-white/70 text-white',
-                        dayEvents.length > 0 && 'ring-1 ring-offset-0 ring-purple-400/60'
-                      )}
-                    >
-                      <div className="flex h-full flex-col justify-between">
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span>{date.getDate()}</span>
-                          {dayEvents.length > 0 && (
-                            <span className="rounded-full bg-purple-400/40 px-1 text-[10px] text-purple-100">
-                              {dayEvents.length}
-                            </span>
-                          )}
-                        </div>
-                          {dayEvents.slice(0, 2).map((event) => (
-                            <div key={event.id} className="truncate text-[10px] text-white/60">
-                              {event.title}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {upcomingEvents.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-xs uppercase tracking-wide text-white/50">Ближайшие события</div>
-                    {upcomingEvents.map((event) => (
-                      <div
-                        key={event.id}
-                        className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 px-3 py-2"
-                      >
-                        <div className="text-sm text-white/80">{event.title}</div>
-                        <div className="flex items-center gap-2 text-xs text-white/50">
-                          <Clock className="h-3.5 w-3.5" />
-                          <span>
-                            {new Date(event.date).toLocaleDateString('ru-RU', {
-                              day: '2-digit',
-                              month: 'short',
-                            })}
-                          </span>
-                        </div>
+            </Link>
+          );
+        }
+        return (
+          <div ref={calendarCardRef} className="card relative space-y-2 overflow-visible !p-3">
+            <div className="flex items-center justify-between gap-2">
+              <button onClick={goPrevMonth} className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20">
+                ‹
+              </button>
+              <div className="text-sm font-medium text-white first-letter:uppercase">{currentMonth.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</div>
+              <button onClick={goNextMonth} className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/70 hover:bg-white/20">
+                ›
+              </button>
+            </div>
+            <div className="grid grid-cols-7 gap-0.5 text-center text-[9px] font-medium uppercase tracking-wide text-white/45">
+              {dayNames.map((name) => (
+                <div key={name}>{name}</div>
+              ))}
+            </div>
+            <div className="relative grid grid-cols-7 gap-0.5">
+              {weeks.flat().map((date) => {
+                const iso = toISODate(date);
+                const dayEvents = eventsByDate.get(iso) || [];
+                const isCurrentMonth = date.getMonth() === currentMonth.getMonth();
+                const isToday = iso === todayIso;
+                return (
+                  <div
+                    key={`${iso}-${date.getDate()}`}
+                    onMouseEnter={(event) => startCalendarPreviewTimer(iso, dayEvents, event.currentTarget)}
+                    onMouseLeave={stopCalendarPreview}
+                    className={classNames(
+                      'relative flex h-7 items-center justify-center rounded-md text-[10px] transition',
+                      isCurrentMonth ? 'text-white/75' : 'text-white/25',
+                      isToday && 'bg-sky-500/70 text-white shadow-lg shadow-sky-950/30',
+                      !isToday && isCurrentMonth && 'hover:bg-white/8',
+                      dayEvents.length > 0 && !isToday && 'bg-white/6'
+                    )}
+                  >
+                    <span>{date.getDate()}</span>
+                    {dayEvents.length > 0 && <span className={classNames('absolute bottom-0.5 h-1 w-1 rounded-full', isToday ? 'bg-white' : 'bg-sky-300')} />}
+                  </div>
+                );
+              })}
+              {calendarPreview && (
+                <div
+                  className="pointer-events-none absolute z-50 w-56 -translate-x-1/2 rounded-xl border border-white/10 bg-[#0b1018]/95 p-3 text-xs shadow-2xl"
+                  style={{ left: calendarPreview.x, top: calendarPreview.y, transform: calendarPreview.above ? 'translate(-50%, -100%)' : 'translate(-50%, 0)' }}
+                >
+                  <div className="mb-2 text-[11px] uppercase tracking-wide text-white/45">
+                    {new Date(calendarPreview.iso).toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })}
+                  </div>
+                  <div className="space-y-1">
+                    {calendarPreview.events.map((event) => (
+                      <div key={event.id} className="truncate text-white/85">
+                        {event.title}
                       </div>
                     ))}
                   </div>
-                )}
-            </div>
-            <div className="card space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                    <Target className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">Цели на год</div>
-                    <div className="text-xs uppercase tracking-wide text-white/50">
-                      {goals.length > 0 ? `${goals.length} активных целей` : 'Целей пока нет'}
-                    </div>
-                  </div>
                 </div>
-                <CollapseToggle
-                  collapsed={goalsCollapsed}
-                  onToggle={() => setGoalsCollapsed((prev) => !prev)}
-                />
-              </div>
-
-              {!goalsCollapsed && (
-                <div className="space-y-3">
-                  {goals.slice(0, 4).map((goal) => (
-                    <div key={goal.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-semibold text-white">{goal.title}</div>
-                        <div className="text-xs text-white/50">Стрик: {goal.streak_current}</div>
-                      </div>
-                      <div className="mt-3">
-                        <ProgressBar value={goal.completion_pct} color="from-purple-400 to-pink-400" />
-                      </div>
-                      <div className="mt-2 flex justify-between text-xs text-white/60">
-                        <span>Прогресс</span>
-                        <span>{goal.completion_pct}%</span>
-                      </div>
-                    </div>
-                  ))}
-                  {goals.length === 0 && (
-                    <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
-                      Добавьте цели, чтобы отслеживать годовой прогресс.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="card space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10">
-                    <Banknote className="h-4 w-4 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold text-white">Кредиты</div>
-                    <div className="text-xs uppercase tracking-wide text-white/50">Ежемесячные платежи</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={startAdd}
-                    className="flex items-center gap-2 rounded-full bg-emerald-500/80 px-3 py-1.5 text-xs font-semibold text-black hover:bg-emerald-400"
-                  >
-                    <Plus className="h-4 w-4" /> Добавить
-                  </button>
-                  <CollapseToggle
-                    collapsed={loansCollapsed}
-                    onToggle={() => setLoansCollapsed((prev) => !prev)}
-                  />
-                </div>
-              </div>
-
-              {loansCollapsed ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/60">
-                  Блок кредитов скрыт. Разверните, чтобы следить за платежами и остатком.
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-3">
-                    <div className="text-xs uppercase tracking-wide text-white/50">Заплачено в месяц</div>
-                    <div className="text-2xl font-semibold text-white">{formatCurrency(monthly)}</div>
-                    <div className="text-xs text-white/50">Остаток долга: {formatCurrency(loanRemainingTotal)}</div>
-                    <div className="h-2 rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-lime-300"
-                        style={{ width: `${Math.max(0, Math.min(100, loanOverviewProgress))}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-xs text-white/60">
-                      <span>Прогресс выплат</span>
-                      <span>{loanOverviewProgress}%</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {loans.map((loan) => {
-                      const ratio = loan.payment_monthly + loan.remaining;
-                      const loanProgress = ratio > 0 ? Math.round((loan.payment_monthly / ratio) * 100) : 0;
-                      return (
-                        <div key={loan.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-semibold text-white">{loan.bank}</div>
-                              <div className="text-xs text-white/50">День платежа: {loan.due_day || '—'}</div>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-white/60">
-                              <button
-                                onClick={() => startEdit(loan)}
-                                className="rounded-full bg-white/10 px-2 py-1 hover:bg-white/20"
-                              >
-                                ✎
-                              </button>
-                              <button
-                                onClick={() => removeLoan(loan.id)}
-                                className="rounded-full bg-red-500/20 px-2 py-1 text-red-100 hover:bg-red-500/40"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                          <div className="mt-3 flex items-center justify-between text-xs text-white/60">
-                            <span>Ежемесячно: {formatCurrency(loan.payment_monthly)}</span>
-                            <span>Остаток: {formatCurrency(loan.remaining)}</span>
-                          </div>
-                          <div className="mt-3">
-                            <ProgressBar value={loanProgress} color="from-emerald-400 to-lime-300" />
-                          </div>
-                          <div className="mt-2 text-xs text-white/60">Прогресс выплаты: {loanProgress}%</div>
-                          {loan.tags.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-1">
-                              {loan.tags.map((tag) => (
-                                <TagBadge key={tag.id} tag={tag} compact />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {loans.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-white/10 bg-black/30 p-4 text-sm text-white/60">
-                        Добавьте кредиты, чтобы отслеживать ежемесячные платежи и остаток.
-                      </div>
-                    )}
-                  </div>
-                </>
               )}
             </div>
           </div>
+        );
+
+      case 'fitness':
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead('fitness', 'последние 7 дней', 'bg-sky-400/15', <a href={googleAuthUrl} className="rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-[10px] text-white/60 hover:bg-white/10">Google Fit</a>)}
+            <div className="grid grid-cols-2 gap-1.5">
+              <FitnessStatCard icon={Footprints} label="Шаги" value={formatNumber(metrics.steps)} data={stepsSpark} color="#38bdf8" />
+              <FitnessStatCard icon={Moon} label="Сон" value={metrics.sleepH.toFixed(1)} unit="ч" data={sleepSpark} color="#a855f7" />
+              <FitnessStatCard icon={Flame} label="Калории" value={formatNumber(activeCaloriesToday)} data={caloriesSpark} color="#f97316" />
+              <FitnessStatCard icon={TrendingUp} label="Активность" value={formatNumber(estimatedActiveMinutes)} unit="мин" data={activitySpark} color="#34d399" />
+            </div>
+            {view === 'chart' && (
+              <div className="h-28">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={series} margin={{ top: 8, right: 8, left: -24, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="stepsGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.6} />
+                        <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                    <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
+                    <YAxis stroke="#94a3b8" fontSize={10} />
+                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                    <Area type="monotone" dataKey="steps" stroke="#38bdf8" fill="url(#stepsGradient)" strokeWidth={2} />
+                    <Line type="monotone" dataKey="hr" stroke="#facc15" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="sleep" stroke="#a855f7" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'spend':
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead(
+              'spend',
+              `За 7 дней: ${formatCurrency(spendTotal)}`,
+              'bg-orange-400/15',
+              <button type="button" onClick={() => setExpenseOpen(true)} className="inline-flex items-center gap-1 rounded-full bg-orange-400 px-2.5 py-1 text-[11px] font-bold text-brand-deep hover:brightness-110">
+                <Plus className="h-3.5 w-3.5" /> Расход
+              </button>
+            )}
+            {view === 'list' ? (
+              recentTx.length ? (
+                <div className="space-y-1">
+                  {recentTx.map((tx) => (
+                    <div key={tx.id} className="group flex items-center gap-2 rounded-xl bg-black/25 px-2.5 py-1.5 text-xs">
+                      <span className="w-12 shrink-0 text-white/45">{new Date(Number(tx.ts)).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+                      <span className="min-w-0 flex-1 truncate text-white/80">{tx.category || tx.description || 'Без описания'}</span>
+                      <span className={classNames('shrink-0 font-semibold', tx.amount < 0 ? 'text-rose-300' : 'text-emerald-300')}>
+                        {tx.amount < 0 ? '−' : '+'}
+                        {formatCurrency(Math.abs(tx.amount))}
+                      </span>
+                      <button type="button" onClick={() => removeTransaction(tx.id)} className="text-white/30 opacity-0 transition hover:text-white group-hover:opacity-100" title="Удалить">
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                emptyHint('Записей пока нет — добавьте первый расход кнопкой выше или импортируйте выписку.')
+              )
+            ) : view === 'line' ? (
+              <div className="h-32">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={spend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                    <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} />
+                    <YAxis stroke="#94a3b8" fontSize={10} />
+                    <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ backgroundColor: '#0f172a', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                    <Line type="monotone" dataKey="out" stroke="#f97316" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : categorySpend.length === 0 ? (
+              emptyHint('Добавьте расход или загрузите выписку, чтобы увидеть категории.')
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="h-28 w-28 shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Tooltip formatter={(value: number) => formatCurrency(value)} contentStyle={{ backgroundColor: '#0f172a', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', color: '#fff' }} />
+                      <Pie data={categorySpend} dataKey="amount" nameKey="label" innerRadius={30} outerRadius={52} paddingAngle={3}>
+                        {categorySpend.map((entry) => (
+                          <Cell key={entry.label} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="min-w-0 flex-1 space-y-1 text-xs text-white/70">
+                  {categorySpend.slice(0, 5).map((entry) => (
+                    <div key={entry.label} className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: entry.color }} />
+                        <span className="truncate">{entry.label}</span>
+                      </div>
+                      <span className="shrink-0 text-white/55">{formatCurrency(entry.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'loans':
+        return (
+          <div className="card space-y-2 !p-3">
+            {widgetHead(
+              'loans',
+              `${formatCurrency(monthly)} / мес · остаток ${formatCurrency(loanRemainingTotal)}`,
+              'bg-emerald-400/15',
+              <button onClick={startAdd} className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/80 text-black hover:bg-emerald-400" title="Добавить кредит">
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
+            <div>
+              <ProgressBar value={loanOverviewProgress} color="from-emerald-400 to-lime-300" />
+              <div className="mt-1 flex justify-between text-[11px] text-white/55">
+                <span>Прогресс выплат</span>
+                <span>{loanOverviewProgress}%</span>
+              </div>
+            </div>
+            {view === 'list' &&
+              (loans.length ? (
+                loans.map((loan) => {
+                  const ratio = loan.payment_monthly + loan.remaining;
+                  const loanProgress = ratio > 0 ? Math.round((loan.payment_monthly / ratio) * 100) : 0;
+                  return (
+                    <div key={loan.id} className="group rounded-xl bg-black/25 px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-semibold text-white">{loan.bank}</div>
+                          <div className="text-[11px] text-white/50">
+                            {formatCurrency(loan.payment_monthly)} / мес · день {loan.due_day || '—'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-60 transition group-hover:opacity-100">
+                          <button onClick={() => startEdit(loan)} className="rounded-full bg-white/10 px-2 py-0.5 text-xs hover:bg-white/20">
+                            ✎
+                          </button>
+                          <button onClick={() => removeLoan(loan.id)} className="rounded-full bg-white/10 px-2 py-0.5 text-xs hover:bg-rose-500/40">
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-1.5">
+                        <ProgressBar value={loanProgress} color="from-emerald-400 to-lime-300" />
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                emptyHint('Кредитов нет — и это прекрасно 🙌')
+              ))}
+          </div>
+        );
+
+      case 'achievements':
+        return (
+          <Link to="/achievements" className="card block space-y-2 !p-3">
+            {widgetHead('achievements', recentAchievements.length ? 'последние полученные' : 'пока ни одной', 'bg-amber-400/15')}
+            {recentAchievements.length ? (
+              <div className="grid grid-cols-3 gap-2">
+                {recentAchievements.map((a) => (
+                  <div key={a.id} className="flex flex-col items-center rounded-xl bg-black/25 p-2 text-center" title={a.description || ''}>
+                    <span className="text-2xl">{a.icon}</span>
+                    <span className="mt-1 line-clamp-2 text-[10px] leading-tight text-white/75">{a.title}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              emptyHint('Ачивки приходят сами — просто пользуйтесь приложением.')
+            )}
+          </Link>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <Shell>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xl font-semibold text-white">Привет! 👋 Хорошего дня</div>
+            <div className="text-xs text-white/60 first-letter:uppercase">
+              {new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setEditMode((v) => !v)}
+              className={classNames(
+                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition',
+                editMode ? 'bg-brand-mint text-brand-deep' : 'border border-white/10 bg-white/5 text-white/70 hover:bg-white/10'
+              )}
+            >
+              {editMode ? <Check className="h-3.5 w-3.5" /> : <LayoutGrid className="h-3.5 w-3.5" />}
+              {editMode ? 'Готово' : 'Настроить'}
+            </button>
+            <CollapseToggle compact collapsed={topStatsCollapsed} onToggle={() => setTopStatsCollapsed((prev) => !prev)} />
+          </div>
+        </div>
+
+        {!topStatsCollapsed && (
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <TopStat icon={BookOpen} label="Языки" value={`${languages.length}`} sub={`Сегодня ${formatNumber(totalMinutesToday)} мин`} />
+            <TopStat icon={Activity} label="Курсы" value={`${activeCourses.length}`} sub={`Прогресс ${courseAverageProgress}%`} />
+            <TopStat icon={Target} label="Цели" value={`${goals.length}`} sub={`Прогресс ${goalsAverageProgress}%`} />
+            <TopStat icon={Banknote} label="Расходы · 7 дн." value={formatCurrency(spendTotal)} sub="Сумма списаний" />
+          </div>
+        )}
+
+        {editMode && (
+          <div className="rounded-2xl border border-dashed border-brand-mint/40 bg-brand-mint/5 p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm text-white/80">
+                Перетаскивайте блоки или двигайте стрелками, выбирайте вид, скрывайте лишнее.
+              </div>
+              <button type="button" onClick={() => setLayout(DEFAULT_LAYOUT)} className="text-xs text-white/50 hover:text-white">
+                Сбросить как было
+              </button>
+            </div>
+            {layout.some((w) => w.hidden) ? (
+              <div className="flex flex-wrap gap-2">
+                {layout
+                  .filter((w) => w.hidden)
+                  .map((w) => (
+                    <button
+                      key={w.id}
+                      type="button"
+                      onClick={() => setLayout(layout.map((x) => (x.id === w.id ? { ...x, hidden: false } : x)))}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/80 hover:border-brand-mint/60"
+                      title={WIDGETS[w.id].description}
+                    >
+                      <Plus className="h-3.5 w-3.5" /> {WIDGETS[w.id].emoji} {WIDGETS[w.id].title}
+                    </button>
+                  ))}
+              </div>
+            ) : (
+              <div className="text-xs text-white/45">Все блоки уже на Дэшборде.</div>
+            )}
+          </div>
+        )}
+
+        <div className="columns-1 gap-3 lg:columns-2 2xl:columns-3 [&>*]:mb-3 [&>*]:break-inside-avoid">
+          {layout
+            .filter((w) => !w.hidden)
+            .map((config, index, visible) => (
+              <div
+                key={config.id}
+                draggable={editMode}
+                onDragStart={() => setDragId(config.id)}
+                onDragEnd={() => setDragId(null)}
+                onDragOver={(event) => {
+                  if (!editMode || !dragId || dragId === config.id) return;
+                  event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (dragId && dragId !== config.id) moveWidgetTo(dragId, config.id);
+                  setDragId(null);
+                }}
+                className={classNames(
+                  editMode && 'rounded-3xl ring-1 ring-brand-mint/30 ring-offset-2 ring-offset-transparent',
+                  dragId === config.id && 'opacity-40'
+                )}
+              >
+                {editMode && (
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5 rounded-2xl bg-black/30 px-2 py-1.5 text-xs">
+                    <GripVertical className="h-4 w-4 cursor-grab text-white/40" />
+                    <span className="mr-auto font-semibold text-white/80">
+                      {WIDGETS[config.id].emoji} {WIDGETS[config.id].title}
+                    </span>
+                    {WIDGETS[config.id].views.length > 1 &&
+                      WIDGETS[config.id].views.map((view) => (
+                        <button
+                          key={view.id}
+                          type="button"
+                          onClick={() => setLayout(layout.map((x) => (x.id === config.id ? { ...x, view: view.id } : x)))}
+                          className={classNames(
+                            'rounded-full px-2 py-0.5',
+                            viewOf(config) === view.id ? 'bg-brand-mint text-brand-deep' : 'bg-white/5 text-white/60 hover:bg-white/10'
+                          )}
+                        >
+                          {view.label}
+                        </button>
+                      ))}
+                    <button type="button" disabled={index === 0} onClick={() => moveWidgetBy(config.id, -1)} className="rounded-full p-1 text-white/60 hover:bg-white/10 disabled:opacity-30" title="Выше">
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button type="button" disabled={index === visible.length - 1} onClick={() => moveWidgetBy(config.id, 1)} className="rounded-full p-1 text-white/60 hover:bg-white/10 disabled:opacity-30" title="Ниже">
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLayout(layout.map((x) => (x.id === config.id ? { ...x, hidden: true } : x)))}
+                      className="rounded-full p-1 text-white/60 hover:bg-rose-500/30 hover:text-white"
+                      title="Убрать с Дэшборда"
+                    >
+                      <EyeOff className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+                {renderWidget(config)}
+              </div>
+            ))}
         </div>
       </div>
 
-      <Modal
+      <ExpenseModal open={expenseOpen} onClose={() => setExpenseOpen(false)} onSaved={loadFinance} />
+
+      <LoanFormModal
+        mode="edit"
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
-        contentClassName="w-full max-w-sm space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
-      >
-        <div className="text-lg font-medium mb-2">Редактировать кредит</div>
-        <input
-          placeholder="Банк"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.bank}
-          onChange={(e) => setForm({ ...form, bank: e.target.value })}
-        />
-        <input
-          placeholder="Ежемесячный платёж"
-          type="number"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.payment_monthly}
-          onChange={(e) => setForm({ ...form, payment_monthly: Number(e.target.value) })}
-        />
-        <input
-          placeholder="Остаток"
-          type="number"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.remaining}
-          onChange={(e) => setForm({ ...form, remaining: Number(e.target.value) })}
-        />
-        <input
-          placeholder="День платежа"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.due_day}
-          onChange={(e) => setForm({ ...form, due_day: e.target.value })}
-        />
-        <TagSelector
-          tags={tagOptions}
-          selectedIds={editingTagIds}
-          onChange={setEditingTagIds}
-          label="Теги кредита"
-          className="mt-2"
-          emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-          onManageTags={() => window.open('/pages', '_blank')}
-        />
-        <div className="mt-4 flex justify-between">
-          <button onClick={() => setEditing(null)} className="rounded-full bg-white/10 px-4 py-2 hover:bg-white/20">
-            Отмена
-          </button>
-          <button onClick={saveEdit} className="rounded-full bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400">
-            Сохранить
-          </button>
-        </div>
-      </Modal>
+        form={form}
+        onFormChange={setForm}
+        tagOptions={tagOptions}
+        selectedTagIds={editingTagIds}
+        onTagsChange={setEditingTagIds}
+        onSubmit={saveEdit}
+      />
 
-      <Modal
+      <LoanFormModal
+        mode="create"
         open={adding}
         onClose={() => setAdding(false)}
-        contentClassName="w-full max-w-sm space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
-      >
-        <div className="text-lg font-medium mb-2">Добавить кредит</div>
-        <input
-          placeholder="Банк"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.bank}
-          onChange={(e) => setForm({ ...form, bank: e.target.value })}
-        />
-        <input
-          placeholder="Ежемесячный платёж"
-          type="number"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.payment_monthly}
-          onChange={(e) => setForm({ ...form, payment_monthly: Number(e.target.value) })}
-        />
-        <input
-          placeholder="Остаток"
-          type="number"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.remaining}
-          onChange={(e) => setForm({ ...form, remaining: Number(e.target.value) })}
-        />
-        <input
-          placeholder="День платежа"
-          className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-          value={form.due_day}
-          onChange={(e) => setForm({ ...form, due_day: e.target.value })}
-        />
-        <TagSelector
-          tags={tagOptions}
-          selectedIds={formTagIds}
-          onChange={setFormTagIds}
-          label="Теги кредита"
-          className="mt-2"
-          emptyState="Нет доступных тэгов. Создайте их на странице Страницы."
-          onManageTags={() => window.open('/pages', '_blank')}
-        />
-        <div className="mt-4 flex justify-between">
-          <button onClick={() => setAdding(false)} className="rounded-full bg-white/10 px-4 py-2 hover:bg-white/20">
-            Отмена
-          </button>
-          <button onClick={saveAdd} className="rounded-full bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400">
-            Добавить
-          </button>
-        </div>
-      </Modal>
+        form={form}
+        onFormChange={setForm}
+        tagOptions={tagOptions}
+        selectedTagIds={formTagIds}
+        onTagsChange={setFormTagIds}
+        onSubmit={saveAdd}
+      />
     </Shell>
   );
 }

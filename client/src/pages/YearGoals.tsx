@@ -6,8 +6,14 @@ import { requestMenuCountersRefresh } from '../menuBus';
 import SiteSearch from '../components/SiteSearch';
 import YearGoalMaster from '../components/master/YearGoalMaster';
 import { ReorderableListApi, useReorderableList } from '../hooks/useReorderableList';
+import { Modal } from '../components/ui/Modal';
+import GoalAutoPicker, { GoalAuto } from '../components/goals/GoalAutoPicker';
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const pad = (n: number) => String(n).padStart(2, '0');
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 type Goal = {
   id: number;
@@ -21,6 +27,9 @@ type Goal = {
   created_at?: string | null;
   completion_pct: number;
   today_done: boolean;
+  auto_action?: string | null;
+  auto_label?: string | null;
+  auto_min?: number;
   recent_logs: { date: string }[];
 };
 
@@ -43,6 +52,20 @@ export default function YearGoals() {
   const [goals, setGoals] = useState<GoalsResponse>({ active: [], archived: [] });
   const [loading, setLoading] = useState(false);
   const [processingGoalId, setProcessingGoalId] = useState<number | null>(null);
+  const [autoGoal, setAutoGoal] = useState<Goal | null>(null);
+  const [autoValue, setAutoValue] = useState<GoalAuto>({ auto_action: null, auto_min: 1 });
+
+  const openAuto = (goal: Goal) => {
+    setAutoGoal(goal);
+    setAutoValue({ auto_action: goal.auto_action || null, auto_min: goal.auto_min || 1 });
+  };
+
+  const saveAuto = async () => {
+    if (!autoGoal) return;
+    await api.patch(`/api/life/yearly-goals/${autoGoal.id}`, autoValue, { notifySuccess: autoValue.auto_action ? 'Автоотметка включена' : 'Автоотметка выключена' });
+    setAutoGoal(null);
+    await load();
+  };
 
   const load = async () => {
     const response = await api.get('/api/life/yearly-goals');
@@ -140,6 +163,7 @@ export default function YearGoals() {
                   onToggleToday={() => markToday(goal, !goal.today_done)}
                   onUpdateTarget={(target) => updateTarget(goal, target)}
                   onDelete={() => deleteGoal(goal)}
+                  onAuto={() => openAuto(goal)}
                   dragProps={dragProps}
                   isDragging={isDragging}
                   isDropTarget={isDropTarget}
@@ -178,6 +202,21 @@ export default function YearGoals() {
           </div>
         )}
       </div>
+
+      <Modal open={!!autoGoal} onClose={() => setAutoGoal(null)} showCloseButton contentClassName="w-full max-w-md rounded-3xl border border-white/10 bg-brand-night p-5 shadow-2xl">
+        <div className="space-y-4">
+          <div className="pr-8">
+            <div className="text-lg font-semibold text-white">Автоотметка цели</div>
+            <div className="text-sm text-white/60">
+              «{autoGoal?.title}» — выберите действие в Life Hub. Как только сделаете его за день, день отметится сам.
+            </div>
+          </div>
+          <GoalAutoPicker value={autoValue} onChange={setAutoValue} />
+          <button type="button" onClick={saveAuto} className="w-full rounded-xl bg-brand-mint py-2.5 text-sm font-bold text-brand-deep">
+            Сохранить
+          </button>
+        </div>
+      </Modal>
     </Shell>
   );
 }
@@ -199,12 +238,13 @@ const Badge = ({ children }: { children: React.ReactNode }) => (
 type GoalLayoutApi = ReorderableListApi<Goal>;
 type GoalDragProps = ReturnType<GoalLayoutApi['getDraggableProps']>;
 
-function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete, dragProps, isDragging, isDropTarget }: {
+function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete, onAuto, dragProps, isDragging, isDropTarget }: {
   goal: Goal;
   busy: boolean;
   onToggleToday: () => void;
   onUpdateTarget: (target: number) => void;
   onDelete: () => void;
+  onAuto: () => void;
   dragProps: GoalDragProps;
   isDragging: boolean;
   isDropTarget: boolean;
@@ -265,6 +305,22 @@ function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete, dragPro
             <span>{completion}%</span>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={onAuto}
+          className={classNames(
+            'flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition',
+            goal.auto_action ? 'border-amber-300/30 bg-amber-300/10 text-amber-100 hover:bg-amber-300/20' : 'border-dashed border-white/15 text-white/50 hover:border-white/30 hover:text-white'
+          )}
+        >
+          <span>⚡</span>
+          <span className="min-w-0 flex-1 truncate">
+            {goal.auto_action
+              ? `Авто: ${goal.auto_label}${(goal.auto_min || 1) > 1 ? ` × ${goal.auto_min}` : ''}`
+              : 'Привязать к действию в проекте'}
+          </span>
+        </button>
 
         {recentDates.length > 0 && (
           <div className="flex flex-wrap gap-1 text-[11px] text-white/60">

@@ -4,6 +4,8 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
     "build": "cd ../client && npm install && npm run build"
   },
   "dependencies": {
@@ -16,8 +18,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
     "sqlite": "^5.1.1",
-    "sqlite3": "^5.1.7",
-    "tmi.js": "^1.8.5"
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

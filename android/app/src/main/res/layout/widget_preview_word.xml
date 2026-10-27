@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center" android:padding="14dp" android:background="@drawable/widget_preview_bg">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="слово дня" android:textSize="10sp" android:textColor="#99E9FCF6" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="こんにちは" android:textSize="24sp" android:textColor="#E9FCF6" android:textStyle="bold" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="здравствуйте" android:textSize="14sp" android:textColor="#27E9B5" />
+
+</LinearLayout>

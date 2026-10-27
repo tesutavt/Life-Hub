@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Shell from '../components/Shell';
 import { api, resolveApiUrl } from '../api';
 import CalendarMaster from '../components/master/CalendarMaster';
+import StudyPlanner from '../components/StudyPlanner';
 import { palette } from '../theme';
 
 const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -39,6 +40,10 @@ const typeIcon = (type: string) => {
       return '🌴';
     case 'page':
       return '📄';
+    case 'study':
+      return '📚';
+    case 'mood':
+      return '';
     default:
       return '•';
   }
@@ -68,6 +73,14 @@ function monthMatrix(date: Date) {
 }
 
 export default function CalendarPage() {
+  const [plannerOpen, setPlannerOpen] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('plan') === '1') {
+      setPlannerOpen(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams]);
   const [current, setCurrent] = useState(new Date());
   const [items, setItems] = useState<CalendarEvent[]>([]);
   const navigate = useNavigate();
@@ -179,10 +192,11 @@ export default function CalendarPage() {
 
   return (
     <Shell>
+      <StudyPlanner open={plannerOpen} onClose={() => setPlannerOpen(false)} onApplied={load} />
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="text-2xl font-semibold">Календарь</div>
         <div className="flex flex-wrap items-center gap-2">
-          <CalendarMaster tagOptions={tagOptions} currentMonth={current} onCompleted={load} />
+          <CalendarMaster tagOptions={tagOptions} currentMonth={current} onCompleted={load} onOpenPlanner={() => setPlannerOpen(true)} />
           <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1">
             <button onClick={goPrevMonth} className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition">‹</button>
             <div className="min-w-[140px] text-center text-sm font-medium uppercase tracking-wide">
@@ -222,7 +236,7 @@ export default function CalendarPage() {
               <div className="relative z-10 space-y-1 text-[11px] leading-tight">
                 {dayEvents.slice(0, 4).map((event: CalendarEvent) => {
                   const key = event.id || `${event.title}-${event.date}`;
-                  const highlight = event.type === 'work' ? 'text-amber-300' : event.type === 'off' ? 'text-emerald-300' : 'text-white/80';
+                  const highlight = event.type === 'work' ? 'text-amber-300' : event.type === 'off' ? 'text-emerald-300' : event.type === 'study' ? 'text-sky-300' : 'text-white/80';
                   const isPage = event.type === 'page' && !!event.page_id;
                   const hasLink = isPage || !!event.url;
                   const baseClass = ['truncate', highlight, hasLink ? 'cursor-pointer hover:underline' : '']

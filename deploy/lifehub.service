@@ -1,0 +1,21 @@
+# systemd-сервис для запуска без Docker.
+# Установка: sudo cp deploy/lifehub.service /etc/systemd/system/ && sudo systemctl enable --now lifehub
+[Unit]
+Description=Life Hub server
+After=network.target
+
+[Service]
+Type=simple
+User=lifehub
+WorkingDirectory=/opt/lifehub/server
+Environment=NODE_ENV=production
+Environment=PORT=4000
+Environment=LIFEHUB_DATA_DIR=/var/lib/lifehub
+Environment=ALLOW_REGISTRATION=true
+# EnvironmentFile=/etc/lifehub.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

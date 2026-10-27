@@ -1,0 +1,17 @@
+{
+  "name": "life-hub",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Life Hub — личный трекер финансов, фитнеса, целей и языков (сервер + клиент)",
+  "scripts": {
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "dev": "concurrently -n server,client -c green,cyan \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix server",
+    "start": "node server/server.js",
+    "electron": "npm run build && cd electron && npm install && npm start",
+    "electron:dist": "npm run build && cd electron && npm install && npm run dist"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

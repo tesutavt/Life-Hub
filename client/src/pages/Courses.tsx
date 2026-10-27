@@ -11,6 +11,7 @@ import TagBadge from '../components/tags/TagBadge';
 import TagSelector from '../components/tags/TagSelector';
 import CourseMaster, { COURSE_TYPES } from '../components/master/CourseMaster';
 import { useReorderableList } from '../hooks/useReorderableList';
+import LearnSection, { LearnCourse } from './learn/LearnSection';
 
 type TagOption = { id: number; label: string; color: string };
 
@@ -22,6 +23,10 @@ type Course = {
   status?: string;
   course_type?: string | null;
   language_id?: number | null;
+  learn_course_id?: number | null;
+  program_stage?: number;
+  locked?: boolean;
+  lock_reason?: string | null;
   tags: TagOption[];
 };
 
@@ -82,6 +87,12 @@ export default function Courses() {
   const [items, setItems] = useState<Course[]>([]);
   const [editing, setEditing] = useState<Course | null>(null);
   const [languages, setLanguages] = useState<Language[]>([]);
+  const [learnCourses, setLearnCourses] = useState<LearnCourse[]>([]);
+  const loadLearnCourses = useCallback(async () => {
+    const res = await api.get('/api/learn/courses', { silentError: true });
+    setLearnCourses(Array.isArray(res?.items) ? res.items : []);
+  }, []);
+  const learnMap = useMemo(() => new Map(learnCourses.map((course) => [course.id, course])), [learnCourses]);
   const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
   const [editingTagIds, setEditingTagIds] = useState<number[]>([]);
   const [pages, setPages] = useState<PageOption[]>([]);
@@ -103,6 +114,10 @@ export default function Courses() {
     status: row.status,
     course_type: row.course_type,
     language_id: row.language_id,
+    learn_course_id: row.learn_course_id ?? null,
+    program_stage: Number(row.program_stage) || 1,
+    locked: !!row.locked,
+    lock_reason: row.lock_reason ?? null,
     tags: Array.isArray(row?.tags)
       ? row.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
       : [],
@@ -182,6 +197,7 @@ export default function Courses() {
 
   useEffect(() => {
     loadCourses();
+    loadLearnCourses();
     loadLanguages();
     loadTagOptions();
     loadCoursePages();
@@ -432,6 +448,7 @@ export default function Courses() {
       status: editing.status || 'in-progress',
       course_type: editing.course_type || COURSE_TYPES[0].value,
       language_id: editing.language_id ?? null,
+      learn_course_id: editing.learn_course_id ?? null,
       tags: editingTagIds,
     };
     await api.put(`/api/life/courses/${editing.id}`, payload);
@@ -459,6 +476,14 @@ export default function Courses() {
           onCreated={loadCourses}
         />
       </div>
+
+      <LearnSection
+        languages={languages}
+        onChanged={() => {
+          loadCourses();
+          loadLearnCourses();
+        }}
+      />
 
       <SiteSearch
         sections={['courses', 'pages']}
@@ -518,11 +543,30 @@ export default function Courses() {
                 <div className="text-sm text-white/70 line-clamp-2 min-h-[1.5rem]">{c.provider}</div>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   {languageLabel && <Pill>{languageLabel}</Pill>}
+                  {languageLabel && (c.program_stage || 1) > 1 && <Pill>Этап {c.program_stage}</Pill>}
                   {materialsTotal > 0 && (
                     <Pill>Материалов: {materialsDone}/{materialsTotal}</Pill>
                   )}
                   {clampedProgress != null && <Pill>Прогресс: {Math.round(clampedProgress)}%</Pill>}
+                  {c.learn_course_id != null && learnMap.get(c.learn_course_id) && (
+                    <Pill>
+                      🦉 Уроки: {learnMap.get(c.learn_course_id)!.lessons_done}/{learnMap.get(c.learn_course_id)!.lessons_total}
+                    </Pill>
+                  )}
                 </div>
+                {c.locked && (
+                  <div className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+                    🔒 {c.lock_reason || 'Курс пока закрыт программой обучения'}
+                  </div>
+                )}
+                {c.learn_course_id != null && !c.locked && (
+                  <Link
+                    to={`/learn/${c.learn_course_id}`}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#58cc02] px-3 py-2 text-xs font-extrabold uppercase text-white shadow-[0_3px_0_#46a302] transition hover:brightness-110"
+                  >
+                    Продолжить уроки
+                  </Link>
+                )}
                 {c.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 text-xs">
                     {c.tags.map(tag => (
@@ -692,8 +736,21 @@ export default function Courses() {
                 </option>
               ))}
             </select>
+            <select
+              className="px-3 py-2 rounded bg-white/10 w-full"
+              value={editing.learn_course_id != null ? String(editing.learn_course_id) : ''}
+              onChange={e => setEditing({ ...editing, learn_course_id: e.target.value ? Number(e.target.value) : null })}
+            >
+              <option value="">Без курса-тренировки</option>
+              {learnCourses.map(course => (
+                <option key={course.id} value={course.id}>
+                  {course.icon || '📘'} {course.title} — пройдено {course.progress_pct}%
+                </option>
+              ))}
+            </select>
             <div className="text-xs text-white/60">
-              Прогресс курса рассчитывается автоматически на основе прикреплённых материалов.
+              Прогресс курса рассчитывается автоматически: пройденные уроки курса-тренировки и отмеченные материалы.
+              Он же идёт в общий прогресс выбранного языка.
             </div>
             <select
               className="px-3 py-2 rounded bg-white/10 w-full"

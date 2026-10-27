@@ -1,3 +1,31 @@
+# Зависимости
+node_modules/
+
+# Сборки
+client/dist/
+electron/dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/build-log.txt
+android/local.properties
+*.apk
+*.aab
+
+# Данные и секреты сервера (база, загрузки, кэш озвучки, ключи)
 server/lifehub.sqlite
+server/*.db
+server/data/
 server/uploads/
-client/node_modules/
+server/tts-cache/
+server/.jwt-secret
+.env
+.env.*
+!.env.example
+
+# Редакторы и система
+.vscode/
+.idea/
+*.log
+Thumbs.db
+.DS_Store

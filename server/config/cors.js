@@ -1,4 +1,4 @@
-const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173'];
+const DEFAULT_ALLOWED_ORIGINS = ['http://95.105.76.39:5173','http://localhost:5173' ];
 
 export function parseAllowedOrigins(rawValue, defaults = DEFAULT_ALLOWED_ORIGINS) {
   if (Array.isArray(rawValue)) {

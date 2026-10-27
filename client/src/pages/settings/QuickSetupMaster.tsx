@@ -1,8 +1,7 @@
 import React, { useState } from "react";
 import Master from "../../components/master/Master";
-import { SocialSettings } from "./types";
 
-type SetupTarget = "twitch" | "google" | "telegram" | "weather" | "system";
+type SetupTarget = "google" | "weather" | "system";
 
 type Option = {
   id: SetupTarget;
@@ -22,8 +21,6 @@ type CompletionMeta = {
 };
 
 type QuickSetupMasterProps = {
-  social: SocialSettings;
-  onSocialChange: (updates: Partial<SocialSettings>) => void;
   googleRefreshToken: string;
   onGoogleTokenChange: (value: string) => void;
   weatherKey: string;
@@ -33,37 +30,18 @@ type QuickSetupMasterProps = {
 };
 
 const OPTIONS: Option[] = [
-  { id: "twitch", label: "Twitch", description: "Команды, таймеры и бот для чата" },
   { id: "google", label: "Google Fit", description: "Импорт активности и сна" },
-  { id: "telegram", label: "Telegram", description: "Уведомления и рассылки" },
   { id: "weather", label: "Погода", description: "Отображение прогноза на дашборде" },
   { id: "system", label: "Системные", description: "Favicon и базовые параметры" },
 ];
 
 const INSTRUCTIONS: Record<SetupTarget, Instruction> = {
-  twitch: {
-    title: "Настройка Twitch",
-    bullets: [
-      "Укажите логин канала и OAuth токен бота.",
-      "Добавьте команды и таймеры для автоматических сообщений.",
-      "Проверьте, что бот приглашён в чат и имеет права писать сообщения.",
-    ],
-  },
   google: {
     title: "Подключение Google Fit",
     bullets: [
       "Получите refresh token через кнопку \"Подключить к Google\".",
       "Скопируйте токен в поле настроек.",
       "Сохраните изменения и дождитесь синхронизации данных.",
-    ],
-  },
-  telegram: {
-    title: "Настройка Telegram",
-    bullets: [
-      "Создайте бота через @BotFather и скопируйте токен.",
-      "Укажите chat ID канала или группы для рассылки.",
-      "Добавьте ID личного чата для отправки отчётов и изображений.",
-      "Настройте шаблоны сообщений для стримов и видео.",
     ],
   },
   weather: {
@@ -85,23 +63,11 @@ const INSTRUCTIONS: Record<SetupTarget, Instruction> = {
 };
 
 const COMPLETION: Record<SetupTarget, CompletionMeta> = {
-  twitch: {
-    title: "Данные Twitch заполнены",
-    description:
-      "Перейдите во вкладку «Twitch», убедитесь в корректности данных и нажмите «Сохранить», чтобы применить изменения.",
-    sectionId: "settings-twitch",
-  },
   google: {
     title: "Токен Google Fit добавлен",
     description:
       "Откройте карточку «Google API / Fitness», чтобы сохранить refresh token и запустить синхронизацию.",
     sectionId: "settings-google",
-  },
-  telegram: {
-    title: "Параметры Telegram готовы",
-    description:
-      "Во вкладке «Telegram» уже заполнены данные. Проверьте их и сохраните настройки, чтобы бот заработал.",
-    sectionId: "settings-telegram",
   },
   weather: {
     title: "Ключ OpenWeather заполнен",
@@ -128,8 +94,6 @@ const readFileAsDataUrl = (file: File) =>
 const isFilled = (value?: string | null) => typeof value === "string" && value.trim().length > 0;
 
 export default function QuickSetupMaster({
-  social,
-  onSocialChange,
   googleRefreshToken,
   onGoogleTokenChange,
   weatherKey,
@@ -151,20 +115,8 @@ export default function QuickSetupMaster({
 
   const isTargetReady = (choice: SetupTarget) => {
     switch (choice) {
-      case "twitch":
-        return (
-          isFilled(social.twitch_channel) &&
-          isFilled(social.twitch_bot_username) &&
-          isFilled(social.twitch_bot_token)
-        );
       case "google":
         return isFilled(googleRefreshToken);
-      case "telegram":
-        return (
-          isFilled(social.tg_bot_token) &&
-          isFilled(social.tg_chat_id) &&
-          isFilled(social.tg_personal_chat_id)
-        );
       case "weather":
         return isFilled(weatherKey);
       case "system":
@@ -211,56 +163,6 @@ export default function QuickSetupMaster({
   const renderTargetForm = () => {
     if (!target) return null;
     switch (target) {
-      case "twitch":
-        return (
-          <div className="space-y-3">
-            <div className="grid gap-2 md:grid-cols-2">
-              <input
-                placeholder="Twitch канал (логин)"
-                value={social.twitch_channel || ""}
-                onChange={(event) => onSocialChange({ twitch_channel: event.target.value })}
-                className="px-3 py-2 rounded bg-white/10"
-              />
-              <input
-                placeholder="Логин бота"
-                value={social.twitch_bot_username || ""}
-                onChange={(event) => onSocialChange({ twitch_bot_username: event.target.value })}
-                className="px-3 py-2 rounded bg-white/10"
-              />
-            </div>
-            <input
-              placeholder="OAuth токен (oauth:...)"
-              type="password"
-              value={social.twitch_bot_token || ""}
-              onChange={(event) => onSocialChange({ twitch_bot_token: event.target.value })}
-              className="px-3 py-2 rounded bg-white/10"
-              autoComplete="off"
-            />
-          </div>
-        );
-      case "telegram":
-        return (
-          <div className="space-y-2">
-            <input
-              placeholder="Bot token"
-              value={social.tg_bot_token || ""}
-              onChange={(event) => onSocialChange({ tg_bot_token: event.target.value })}
-              className="px-3 py-2 rounded bg-white/10"
-            />
-            <input
-              placeholder="Chat ID"
-              value={social.tg_chat_id || ""}
-              onChange={(event) => onSocialChange({ tg_chat_id: event.target.value })}
-              className="px-3 py-2 rounded bg-white/10"
-            />
-            <input
-              placeholder="ID личного чата"
-              value={social.tg_personal_chat_id || ""}
-              onChange={(event) => onSocialChange({ tg_personal_chat_id: event.target.value })}
-              className="px-3 py-2 rounded bg-white/10"
-            />
-          </div>
-        );
       case "google":
         return (
           <div className="space-y-2">

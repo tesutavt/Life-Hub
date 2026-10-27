@@ -1,0 +1,90 @@
+{
+  "name": "life-hub-desktop",
+  "productName": "Life Hub",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Life Hub — десктоп-приложение (клиент + встроенный сервер)",
+  "author": "Life Hub",
+  "main": "main.js",
+  "scripts": {
+    "start": "node launch.js",
+    "dist": "electron-builder --win --publish never",
+    "dist:dir": "electron-builder --win --dir --publish never"
+  },
+  "dependencies": {
+    "axios": "^1.7.4",
+    "cors": "^2.8.5",
+    "csv-parse": "^5.5.6",
+    "dotenv": "^17.2.2",
+    "express": "^4.19.2",
+    "iconv-lite": "^0.6.3",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.lifehub.desktop",
+    "productName": "Life Hub",
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "package.json",
+      "!node_modules/life-hub{,/**}",
+      "build/icon.png",
+      {
+        "from": "../server",
+        "to": "server",
+        "filter": [
+          "**/*",
+          "!node_modules/**",
+          "!uploads/**",
+          "!lifehub.sqlite*",
+          "!*.db",
+          "!.env",
+          "!*.txt",
+          "!README.md"
+        ]
+      },
+      {
+        "from": "../client/dist",
+        "to": "client/dist"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Life Hub"
+    },
+    "portable": {
+      "artifactName": "LifeHub-${version}-portable.exe"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    },
+    "publish": []
+  }
+}

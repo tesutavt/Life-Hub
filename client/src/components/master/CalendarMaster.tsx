@@ -9,11 +9,13 @@ type CalendarMasterProps = {
   tagOptions: CalendarTag[];
   currentMonth: Date;
   onCompleted?: () => Promise<void> | void;
+  /** Открыть «Умный план обучения» (окно живёт на странице календаря). */
+  onOpenPlanner?: () => void;
 };
 
 type WizardStep = 0 | 1 | 2;
 
-type Mode = "event" | "shifts";
+type Mode = "event" | "shifts" | "plan";
 
 type EventForm = {
   date: string;
@@ -51,6 +53,7 @@ function CalendarWizard({
   tagOptions,
   currentMonth,
   onCompleted,
+  onOpenPlanner,
 }: CalendarMasterProps & { close: () => void }) {
   const [step, setStep] = useState<WizardStep>(0);
   const [mode, setMode] = useState<Mode | null>(null);
@@ -69,6 +72,12 @@ function CalendarWizard({
 
   const goToForm = () => {
     if (!mode) return;
+    if (mode === "plan") {
+      close();
+      setMode(null);
+      onOpenPlanner?.();
+      return;
+    }
     setStep(1);
     if (mode === "shifts" && !shiftForm.startDate) {
       setShiftForm((prev) => ({ ...prev, startDate: defaultShiftStart }));
@@ -189,6 +198,21 @@ function CalendarWizard({
                     className="h-5 w-5"
                   />
                 </label>
+                {onOpenPlanner && (
+                  <label
+                    className={`flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-4 transition ${
+                      mode === "plan" ? "border-white/40 bg-white/10" : "border-white/10 bg-white/5 hover:border-white/20"
+                    }`}
+                  >
+                    <div>
+                      <div className="text-base font-medium">🧠 Умный план обучения</div>
+                      <p className="text-sm text-white/60">
+                        Укажите рабочие дни, свободное время и срок — уроки и материалы языка сами встанут в календарь.
+                      </p>
+                    </div>
+                    <input type="radio" name="calendar-mode" checked={mode === "plan"} onChange={() => setMode("plan")} className="h-5 w-5" />
+                  </label>
+                )}
               </div>
               <div className="flex justify-end">
                 <button
@@ -344,7 +368,7 @@ export default function CalendarMaster(props: CalendarMasterProps) {
     <Master
       buttonLabel="Мастер календаря"
       title="Мастер календаря"
-      description="Создавайте события или планируйте рабочие смены в несколько шагов."
+      description="События, рабочие смены и умный план обучения — в несколько шагов."
       triggerClassName="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black shadow hover:bg-white/90 transition"
     >
       {({ close }) => <CalendarWizard close={close} {...props} />}

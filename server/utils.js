@@ -5,21 +5,59 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { appendPageTagsToLinks } from './tagUtils.js';
+import { hashLegacyPasswords, resolveJwtSecret } from './security.js';
 
-export const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
+export const JWT_SECRET = resolveJwtSecret();
+export const RESERVED_USERNAMES = new Set([
+  'login',
+  'register',
+  'dashboard',
+  'calendar',
+  'languages',
+  'courses',
+  'year-goals',
+  'journal',
+  'habits',
+  'daily-missions',
+  'travel',
+  'settings',
+  'reports',
+  'pages',
+  'profile-full',
+  'admin',
+  'api',
+  'uploads',
+  'assets',
+  'achievements',
+  'learn',
+]);
 
 let db;
+let opening = null;
 export async function openDB() {
   if (db) return db;
+  // Модули могут запросить БД параллельно ещё до старта сервера — открываем один раз,
+  // иначе миграции (ALTER TABLE) выполнятся дважды и упадут на дубликате колонки.
+  if (!opening) opening = openDatabase().finally(() => { opening = null; });
+  return opening;
+}
+
+async function openDatabase() {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-  db = await open({
-    filename: path.join(__dirname, 'lifehub.sqlite'),
+  const database = await open({
+    filename: process.env.LIFEHUB_DATA_DIR
+      ? path.join(process.env.LIFEHUB_DATA_DIR, 'lifehub.sqlite')
+      : path.join(__dirname, 'lifehub.sqlite'),
     driver: sqlite3.Database
   });
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
-  await db.exec(schema);
-  await runMigrations(db);
+  await database.exec(schema);
+  await runMigrations(database);
+  const { seedDefaultAchievements } = await import('./achievements/engine.js');
+  await seedDefaultAchievements(database);
+  await hashLegacyPasswords(database);
+  db = database;
   return db;
 }
 
@@ -27,16 +65,66 @@ export async function getDB() {
   return db || openDB();
 }
 
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'no token' });
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    req.user = { uid: payload.uid, email: payload.email };
+    const database = await getDB();
+    const user = await database.get(
+      'SELECT id, email, username, role, is_verified FROM users WHERE id=?',
+      [payload.uid]
+    );
+    if (!user) return res.status(401).json({ error: 'bad token' });
+    req.user = {
+      uid: user.id,
+      email: user.email,
+      username: user.username || null,
+      role: user.role || 'user',
+      isVerified: !!user.is_verified
+    };
     next();
   } catch {
     res.status(401).json({ error: 'bad token' });
+  }
+}
+
+export function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'no token' });
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    next();
+  };
+}
+
+export function normalizeUsername(value) {
+  if (typeof value !== 'string') return '';
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/[-_.]{2,}/g, '-')
+    .replace(/^[-_.]+|[-_.]+$/g, '')
+    .slice(0, 32);
+  if (!normalized || RESERVED_USERNAMES.has(normalized)) return '';
+  return normalized;
+}
+
+export async function generateUniqueUsername(database, seed, excludeUserId = null) {
+  const base = normalizeUsername(seed) || 'user';
+  let attempt = base;
+  let suffix = 1;
+  while (true) {
+    const existing = await database.get(
+      `SELECT id FROM users WHERE LOWER(username)=LOWER(?) ${excludeUserId ? 'AND id<>?' : ''} LIMIT 1`,
+      excludeUserId ? [attempt, excludeUserId] : [attempt]
+    );
+    if (!existing && !RESERVED_USERNAMES.has(attempt)) return attempt;
+    suffix += 1;
+    attempt = `${base.slice(0, Math.max(1, 32 - String(suffix).length - 1))}-${suffix}`;
   }
 }
 
@@ -66,6 +154,44 @@ async function runMigrations(database) {
     if (!hasUserColumn('weather_api_key')) {
       await database.exec('ALTER TABLE users ADD COLUMN weather_api_key TEXT;');
     }
+    if (!hasUserColumn('username')) {
+      await database.exec('ALTER TABLE users ADD COLUMN username TEXT;');
+    }
+    if (!hasUserColumn('role')) {
+      await database.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';");
+    }
+    if (!hasUserColumn('is_verified')) {
+      await database.exec('ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0;');
+    }
+    if (!hasUserColumn('showcase_achievements')) {
+      // Витрина профиля: до 6 закреплённых ачивок (JSON-массив id)
+      await database.exec('ALTER TABLE users ADD COLUMN showcase_achievements TEXT;');
+    }
+    if (!hasUserColumn('profile_style')) {
+      // Оформление профиля: фон, главное достижение, порядок витрин (JSON)
+      await database.exec('ALTER TABLE users ADD COLUMN profile_style TEXT;');
+    }
+    if (!hasUserColumn('reminder_settings')) {
+      // Настройки напоминаний (Android/Windows), JSON — см. routes/reminders
+      await database.exec('ALTER TABLE users ADD COLUMN reminder_settings TEXT;');
+    }
+    if (!hasUserColumn('onboarding_state')) {
+      // NULL — аккаунт создан до мастера приветствия (не показываем), 'pending' — показать, 'done' — пройден
+      await database.exec('ALTER TABLE users ADD COLUMN onboarding_state TEXT;');
+    }
+
+    await database.exec("UPDATE users SET role = COALESCE(NULLIF(role, ''), 'user');");
+    await database.exec('UPDATE users SET is_verified = COALESCE(is_verified, 0);');
+    await database.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)');
+
+    const usersWithoutUsername = await database.all(
+      'SELECT id, email, name FROM users WHERE username IS NULL OR TRIM(username) = "" ORDER BY id ASC'
+    );
+    for (const user of usersWithoutUsername) {
+      const seed = user.name || user.email || `user-${user.id}`;
+      const username = await generateUniqueUsername(database, seed, user.id);
+      await database.run('UPDATE users SET username=? WHERE id=?', [username, user.id]);
+    }
   }
 
   const uiSettingsInfo = await database.all('PRAGMA table_info(ui_settings)').catch(() => []);
@@ -76,6 +202,10 @@ async function runMigrations(database) {
     }
     if (!hasUiColumn('notification_preferences')) {
       await database.exec('ALTER TABLE ui_settings ADD COLUMN notification_preferences TEXT;');
+    }
+    if (!hasUiColumn('dashboard_layout')) {
+      // Раскладка Дэшборда: порядок блоков, скрытые блоки, вид каждого (JSON)
+      await database.exec('ALTER TABLE ui_settings ADD COLUMN dashboard_layout TEXT;');
     }
   }
 
@@ -162,6 +292,13 @@ async function runMigrations(database) {
     if (!has('created_at')) {
       await database.exec('ALTER TABLE yearly_goals ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP;');
     }
+    // Автоотметка: день засчитывается сам, когда действие выполнено auto_min раз
+    if (!has('auto_action')) {
+      await database.exec('ALTER TABLE yearly_goals ADD COLUMN auto_action TEXT;');
+    }
+    if (!has('auto_min')) {
+      await database.exec('ALTER TABLE yearly_goals ADD COLUMN auto_min INTEGER DEFAULT 1;');
+    }
 
     await database.exec('UPDATE yearly_goals SET target = CASE WHEN target IS NULL OR target = 0 THEN 100 ELSE target END;');
     await database.exec('UPDATE yearly_goals SET completed = COALESCE(completed, 0);');
@@ -189,6 +326,16 @@ async function runMigrations(database) {
     await ensureLanguageColumn('archived_at', 'ALTER TABLE languages ADD COLUMN archived_at TEXT;');
     await ensureLanguageColumn('image_url', 'ALTER TABLE languages ADD COLUMN image_url TEXT;');
     await ensureLanguageColumn('banner_url', 'ALTER TABLE languages ADD COLUMN banner_url TEXT;');
+    await ensureLanguageColumn('streak_best', 'ALTER TABLE languages ADD COLUMN streak_best INTEGER DEFAULT 0;');
+    await ensureLanguageColumn('daily_goal_xp', 'ALTER TABLE languages ADD COLUMN daily_goal_xp INTEGER DEFAULT 50;');
+    await ensureLanguageColumn('last_practice_date', 'ALTER TABLE languages ADD COLUMN last_practice_date TEXT;');
+    // Программа обучения: названия этапов и порог открытия ({ stages: [{ title, unlock_pct }] })
+    await ensureLanguageColumn('program_json', 'ALTER TABLE languages ADD COLUMN program_json TEXT;');
+    const sessionsInfo = await database.all('PRAGMA table_info(language_practice_sessions)').catch(() => []);
+    if (sessionsInfo.length && !sessionsInfo.some((col) => col.name === 'seconds_spent')) {
+      // Реальное время занятий (уроки, тренировки, ручные «+15 мин»)
+      await database.exec('ALTER TABLE language_practice_sessions ADD COLUMN seconds_spent INTEGER DEFAULT 0;');
+    }
     await database.exec("UPDATE languages SET status = COALESCE(status, 'active');");
     await database.exec("UPDATE languages SET status = 'archived' WHERE status <> 'archived' AND archived_at IS NOT NULL;");
   }
@@ -208,6 +355,14 @@ async function runMigrations(database) {
     }
     if (!hasCourse('archived_at')) {
       await database.exec('ALTER TABLE courses ADD COLUMN archived_at TEXT;');
+    }
+    if (!hasCourse('learn_course_id')) {
+      // Привязка к импортированному курсу-тренировке: прогресс считается по пройденным урокам
+      await database.exec('ALTER TABLE courses ADD COLUMN learn_course_id INTEGER;');
+    }
+    if (!hasCourse('program_stage')) {
+      // Этап в программе языка: курсы одного этапа идут параллельно
+      await database.exec('ALTER TABLE courses ADD COLUMN program_stage INTEGER DEFAULT 1;');
     }
     await database.exec("UPDATE courses SET status = COALESCE(status, 'in-progress');");
   }
@@ -284,6 +439,18 @@ async function runMigrations(database) {
 
   await database.exec('CREATE TABLE IF NOT EXISTS habit_checks (user_id INTEGER NOT NULL, habit_id INTEGER NOT NULL, date TEXT NOT NULL, PRIMARY KEY(user_id, habit_id, date), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE CASCADE)');
 
+  const transactionsInfo = await database.all('PRAGMA table_info(transactions)').catch(() => []);
+  if (transactionsInfo.length && !transactionsInfo.some((col) => col.name === 'category')) {
+    // Категория для расходов, добавленных вручную (у импортированных её определяет MCC/описание)
+    await database.exec('ALTER TABLE transactions ADD COLUMN category TEXT;');
+  }
+
+  const calendarInfo = await database.all('PRAGMA table_info(calendar_events)').catch(() => []);
+  if (calendarInfo.length && !calendarInfo.some((col) => col.name === 'plan_key')) {
+    // События, созданные планировщиком обучения (чтобы пересоздавать план без дублей)
+    await database.exec('ALTER TABLE calendar_events ADD COLUMN plan_key TEXT;');
+  }
+
   await database.exec("CREATE TABLE IF NOT EXISTS ui_settings (user_id INTEGER PRIMARY KEY, show_menu_counters INTEGER DEFAULT 1, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)");
 
   await database.exec(
@@ -322,6 +489,26 @@ await database.exec(
   await database.exec(`CREATE TABLE IF NOT EXISTS tag_links (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, tag_id, entity_type, entity_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)`);
 
   await database.exec(`CREATE INDEX IF NOT EXISTS idx_tag_links_user_type ON tag_links(user_id, entity_type, entity_id)`);
+
+  const weeklyCompletionsInfo = await database.all('PRAGMA table_info(weekly_mission_completions)').catch(() => []);
+  if (weeklyCompletionsInfo.length && !weeklyCompletionsInfo.some((col) => col.name === 'definition_key')) {
+    // Leftover table from an earlier, incompatible weekly-missions prototype (mission_key/progress_value/week_end
+    // columns, never wired to any route) — safe to drop and let schema.sql recreate it with the current shape.
+    await database.exec('DROP TABLE weekly_mission_completions');
+    await database.exec(
+      'CREATE TABLE IF NOT EXISTS weekly_mission_completions(' +
+        'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
+        'user_id INTEGER NOT NULL, ' +
+        'definition_key TEXT NOT NULL, ' +
+        'week_start TEXT NOT NULL, ' +
+        'points_awarded INTEGER DEFAULT 0, ' +
+        'xp_awarded INTEGER DEFAULT 0, ' +
+        'completed_at TEXT DEFAULT CURRENT_TIMESTAMP, ' +
+        'UNIQUE(user_id, definition_key, week_start), ' +
+        'FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE' +
+      ')'
+    );
+  }
 
   await appendPageTagsToLinks(database);
 }

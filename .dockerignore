@@ -1,0 +1,12 @@
+**/node_modules
+client/dist
+electron
+android
+server/lifehub.sqlite*
+server/uploads
+server/tts-cache
+server/.jwt-secret
+server/.env
+.git
+.vscode
+*.log

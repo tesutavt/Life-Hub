@@ -44,6 +44,23 @@ const extractPreview = (blocksJson?: string | null) => {
   }
 };
 
+const buildCanvasSeedBlock = () => ({
+  id: uuid(),
+  type: 'text',
+  text: '',
+  checked: false,
+  url: '',
+  relation: null,
+  meta: {
+    layout: { x: 120, y: 140, w: 340, h: 180 },
+    links: [],
+    markers: [],
+    originalName: null,
+    kanaTrainer: null,
+    countdownTimer: { title: '', target: '' },
+  },
+});
+
 export default function Pages() {
   const [items, setItems] = useState<PageRow[]>([]);
   const [creating, setCreating] = useState(false);
@@ -97,7 +114,7 @@ export default function Pages() {
     try {
       const result = await api.post('/api/life/pages', {
         title: 'Untitled page',
-        blocks: [{ id: uuid(), type: 'text', text: '' }],
+        blocks: [buildCanvasSeedBlock()],
       });
       await loadPages();
       nav(`/pages/${result.id}`);

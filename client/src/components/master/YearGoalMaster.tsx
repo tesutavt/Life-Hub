@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import Master from "./Master";
 import { api } from "../../api";
+import GoalAutoPicker from "../goals/GoalAutoPicker";
 
 type YearGoalMasterProps = {
   onCreated: () => Promise<void> | void;
@@ -9,11 +10,15 @@ type YearGoalMasterProps = {
 type FormState = {
   title: string;
   target: number;
+  auto_action: string | null;
+  auto_min: number;
 };
 
 const INITIAL_FORM: FormState = {
   title: "",
   target: 30,
+  auto_action: null,
+  auto_min: 1,
 };
 
 export default function YearGoalMaster({ onCreated }: YearGoalMasterProps) {
@@ -65,6 +70,10 @@ export default function YearGoalMaster({ onCreated }: YearGoalMasterProps) {
               className="px-3 py-2 rounded-lg bg-white/10 border border-white/10 focus:border-white/40 outline-none transition"
             />
           </div>
+          <GoalAutoPicker
+            value={{ auto_action: form.auto_action, auto_min: form.auto_min }}
+            onChange={(auto) => setForm({ ...form, ...auto })}
+          />
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"

@@ -4,7 +4,6 @@ import { api } from "../api";
 import { useAuth } from "../AuthContext";
 import { notifyHiddenMenuItems, notifyMenuCountersVisibility } from "../menuBus";
 
-import { ReportData, ReportPeriodResponse } from "../types/reports";
 import { MENU_ITEMS } from "../app/App";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -12,16 +11,13 @@ import {
   normalizeNotificationPreferences,
 } from "../types/ui";
 import { notifyNotificationSettingsChange } from "../notifications/settingsBus";
-import TelegramSettings from "./settings/sections/TelegramSettings";
-import TwitchSettings from "./settings/sections/TwitchSettings";
 import GoogleIntegration from "./settings/sections/GoogleIntegration";
 import WeatherIntegration from "./settings/sections/WeatherIntegration";
 import InterfacePreferences from "./settings/sections/InterfacePreferences";
-import ManualReportLauncher from "./settings/sections/ManualReportLauncher";
-import ManualReportModal from "./settings/sections/ManualReportModal";
+import ReminderSettings from "./settings/sections/ReminderSettings";
 import SystemSettings from "./settings/sections/SystemSettings";
 import QuickSetupMaster from "./settings/QuickSetupMaster";
-import { GoogleSettings, SocialSettings, TwitchCommand, TwitchTimer } from "./settings/types";
+import { GoogleSettings } from "./settings/types";
 import {
   emitFaviconUpdate,
   emitWeatherAssetsUpdate,
@@ -35,15 +31,8 @@ import {
   WeatherBackgroundKey,
   WeatherEffectKey,
 } from "../utils/customAssets";
-const defaultSocialTemplates = {
-  stream: "Привет! В эфире: {stream_title}\nhttps://twitch.tv/{channel}",
-  video: "Новое видео: {video_title}\n{video_url}",
-};
-
 const SETTINGS_TABS = [
   { id: "system", label: "Системные" },
-  { id: "telegram", label: "Telegram" },
-  { id: "twitch", label: "Twitch" },
   { id: "other", label: "Прочее" },
 ] as const;
 
@@ -78,18 +67,8 @@ const createInitialWeatherEffects = (): WeatherEffectMap => {
   };
 };
 
-const normalizeIntervalValue = (value: string | number) => {
-  const num = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(num)) return 0;
-  return Math.max(0, Math.round(num));
-};
-
-const formatTimerDate = (value: string | null | undefined) =>
-  value ? new Date(value).toLocaleString('ru-RU') : '—';
-
 export default function Settings() {
   const { token } = useAuth();
-  const [socialForm, setSocialForm] = useState<SocialSettings>({});
   const [google, setGoogle] = useState<GoogleSettings>({ refresh_token: null });
   const [weatherApiKey, setWeatherApiKey] = useState('');
   const [weatherBackgrounds, setWeatherBackgrounds] = useState<WeatherBackgroundMap>(createInitialWeatherBackgrounds);
@@ -99,7 +78,6 @@ export default function Settings() {
   const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([]);
   const hiddenMenuItemsRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [savingGoogle, setSavingGoogle] = useState(false);
   const [savingWeather, setSavingWeather] = useState(false);
   const [savingSystem, setSavingSystem] = useState(false);
@@ -115,17 +93,7 @@ export default function Settings() {
     updateDocumentFavicon(favicon);
   }, [favicon]);
 
-  const [commands, setCommands] = useState<TwitchCommand[]>([]);
-  const [timers, setTimers] = useState<TwitchTimer[]>([]);
-  const [commandsLoading, setCommandsLoading] = useState(true);
-  const [timersLoading, setTimersLoading] = useState(true);
-  const [commandsBusy, setCommandsBusy] = useState(false);
-  const [timersBusy, setTimersBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTabId>("system");
-  const handleSocialChange = useCallback((updates: Partial<SocialSettings>) => {
-    setSocialForm((prev) => ({ ...prev, ...updates }));
-  }, []);
-
   const handleWeatherBackgroundChange = useCallback(
     (key: WeatherBackgroundKey, value: string) => {
       setWeatherBackgrounds((prev) => ({ ...prev, [key]: value }));
@@ -140,219 +108,8 @@ export default function Settings() {
     [],
   );
 
-  const loadTwitchMeta = useCallback(async () => {
-    setCommandsLoading(true);
-    setTimersLoading(true);
-    try {
-      const [commandsResponse, timersResponse] = await Promise.all([
-        api.get('/api/socials/twitch/commands', { silentError: true }),
-        api.get('/api/socials/twitch/timers', { silentError: true }),
-      ]);
-      const mappedCommands: TwitchCommand[] = Array.isArray(commandsResponse?.items)
-        ? commandsResponse.items.map((item: any): TwitchCommand => ({
-            id: typeof item?.id === 'number' ? item.id : null,
-            command: typeof item?.command === 'string' ? item.command : '',
-            response: typeof item?.response === 'string' ? item.response : '',
-            enabled: item?.enabled !== false,
-          }))
-        : [];
-      const mappedTimers: TwitchTimer[] = Array.isArray(timersResponse?.items)
-        ? timersResponse.items.map((item: any): TwitchTimer => ({
-            id: typeof item?.id === 'number' ? item.id : null,
-            message: typeof item?.message === 'string' ? item.message : '',
-            online_interval_sec: normalizeIntervalValue(item?.online_interval_sec ?? 0),
-            offline_interval_sec: normalizeIntervalValue(item?.offline_interval_sec ?? 0),
-            enabled: item?.enabled !== false,
-            last_sent_at: typeof item?.last_sent_at === 'string' ? item.last_sent_at : null,
-          }))
-        : [];
-      setCommands(mappedCommands);
-      setTimers(mappedTimers);
-    } catch {
-      setCommands([]);
-      setTimers([]);
-    } finally {
-      setCommandsLoading(false);
-      setTimersLoading(false);
-    }
-  }, []);
-
-  const updateCommandField = (index: number, field: 'command' | 'response' | 'enabled', value: string | boolean) => {
-    setCommands((prev) =>
-      prev.map((item, idx) => {
-        if (idx !== index) return item;
-        if (field === 'command') {
-          return { ...item, command: String(value) };
-        }
-        if (field === 'response') {
-          return { ...item, response: String(value) };
-        }
-        return { ...item, enabled: Boolean(value) };
-      })
-    );
-  };
-
-  const updateTimerField = (
-    index: number,
-    field: 'message' | 'online_interval_sec' | 'offline_interval_sec' | 'enabled',
-    value: string | number | boolean,
-  ) => {
-    setTimers((prev) =>
-      prev.map((item, idx) => {
-        if (idx !== index) return item;
-        if (field === 'message') {
-          return { ...item, message: String(value) };
-        }
-        if (field === 'enabled') {
-          return { ...item, enabled: Boolean(value) };
-        }
-        const numeric = normalizeIntervalValue(value as string | number);
-        if (field === 'online_interval_sec') {
-          return { ...item, online_interval_sec: numeric };
-        }
-        return { ...item, offline_interval_sec: numeric };
-      })
-    );
-  };
-
-  const addCommand = () =>
-    setCommands((prev) => [
-      ...prev,
-      { id: null, command: '', response: '', enabled: true, isNew: true },
-    ]);
-
-  const addTimer = () =>
-    setTimers((prev) => [
-      ...prev,
-      { id: null, message: '', online_interval_sec: 900, offline_interval_sec: 1800, enabled: true, isNew: true },
-    ]);
-
-  const saveCommand = async (item: TwitchCommand, index: number) => {
-    const payload = {
-      command: (item.command || '').replace(/^!+/, '').trim(),
-      response: (item.response || '').trim(),
-      enabled: item.enabled,
-    };
-    if (!payload.command || !payload.response) return;
-    setCommandsBusy(true);
-    try {
-      if (item.id) {
-        await api.put(`/api/socials/twitch/commands/${item.id}`, payload);
-      } else {
-        await api.post('/api/socials/twitch/commands', payload);
-      }
-      await loadTwitchMeta();
-    } finally {
-      setCommandsBusy(false);
-    }
-  };
-
-  const deleteCommand = async (item: TwitchCommand, index: number) => {
-    if (!item.id) {
-      setCommands((prev) => prev.filter((_, idx) => idx !== index));
-      return;
-    }
-    setCommandsBusy(true);
-    try {
-      await api.del(`/api/socials/twitch/commands/${item.id}`);
-      await loadTwitchMeta();
-    } finally {
-      setCommandsBusy(false);
-    }
-  };
-
-  const saveTimer = async (item: TwitchTimer, index: number) => {
-    const payload = {
-      message: item.message.trim(),
-      online_interval_sec: normalizeIntervalValue(item.online_interval_sec),
-      offline_interval_sec: normalizeIntervalValue(item.offline_interval_sec),
-      enabled: item.enabled,
-    };
-    if (!payload.message) return;
-    setTimersBusy(true);
-    try {
-      if (item.id) {
-        await api.put(`/api/socials/twitch/timers/${item.id}`, payload);
-      } else {
-        await api.post('/api/socials/twitch/timers', payload);
-      }
-      await loadTwitchMeta();
-    } finally {
-      setTimersBusy(false);
-    }
-  };
-
-  const deleteTimer = async (item: TwitchTimer, index: number) => {
-    if (!item.id) {
-      setTimers((prev) => prev.filter((_, idx) => idx !== index));
-      return;
-    }
-    setTimersBusy(true);
-    try {
-      await api.del(`/api/socials/twitch/timers/${item.id}`);
-      await loadTwitchMeta();
-    } finally {
-      setTimersBusy(false);
-    }
-  };
-
-  const [manualOpen, setManualOpen] = useState(false);
-  const [manualPeriod, setManualPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily');
-  const [manualLoading, setManualLoading] = useState(false);
-  const [manualReport, setManualReport] = useState<ReportData | null>(null);
-
-  const loadManualReport = useCallback(async (period: 'daily' | 'weekly' | 'monthly') => {
-    setManualLoading(true);
-    try {
-      const response = (await api.get(`/api/life/reports/period?period=${period}&force=1`)) as ReportPeriodResponse;
-      setManualReport(response?.report || null);
-    } catch {
-      setManualReport(null);
-    } finally {
-      setManualLoading(false);
-    }
-  }, []);
-  const handleManualPeriodChange = useCallback((value: 'daily' | 'weekly' | 'monthly') => {
-    setManualPeriod(value);
-    setManualReport(null);
-  }, []);
-  const openManualReport = useCallback(() => {
-    setManualOpen(true);
-    loadManualReport(manualPeriod);
-  }, [loadManualReport, manualPeriod]);
-  const refreshManualReport = useCallback(() => {
-    loadManualReport(manualPeriod);
-  }, [loadManualReport, manualPeriod]);
-  const closeManualReport = useCallback(() => setManualOpen(false), []);
-
   useEffect(() => {
     (async () => {
-      try {
-        const socials = await api.get("/api/socials/settings");
-        setSocialForm({
-          tg_bot_token: socials.settings?.tg_bot_token || "",
-          tg_chat_id: socials.settings?.tg_chat_id || "",
-          tg_personal_chat_id: socials.settings?.tg_personal_chat_id || "",
-          twitch_channel: socials.settings?.twitch_channel || "",
-          youtube_channel_id: socials.settings?.youtube_channel_id || "",
-          tg_stream_template: socials.settings?.tg_stream_template || defaultSocialTemplates.stream,
-          tg_video_template: socials.settings?.tg_video_template || defaultSocialTemplates.video,
-          twitch_bot_username: socials.settings?.twitch_bot_username || "",
-          twitch_bot_token: socials.settings?.twitch_bot_token || "",
-        });
-      } catch {
-        setSocialForm({
-          tg_bot_token: "",
-          tg_chat_id: "",
-          tg_personal_chat_id: "",
-          twitch_channel: "",
-          youtube_channel_id: "",
-          tg_stream_template: defaultSocialTemplates.stream,
-          tg_video_template: defaultSocialTemplates.video,
-          twitch_bot_username: "",
-          twitch_bot_token: "",
-        });
-      }
       try {
         const g = await api.get("/api/life/settings/google");
         setGoogle({ refresh_token: g.refresh_token || "" });
@@ -407,33 +164,12 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    loadTwitchMeta();
-  }, [loadTwitchMeta]);
-
-  useEffect(() => {
     hiddenMenuItemsRef.current = hiddenMenuItems;
   }, [hiddenMenuItems]);
 
   useEffect(() => {
     notificationPreferencesRef.current = notificationPreferences;
   }, [notificationPreferences]);
-
-  const saveSocials = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await api.post("/api/socials/settings", socialForm, {
-        notifySuccess: "Настройки сохранены",
-      });
-      await api.post("/api/life/feed/add", {
-        type: "settings",
-        text: "Обновлены настройки соцсетей",
-        meta: { section: "socials" },
-      }, { silentSuccess: true });
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const saveGoogle = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -608,7 +344,7 @@ export default function Settings() {
 
   return (
     <Shell>
-      <div className="text-2xl font-semibold mb-4">Настройки интеграций</div>
+      <div className="text-2xl font-semibold mb-4">Настройки</div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <div className="flex flex-wrap items-center gap-2">
@@ -628,8 +364,6 @@ export default function Settings() {
           ))}
         </div>
         <QuickSetupMaster
-          social={socialForm}
-          onSocialChange={handleSocialChange}
           googleRefreshToken={google.refresh_token || ""}
           onGoogleTokenChange={(token) => setGoogle({ refresh_token: token })}
           weatherKey={weatherApiKey}
@@ -648,6 +382,7 @@ export default function Settings() {
               onSubmit={saveSystemSettings}
               saving={savingSystem}
             />
+            <ReminderSettings />
             <InterfacePreferences
               showMenuCounters={showMenuCounters}
               savingUi={savingUi}
@@ -661,39 +396,6 @@ export default function Settings() {
               notificationSummary={notificationSummary}
             />
           </>
-        )}
-
-        {activeTab === "telegram" && (
-          <TelegramSettings
-            form={socialForm}
-            onChange={handleSocialChange}
-            onSubmit={saveSocials}
-            saving={saving}
-          />
-        )}
-
-        {activeTab === "twitch" && (
-          <TwitchSettings
-            form={socialForm}
-            onChange={handleSocialChange}
-            onSubmit={saveSocials}
-            saving={saving}
-            commands={commands}
-            commandsLoading={commandsLoading}
-            commandsBusy={commandsBusy}
-            onAddCommand={addCommand}
-            onUpdateCommandField={updateCommandField}
-            onSaveCommand={saveCommand}
-            onDeleteCommand={deleteCommand}
-            timers={timers}
-            timersLoading={timersLoading}
-            timersBusy={timersBusy}
-            onAddTimer={addTimer}
-            onUpdateTimerField={updateTimerField}
-            onSaveTimer={saveTimer}
-            onDeleteTimer={deleteTimer}
-            formatTimerDate={formatTimerDate}
-          />
         )}
 
         {activeTab === "other" && (
@@ -717,25 +419,10 @@ export default function Settings() {
               saving={savingWeather}
             />
 
-            <ManualReportLauncher
-              period={manualPeriod}
-              onPeriodChange={handleManualPeriodChange}
-              onOpen={openManualReport}
-              loading={manualLoading}
-            />
           </>
         )}
       </div>
 
-      <ManualReportModal
-        open={manualOpen}
-        onClose={closeManualReport}
-        period={manualPeriod}
-        onPeriodChange={handleManualPeriodChange}
-        onRefresh={refreshManualReport}
-        loading={manualLoading}
-        report={manualReport}
-      />
     </Shell>
   );
 }

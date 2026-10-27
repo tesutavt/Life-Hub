@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 type ModalProps = {
   open: boolean;
@@ -9,6 +10,8 @@ type ModalProps = {
   containerClassName?: string;
   contentClassName?: string;
   closeOnOverlayClick?: boolean;
+  /** Показать крестик закрытия в правом верхнем углу */
+  showCloseButton?: boolean;
 };
 
 
@@ -29,6 +32,7 @@ export function Modal({
   containerClassName,
   contentClassName,
   closeOnOverlayClick = true,
+  showCloseButton = false,
 }: ModalProps) {
   const [portalElement, setPortalElement] = useState<HTMLElement | null>(null);
   const [mounted, setMounted] = useState(open);
@@ -110,9 +114,14 @@ export function Modal({
           overlayClassName || DEFAULT_OVERLAY
         }`}
       />
-      <div className="relative flex h-full w-full">
+      <div className="pointer-events-none relative flex h-full w-full">
         <div
-          className={`relative flex h-full w-full ${
+          // Клик по пустому месту вокруг окна закрывает его (раньше этот слой
+          // перекрывал затемнение и клики до него не доходили).
+          onClick={(event) => {
+            if (event.target === event.currentTarget) handleOverlayClick();
+          }}
+          className={`pointer-events-auto relative flex h-full w-full ${
             containerClassName || DEFAULT_CONTAINER
           }`}
         >
@@ -121,6 +130,17 @@ export function Modal({
               contentClassName || DEFAULT_CONTENT
             }`}
           >
+            {showCloseButton ? (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Закрыть"
+                title="Закрыть (Esc)"
+                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition hover:bg-white/10 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            ) : null}
             {children}
           </div>
         </div>

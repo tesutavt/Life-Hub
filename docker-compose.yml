@@ -1,0 +1,21 @@
+services:
+  lifehub:
+    build: .
+    image: lifehub
+    container_name: lifehub
+    restart: unless-stopped
+    ports:
+      # Снаружи сервер будет доступен по http://IP-сервера:4000
+      - "4000:4000"
+    volumes:
+      - ./data:/data
+    environment:
+      # false — закрыть регистрацию новых пользователей
+      ALLOW_REGISTRATION: "true"
+      # Если сервер стоит за nginx/Caddy — раскомментируйте
+      # TRUST_PROXY: "1"
+      # Ключи интеграций (необязательно)
+      # TG_BOT_TOKEN: ""
+      # YT_API_KEY: ""
+      # TWITCH_CLIENT_ID: ""
+      # TWITCH_CLIENT_SECRET: ""

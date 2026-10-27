@@ -10,6 +10,8 @@ npm run dev
 # API: http://localhost:4000
 ```
 
+Для запуска всего проекта (сервер + собранный клиент) одной командой см. `README.md` в корне репозитория и `start.cmd`.
+
 ## Переменные окружения (опционально)
 ```
 PORT=4000
@@ -39,4 +41,6 @@ GF_REDIRECT=http://localhost:4000/api/fitness/google/callback
 - `/api/loans` (GET /summary, POST, PUT/:id, DELETE/:id)
 - `/api/banks` (GET /transactions, POST /import/csv)
 - `/api/fitness` (public: /google/auth, /google/callback; protected: /metrics)
-- `/api/life` (profile/xp/calendar/languages/courses/yearly-goals/socials/journal/habits/travel)
+- `/api/life` (profile/xp/calendar/languages/courses/yearly-goals/journal/habits/travel)
+- `/api/life/daily-missions`, `/api/life/weekly-missions` — ежедневные и еженедельные задания с наградами в очках/XP
+- `/api/life/languages/:id/vocab`, `/api/life/languages/:id/practice/*` — словарь и SRS-тренировки языкового модуля

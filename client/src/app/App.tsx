@@ -19,20 +19,33 @@ import {
   Search,
   BarChart3,
   Link2,
+  BadgeCheck,
+  Shield,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   ChevronUp,
   Palette,
   Type,
-  LogOut
+  LogOut,
+  Trophy,
+  Wallet,
+  Smartphone
 } from 'lucide-react';
 import { onHiddenMenuItemsChange, onMenuCountersRefresh, onMenuVisibilityChange, notifyHiddenMenuItems } from '../menuBus';
+import { onProfileUpdated } from '../profileBus';
+import PhoneLoginModal from '../components/PhoneLoginModal';
+import { presetCss } from '../components/profile/profileStyle';
 import SiteSearch from '../components/SiteSearch';
 import { Modal } from '../components/ui/Modal';
 import ReportReminders from '../components/reports/ReportReminders';
 import { getAvatarFrameOption, resolveAvatarFrameId } from '../constants/avatarFrames';
-import WeeklyMissionsOverlay, { WeeklyMissionSummary } from '../components/WeeklyMissionsOverlay';
+import AchievementToaster from '../components/AchievementToaster';
+import MissionsDiaryHost from '../components/missions/MissionsDiaryHost';
+import { openMissionsDiary } from '../components/missions/missionsBus';
+import OnboardingWizard from '../components/OnboardingWizard';
+import DesktopReminders from '../components/DesktopReminders';
+import DesktopSetupPrompt from '../components/DesktopSetup';
 
 type MenuCounters = {
   languages: number;
@@ -54,14 +67,15 @@ export const MENU_ITEMS: MenuItem[] = [
   { to: '/profile-full', label: 'Профиль', icon: UserCircle, group: 'core' },
   { to: '/dashboard', label: 'Дэшборд', icon: LayoutDashboard, group: 'core' },
   { to: '/calendar', label: 'Календарь', icon: CalendarDays, group: 'core' },
+  { to: '/finance', label: 'Финансы', icon: Wallet, group: 'core' },
   { to: '/languages', label: 'Языки', icon: LanguagesIcon, counterKey: 'languages', group: 'learning' },
   { to: '/courses', label: 'Курсы', icon: GraduationCap, counterKey: 'courses', group: 'learning' },
   { to: '/year-goals', label: 'Цели на год', icon: Target, counterKey: 'goals', group: 'learning' },
   { to: '/pages', label: 'Страницы', icon: NotebookPen, group: 'lifestyle' },
   { to: '/habits', label: 'Привычки', icon: CheckSquare, group: 'lifestyle' },
   { to: '/daily-missions', label: 'Ежедневные задания', icon: Sparkles, group: 'lifestyle' },
+  { to: '/achievements', label: 'Ачивки', icon: Trophy, group: 'lifestyle' },
   { to: '/travel', label: 'Путешествие', icon: Plane, group: 'lifestyle' },
-  { to: '/socials', label: 'Соцсети', icon: Share2, group: 'lifestyle' },
   { to: '/reports', label: 'Отчёты', icon: BarChart3, group: 'system' },
   { to: '/settings', label: 'Настройки', icon: SettingsIcon, group: 'system' }
 ];
@@ -80,40 +94,45 @@ export default function App() {
     >
       <div className="relative min-h-screen">
         <Sidebar collapsed={sidebarCollapsed} />
-        <div
-          className={classNames(
-            'absolute top-1/2 right-0 z-40 flex -translate-y-1/2 translate-x-1/2 items-center gap-1 transition-all duration-300',
-            sidebarCollapsed ? 'pr-1' : 'pr-0'
-          )}
-        >
-          <span
-            className={classNames(
-              'inline-block rounded-r-full border border-l-0 border-brand-slate/40 bg-brand-night/80 shadow-brand-soft transition-all duration-300',
-              sidebarCollapsed ? 'h-10 w-3' : 'h-12 w-4'
-            )}
-            aria-hidden="true"
-          />
-          <button
-            type="button"
-            onClick={() => setSidebarCollapsed((prev) => !prev)}
-            className={classNames(
-              'group inline-flex items-center justify-center rounded-full border bg-brand-night/80 text-slate-200/80 shadow-brand-soft transition hover:border-brand-mint/60 hover:text-brand-mint',
-              sidebarCollapsed ? 'h-10 w-10 border-brand-slate/50' : 'h-11 w-11 border-brand-slate/40'
-            )}
-            aria-label={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
-          >
-            <span className="sr-only">{sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}</span>
-            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-          </button>
-        </div>
       </div>
+      {/* Кнопка сворачивания: закреплена по центру экрана на границе меню, не уезжает при прокрутке */}
+      <button
+        type="button"
+        onClick={() => setSidebarCollapsed((prev) => !prev)}
+        style={{ left: (sidebarCollapsed ? 88 : 260) - 14 }}
+        className="fixed top-1/2 z-40 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-brand-night text-white/60 shadow-[0_4px_14px_rgba(0,0,0,0.35)] transition-[left,color,border-color,background-color] duration-300 hover:border-brand-mint/60 hover:bg-brand-deep hover:text-brand-mint"
+        aria-label={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
+        title={sidebarCollapsed ? 'Развернуть меню' : 'Свернуть меню'}
+      >
+        {sidebarCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+      </button>
       <main className="p-6 transition-[padding] duration-300">
         <ReportReminders />
+        <AchievementToaster />
+        <MissionsDiaryHost />
+        <OnboardingWizard />
+        <DesktopSetupPrompt />
+        <DesktopReminders />
         <Outlet />
       </main>
     </div>
   );
 }
+
+const readClockPref = (key: string, fallback: string) => {
+  try {
+    return localStorage.getItem(`lifehub:clock-${key}`) || fallback;
+  } catch {
+    return fallback;
+  }
+};
+const writeClockPref = (key: string, value: string) => {
+  try {
+    localStorage.setItem(`lifehub:clock-${key}`, value);
+  } catch {
+    // хранилище недоступно — настройка просто не запомнится
+  }
+};
 
 type SidebarProps = {
   collapsed: boolean;
@@ -122,16 +141,30 @@ type SidebarProps = {
 function Sidebar({ collapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setToken } = useAuth();
+  const { user, logout } = useAuth();
   const [profile, setProfile] = useState<any>(null);
   const [counters, setCounters] = useState<MenuCounters>(EMPTY_COUNTERS);
   const [showCounters, setShowCounters] = useState(true);
   const [hiddenMenuItems, setHiddenMenuItems] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [phoneLoginOpen, setPhoneLoginOpen] = useState(false);
   const [clockSettingsOpen, setClockSettingsOpen] = useState(false);
-  const [clockColor, setClockColor] = useState<string>('#f8fafc');
-  const [clockFont, setClockFont] = useState<string>('font-mono');
+  // Оформление часов сохраняется между запусками
+  const [clockColor, setClockColor] = useState<string>(() => readClockPref('color', '#f8fafc'));
+  const [clockFont, setClockFont] = useState<string>(() => readClockPref('font', 'font-mono'));
+  useEffect(() => writeClockPref('color', clockColor), [clockColor]);
+  useEffect(() => writeClockPref('font', clockFont), [clockFont]);
   const [now, setNow] = useState<Date>(new Date());
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const clockSettingsRef = useRef<HTMLDivElement | null>(null);
@@ -166,14 +199,17 @@ function Sidebar({ collapsed }: SidebarProps) {
   }, [location.pathname]);
 
   useEffect(() => {
-    (async () => {
+    const loadProfile = async () => {
       try {
         const response = await api.get('/api/life/profile');
-        setProfile(response?.user || null);
+        // style — оформление большого профиля: тот же фон в мини-профиле
+        setProfile(response?.user ? { ...response.user, style: response.style || null } : null);
       } catch {
         setProfile(null);
       }
-    })();
+    };
+    loadProfile();
+    return onProfileUpdated(loadProfile);
   }, []);
 
   useEffect(() => {
@@ -282,7 +318,14 @@ function Sidebar({ collapsed }: SidebarProps) {
     { label: 'Сериф', className: 'font-serif' },
   ];
 
-  const filteredMenuItems = MENU_ITEMS.filter((item) => !hiddenMenuItems.includes(item.to));
+  const menuItems = user?.role === 'admin' || user?.role === 'moderator'
+    ? [
+        ...MENU_ITEMS,
+        { to: '/admin/users', label: 'Пользователи', icon: Shield, group: 'system' as const },
+        { to: '/admin/achievements', label: 'Ачивки (админ)', icon: Trophy, group: 'system' as const },
+      ]
+    : MENU_ITEMS;
+  const filteredMenuItems = menuItems.filter((item) => !hiddenMenuItems.includes(item.to));
   const visibleGroups = MENU_GROUP_ORDER.map((groupId) => ({
     id: groupId,
     items: filteredMenuItems.filter((item) => item.group === groupId),
@@ -302,10 +345,20 @@ function Sidebar({ collapsed }: SidebarProps) {
               'relative rounded-3xl border border-brand-slate/40 bg-brand-night/80 shadow-brand-soft overflow-visible',
               collapsed ? 'pb-4 pt-3 px-2 flex flex-col items-center gap-3' : ''
             )}
+            style={{
+              background: profile.style?.background_url
+                ? `linear-gradient(180deg, rgba(5,10,18,0.25), rgba(5,10,18,0.8)), url(${resolveApiUrl(profile.style.background_url)}) center / cover no-repeat`
+                : profile.style
+                ? presetCss(profile.style.background_preset)
+                : undefined,
+            }}
           >
             <div
               className={classNames(
-                'relative w-full overflow-visible bg-brand-mint/10',
+                'relative w-full overflow-visible',
+              !profile.style && 'bg-brand-mint/10',
+                // Меню настроек часов должно перекрывать аватар ниже
+                clockSettingsOpen && 'z-30',
                 collapsed ? 'h-16 rounded-2xl' : 'h-20 rounded-3xl'
               )}
               style={{
@@ -416,7 +469,11 @@ function Sidebar({ collapsed }: SidebarProps) {
                 )}
                 {!collapsed && (
                   <div className="min-w-0 flex-1">
-                    <div className="font-semibold leading-tight truncate">{profile.name || 'Без имени'}</div>
+                    <div className="flex items-center gap-2 font-semibold leading-tight truncate">
+                      <span className="truncate">{profile.name || 'Без имени'}</span>
+                      {profile.is_verified ? <BadgeCheck size={14} className="shrink-0 text-sky-300" /> : null}
+                    </div>
+                    {profile.username ? <div className="mt-1 text-xs text-slate-200/60 truncate">@{profile.username}</div> : null}
                     {profileLinkHref && (
                       <a
                         href={profileLinkHref}
@@ -445,6 +502,7 @@ function Sidebar({ collapsed }: SidebarProps) {
               </div>
             </div>
           </div>
+          <PhoneLoginModal open={phoneLoginOpen} onClose={() => setPhoneLoginOpen(false)} />
           {profileMenuOpen && (
             <div className="absolute left-0 right-0 z-30 mt-3 rounded-3xl border border-brand-slate/40 bg-brand-night/95 p-3 shadow-brand-soft">
               <div className="space-y-2">
@@ -462,7 +520,31 @@ function Sidebar({ collapsed }: SidebarProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    setToken(null);
+                    if (profile?.username) {
+                      window.open(`/${profile.username}`, '_blank');
+                    }
+                    setProfileMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-2xl border border-transparent px-3 py-2 text-sm text-slate-200/80 transition hover:border-brand-mint/60 hover:bg-brand-night/70 hover:text-brand-mint"
+                >
+                  <UserCircle size={16} className="shrink-0" />
+                  <span className="truncate">Открыть публичный профиль</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhoneLoginOpen(true);
+                    setProfileMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-2xl border border-transparent px-3 py-2 text-sm text-slate-200/80 transition hover:border-brand-mint/60 hover:bg-brand-night/70 hover:text-brand-mint"
+                >
+                  <Smartphone size={16} className="shrink-0" />
+                  <span className="truncate">Войти на телефоне (QR)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout();
                     setProfileMenuOpen(false);
                     navigate('/login');
                   }}
@@ -525,7 +607,7 @@ function Sidebar({ collapsed }: SidebarProps) {
         <button
           type="button"
           onClick={() => {
-            setToken(null);
+            logout();
             navigate('/login');
           }}
           className="mt-auto text-sm text-slate-300/70 transition hover:text-brand-mint"
@@ -557,6 +639,7 @@ function Sidebar({ collapsed }: SidebarProps) {
             navigate(`/pages/${page.id}`);
             setSearchOpen(false);
           }}
+          onNavigate={() => setSearchOpen(false)}
         />
       </Modal>
     </aside>
@@ -582,6 +665,13 @@ function NavItem({
     <NavLink
       to={item.to}
       title={item.label}
+      onClick={(event) => {
+        // Задания дня открываются дневником поверх текущей страницы
+        if (item.to === '/daily-missions') {
+          event.preventDefault();
+          openMissionsDiary();
+        }
+      }}
       className={({ isActive }) =>
         classNames(
           'group flex items-center gap-3 rounded-2xl border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint/60',

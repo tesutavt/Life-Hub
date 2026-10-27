@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import classNames from "classnames";
-import { Link } from "react-router-dom";
-import { Circle, CircleCheck, PencilLine, Trash2 } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { BookOpenCheck, Circle, CircleCheck, Flame, ListOrdered, Lock, PencilLine, Trash2, X } from "lucide-react";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { requestMenuCountersRefresh } from "../menuBus";
@@ -10,6 +10,7 @@ import TagSelector from "../components/tags/TagSelector";
 import { Modal } from "../components/ui/Modal";
 import LanguageMaster from "../components/master/LanguageMaster";
 import { useReorderableList } from "../hooks/useReorderableList";
+import ProgramEditor from "../components/languages/ProgramEditor";
 
 type TagOption = { id: number; label: string; color: string };
 
@@ -20,6 +21,10 @@ type CourseSummary = {
   status: string;
   provider?: string;
   course_type?: string | null;
+  learn_course_id?: number | null;
+  program_stage: number;
+  locked: boolean;
+  lock_reason?: string | null;
   tags: TagOption[];
 };
 
@@ -28,6 +33,9 @@ type Lang = {
   name: string;
   level?: string;
   minutes_today?: number;
+  streak: number;
+  streakBest: number;
+  dailyGoalXp: number;
   imageUrl?: string | null;
   bannerUrl?: string | null;
   tags: TagOption[];
@@ -35,6 +43,17 @@ type Lang = {
   coursesTotal: number;
   coursesCompleted: number;
   courseProgressPct: number;
+};
+
+type VocabItem = {
+  id: number;
+  language_id: number;
+  term: string;
+  translation: string;
+  note: string | null;
+  unit_label: string | null;
+  is_new: boolean;
+  is_due: boolean;
 };
 
 const Badge = ({ children }: { children: React.ReactNode }) => (
@@ -83,6 +102,10 @@ const mapCourse = (entry: any): CourseSummary => ({
   status: typeof entry.status === "string" ? entry.status : "in-progress",
   provider: entry.provider || undefined,
   course_type: entry.course_type ?? null,
+  learn_course_id: entry.learn_course_id ?? null,
+  program_stage: Number(entry.program_stage) || 1,
+  locked: !!entry.locked,
+  lock_reason: entry.lock_reason ?? null,
   tags: Array.isArray(entry?.tags)
     ? entry.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color }))
     : [],
@@ -110,6 +133,9 @@ const mapLanguage = (entry: any): Lang => {
     name: entry.name,
     level: entry.level,
     minutes_today: entry.minutes_today ?? entry.minutesToday ?? 0,
+    streak: Number(entry.streak) || 0,
+    streakBest: Number(entry.streak_best ?? entry.streakBest) || 0,
+    dailyGoalXp: Number(entry.daily_goal_xp ?? entry.dailyGoalXp) || 50,
     imageUrl: entry.image_url ?? entry.imageUrl ?? null,
     bannerUrl: entry.banner_url ?? entry.bannerUrl ?? null,
     tags: Array.isArray(entry?.tags)
@@ -142,6 +168,12 @@ export default function Languages() {
     setItems(activeSource.map(mapLanguage));
     setArchivedLanguages(archivedSource.map(mapLanguage));
     requestMenuCountersRefresh();
+  };
+
+  // Занятия вне приложения (учебник, аудио): уроки и тренировки засчитываются сами
+  const addMinutes = async (languageId: number, minutes: number) => {
+    const res = await api.post(`/api/life/languages/${languageId}/minutes`, { minutes }, { notifySuccess: `+${minutes} мин занятий` });
+    setItems((prev) => prev.map((lang) => (lang.id === languageId ? { ...lang, minutes_today: res?.minutes_today ?? lang.minutes_today } : lang)));
   };
 
   const loadTagOptions = async () => {
@@ -203,8 +235,83 @@ export default function Languages() {
     await loadLanguages();
   };
 
-  const streak =
-    items.filter((lang) => (lang.minutes_today || 0) > 0).length > 0 ? 1 : 0;
+  const [vocabLanguage, setVocabLanguage] = useState<Lang | null>(null);
+  const [vocabItems, setVocabItems] = useState<VocabItem[]>([]);
+  const [vocabLoading, setVocabLoading] = useState(false);
+  const [bulkVocabText, setBulkVocabText] = useState("");
+
+  const openVocab = async (language: Lang) => {
+    setVocabLanguage(language);
+    setVocabLoading(true);
+    try {
+      const res = await api.get(`/api/life/languages/${language.id}/vocab`);
+      setVocabItems(Array.isArray(res?.items) ? res.items : []);
+    } finally {
+      setVocabLoading(false);
+    }
+  };
+  // Переход из поиска: /languages?vocab=<id> открывает словарь этого языка
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const vocabId = Number(searchParams.get("vocab"));
+    if (!vocabId || !items.length) return;
+    const language = items.find((lang) => lang.id === vocabId);
+    if (language) openVocab(language);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, items]);
+
+
+  const closeVocab = () => {
+    setVocabLanguage(null);
+    setVocabItems([]);
+    setBulkVocabText("");
+  };
+
+  const parseBulkVocabLine = (line: string) => {
+    const separators = [" - ", " — ", " – ", "\t", ":"];
+    for (const sep of separators) {
+      const idx = line.indexOf(sep);
+      if (idx > 0) {
+        return {
+          term: line.slice(0, idx).trim(),
+          translation: line.slice(idx + sep.length).trim(),
+        };
+      }
+    }
+    return null;
+  };
+
+  const submitBulkVocab = async () => {
+    if (!vocabLanguage) return;
+    const lines = bulkVocabText.split("\n").map((line) => line.trim()).filter(Boolean);
+    const items = lines
+      .map(parseBulkVocabLine)
+      .filter((item): item is { term: string; translation: string } => !!item && !!item.term && !!item.translation);
+    if (items.length === 0) return;
+    const res = await api.post(`/api/life/languages/${vocabLanguage.id}/vocab`, { items });
+    const created = Array.isArray(res?.items) ? res.items : [];
+    setVocabItems((prev) => [...prev, ...created]);
+    setBulkVocabText("");
+  };
+
+  const deleteVocabItem = async (vocabId: number) => {
+    await api.del(`/api/life/languages/vocab/${vocabId}`);
+    setVocabItems((prev) => prev.filter((item) => item.id !== vocabId));
+  };
+
+  const [programLanguage, setProgramLanguage] = useState<Lang | null>(null);
+
+  const renderCourses = (courses: CourseSummary[]) => {
+    const multiStage = new Set(courses.map((course) => course.program_stage)).size > 1;
+    return courses.map((course, index) => (
+      <React.Fragment key={course.id}>
+        {multiStage && (index === 0 || courses[index - 1]!.program_stage !== course.program_stage) && (
+          <div className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-white/40">Этап {course.program_stage}</div>
+        )}
+        {renderCourse(course)}
+      </React.Fragment>
+    ));
+  };
 
   const renderCourse = (course: CourseSummary) => {
     const progress = clampProgress(course.progress);
@@ -212,11 +319,19 @@ export default function Languages() {
     return (
       <Link
         key={course.id}
-        to="/courses"
-        className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm transition hover:bg-white/10"
+        to={course.learn_course_id && !course.locked ? `/learn/${course.learn_course_id}` : "/courses"}
+        title={course.locked ? course.lock_reason || "Курс пока закрыт" : undefined}
+        className={classNames(
+          "flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm transition",
+          course.locked ? "border-dashed border-white/10 bg-black/20 opacity-70" : "border-white/10 bg-white/5 hover:bg-white/10"
+        )}
       >
         <div className="min-w-0 flex-1">
-          <div className="font-medium truncate text-white">{course.title}</div>
+          <div className="flex items-center gap-1.5 font-medium text-white">
+            {course.locked && <Lock className="h-3.5 w-3.5 shrink-0 text-white/50" />}
+            <span className="truncate">{course.title}</span>
+          </div>
+          {course.locked && course.lock_reason && <div className="text-[11px] text-amber-200/80">{course.lock_reason}</div>}
           {course.provider && (
             <div className="text-xs text-white/60 truncate">{course.provider}</div>
           )}
@@ -313,8 +428,24 @@ export default function Languages() {
                       </div>
                       <Badge>{language.level || "A1"}</Badge>
                     </div>
-                    <div className="mt-1 text-sm opacity-80">
-                      Минут сегодня: <b>{language.minutes_today || 0} мин</b>
+                    <div className="mt-1 flex flex-wrap items-center gap-3 text-sm opacity-80">
+                      <span className="inline-flex items-center gap-1.5">
+                        Сегодня: <b>{language.minutes_today || 0} мин</b>
+                        <button
+                          type="button"
+                          onClick={() => addMinutes(language.id, 15)}
+                          title="Отметить 15 минут занятий вне приложения (учебник, аудио)"
+                          className="rounded-full border border-white/15 px-2 py-0.5 text-[11px] text-white/70 transition hover:bg-white/10"
+                        >
+                          +15 мин
+                        </button>
+                      </span>
+                      {language.streak > 0 && (
+                        <span className="inline-flex items-center gap-1 text-amber-300">
+                          <Flame className="h-3.5 w-3.5" />
+                          {language.streak} {language.streak === 1 ? 'день' : 'дней'} подряд
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -352,7 +483,7 @@ export default function Languages() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {language.courses.map(renderCourse)}
+                      {renderCourses(language.courses)}
                     </div>
                   )}
                   <div className="text-[11px] text-white/50">
@@ -365,6 +496,30 @@ export default function Languages() {
                 </div>
 
                 <div className="mt-auto flex items-center gap-2 pt-4">
+                  <Link
+                    to={`/languages/${language.id}/practice`}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 via-rose-400 to-purple-500 px-3 py-1.5 text-xs font-semibold text-brand-night transition hover:brightness-110"
+                  >
+                    <Flame className="h-3.5 w-3.5" />
+                    Практика
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setProgramLanguage(language)}
+                    title="Порядок курсов: что открыто сразу, что параллельно, что потом"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/80 transition hover:bg-white/10"
+                  >
+                    <ListOrdered className="h-3.5 w-3.5" />
+                    Программа
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openVocab(language)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/80 transition hover:bg-white/10"
+                  >
+                    <BookOpenCheck className="h-3.5 w-3.5" />
+                    Словарь
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -454,6 +609,13 @@ export default function Languages() {
         </div>
       )}
 
+      <ProgramEditor
+        open={!!programLanguage}
+        language={programLanguage}
+        onClose={() => setProgramLanguage(null)}
+        onSaved={loadLanguages}
+      />
+
       <Modal
         open={Boolean(editing)}
         onClose={() => {
@@ -481,18 +643,6 @@ export default function Languages() {
                 </option>
               ))}
             </select>
-            <input
-              type="number"
-              min={0}
-              className="px-3 py-2 rounded bg-white/10 w-full"
-              value={editing.minutes_today || 0}
-              onChange={(e) =>
-                setEditing({
-                  ...editing,
-                  minutes_today: Number(e.target.value) || 0,
-                })
-              }
-            />
             <input
               className="px-3 py-2 rounded bg-white/10 w-full"
               placeholder="Ссылка на изображение (опционально)"
@@ -539,6 +689,76 @@ export default function Languages() {
               >
                 Сохранить
               </button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(vocabLanguage)}
+        onClose={closeVocab}
+        contentClassName="w-full max-w-lg max-h-[85vh] overflow-y-auto space-y-3 rounded-2xl border border-white/20 bg-black p-6 shadow-2xl"
+      >
+        {vocabLanguage && (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="text-lg font-medium">Словарь: {vocabLanguage.name}</div>
+              <button onClick={closeVocab} className="text-white/60 hover:text-white" aria-label="Закрыть">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <textarea
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                rows={4}
+                placeholder={"Добавьте слова построчно, например:\nhello - привет\ncat - кошка"}
+                value={bulkVocabText}
+                onChange={(e) => setBulkVocabText(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={submitBulkVocab}
+                disabled={!bulkVocabText.trim()}
+                className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Добавить слова
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              {vocabLoading ? (
+                <div className="text-sm text-white/60">Загрузка…</div>
+              ) : vocabItems.length === 0 ? (
+                <div className="text-sm text-white/60">
+                  Пока нет слов. Добавьте несколько строк выше, чтобы начать практику.
+                </div>
+              ) : (
+                vocabItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-white">{item.term}</span>
+                      <span className="mx-2 text-white/40">→</span>
+                      <span className="text-white/80">{item.translation}</span>
+                      {item.unit_label && (
+                        <span className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/50">
+                          {item.unit_label}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => deleteVocabItem(item.id)}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-red-400/40 bg-red-500/10 text-red-200 transition hover:bg-red-500/20"
+                      aria-label="Удалить слово"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </>
         )}

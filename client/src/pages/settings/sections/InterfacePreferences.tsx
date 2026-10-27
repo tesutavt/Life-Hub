@@ -1,3 +1,4 @@
+import { api } from '../../../api';
 import React from "react";
 import MenuMaster from "../../../components/master/MenuMaster";
 import NotificationMaster from "../../../components/master/NotificationMaster";
@@ -58,6 +59,16 @@ export default function InterfacePreferences({
         <div>{hiddenMenuSummary}</div>
         <div>{notificationSummary}</div>
       </div>
+      <button
+        type="button"
+        onClick={async () => {
+          await api.post('/api/onboarding', { state: 'pending' }, { silentSuccess: true });
+          window.location.reload();
+        }}
+        className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/75 transition hover:bg-white/10"
+      >
+        👋 Запустить мастер приветствия заново
+      </button>
     </div>
   );
 }

@@ -1,9 +1,14 @@
 import express from 'express';
-import { getDB, levelFromXp } from '../../utils.js';
+import { generateUniqueUsername, getDB, levelFromXp, normalizeUsername } from '../../utils.js';
 import { TAG_ENTITY_TYPES, fetchTagLinks, sortTags, syncTagLinks } from '../../tagUtils.js';
 import { upload, removeLocalUpload } from './storage.js';
 import { createUploadsRouter } from './uploads.js';
-import { ensureSocialSchema } from '../socials/index.js';
+import languageLearningRouter from './languageLearning.js';
+import studyPlanRouter from './studyPlan.js';
+import { applyGoalAutoChecks, listForUser, trackAction } from '../../achievements/engine.js';
+import { ACTIONS_BY_KEY } from '../../achievements/catalog.js';
+import { loadCourseLocks, loadProgram, saveProgram } from './program.js';
+import { reportHasActivity } from '../../jobs/cleanup.js';
 
 const router = express.Router();
 
@@ -75,54 +80,26 @@ const normalizePdfUrl = (value) => {
   return trimmed.slice(0, 2048);
 };
 
-const MAX_TELEGRAM_CAPTION = 1024;
-const MAX_REPORT_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB safety limit
-
-const decodePngDataUrl = (value) => {
-  if (typeof value !== 'string') return null;
-  const commaIndex = value.indexOf(',');
-  if (commaIndex === -1) return null;
-  const header = value.slice(0, commaIndex).toLowerCase();
-  if (!header.startsWith('data:image/png')) return null;
-  if (!header.includes('base64')) return null;
-  const base64 = value.slice(commaIndex + 1).trim();
-  if (!base64) return null;
-  try {
-    const buffer = Buffer.from(base64, 'base64');
-    if (!buffer.length) return null;
-    return buffer;
-  } catch {
-    return null;
+const awardXp = async (db, userId, amount, feed = null) => {
+  const safeAmount = Math.max(0, Math.round(Number(amount) || 0));
+  const xpRow = (await db.get('SELECT xp FROM user_xp WHERE user_id=?', [userId])) || { xp: 0 };
+  const newXp = (xpRow.xp || 0) + safeAmount;
+  const level = levelFromXp(newXp);
+  await db.run(
+    'INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
+    [userId, newXp, level, newXp, level]
+  );
+  if (feed) {
+    await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)', [
+      userId,
+      feed.type,
+      feed.title,
+      feed.text || '',
+      JSON.stringify(feed.meta || {}),
+      feed.ts || new Date().toISOString(),
+    ]);
   }
-};
-
-const sendReportToTelegram = async (botToken, chatId, buffer, caption) => {
-  if (!botToken || !chatId || !buffer?.length) {
-    return { ok: false, description: 'missing_data' };
-  }
-  try {
-    const form = new FormData();
-    form.append('chat_id', chatId);
-    form.append('disable_notification', 'true');
-    const safeCaption = caption && typeof caption === 'string' ? caption.slice(0, MAX_TELEGRAM_CAPTION) : '';
-    if (safeCaption) {
-      form.append('caption', safeCaption);
-    }
-    const filename = `lifehub-report-${Date.now()}.png`;
-    form.append('photo', new Blob([buffer], { type: 'image/png' }), filename);
-
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-      method: 'POST',
-      body: form,
-    });
-    const data = await response.json().catch(() => null);
-    if (data && typeof data === 'object') {
-      return data;
-    }
-    return { ok: false, description: 'invalid_response' };
-  } catch (error) {
-    return { ok: false, description: error?.message || 'network_error' };
-  }
+  return { xp: newXp, level };
 };
 
 const DAILY_MISSION_TARGET_POINTS = 500;
@@ -323,7 +300,7 @@ const ensureDailyMissionSchema = async (db) => {
   }
 };
 
-const ensureDailyMissionDefaults = async (db, userId) => {
+export const ensureDailyMissionDefaults = async (db, userId) => {
   await ensureDailyMissionSchema(db);
   const existing = await db.all(
     'SELECT id, definition_key, title FROM daily_missions WHERE user_id=? ORDER BY id ASC',
@@ -407,6 +384,7 @@ const collectDailyMissionStats = async (db, userId, date) => {
     languagePdfPages,
     coursePages,
     coursePdfPages,
+    languagePracticeExercises,
   ] = await Promise.all([
     db.get('SELECT steps, calories, move_minutes, active_minutes FROM fitness_activity WHERE user_id=? AND date=?', [
       userId,
@@ -417,7 +395,7 @@ const collectDailyMissionStats = async (db, userId, date) => {
     db.get('SELECT COUNT(*) AS count FROM habit_checks WHERE user_id=? AND date=?', [userId, date]),
     db.get('SELECT COUNT(*) AS count FROM yearly_goal_logs WHERE user_id=? AND date=?', [userId, date]),
     db.get('SELECT COUNT(*) AS count FROM calendar_events WHERE user_id=? AND date=?', [userId, date]),
-    db.get('SELECT COUNT(*) AS count FROM journal WHERE user_id=? AND date=?', [userId, date]),
+    db.get('SELECT COUNT(*) AS count FROM journal_pages WHERE user_id=? AND page_date=?', [userId, date]),
     db.get(
       'SELECT COUNT(*) AS count FROM language_pages WHERE user_id=? AND done=1 AND COALESCE(substr(done_at,1,10),"")=?',
       [userId, date]
@@ -434,6 +412,10 @@ const collectDailyMissionStats = async (db, userId, date) => {
       'SELECT COUNT(*) AS count FROM course_pdf_pages WHERE user_id=? AND done=1 AND COALESCE(substr(done_at,1,10),"")=?',
       [userId, date]
     ),
+    db.get(
+      'SELECT COALESCE(SUM(exercises_done),0) AS count FROM language_practice_sessions WHERE user_id=? AND date=?',
+      [userId, date]
+    ),
   ]);
 
   return {
@@ -448,6 +430,7 @@ const collectDailyMissionStats = async (db, userId, date) => {
     languagePdfPages: toNumber(languagePdfPages?.count, 0),
     coursePages: toNumber(coursePages?.count, 0),
     coursePdfPages: toNumber(coursePdfPages?.count, 0),
+    languagePracticeExercises: toNumber(languagePracticeExercises?.count, 0),
   };
 };
 
@@ -481,7 +464,7 @@ const computeDailyMissionProgress = (definition, stats) => {
     case 'journal_entries':
       return Math.max(0, stats.journalEntries || 0);
     case 'language_progress':
-      return Math.max(0, (stats.languagePages || 0) + (stats.languagePdfPages || 0));
+      return Math.max(0, (stats.languagePages || 0) + (stats.languagePdfPages || 0) + (stats.languagePracticeExercises || 0));
     case 'course_progress':
       return Math.max(0, (stats.coursePages || 0) + (stats.coursePdfPages || 0));
     case 'sleep_minutes':
@@ -491,7 +474,7 @@ const computeDailyMissionProgress = (definition, stats) => {
   }
 };
 
-const loadDailyMissionSummary = async (db, userId, date, { includeInactive = false } = {}) => {
+export const loadDailyMissionSummary = async (db, userId, date, { includeInactive = false } = {}) => {
   const rows = await db.all(
     `SELECT id, user_id, title, description, points, xp_reward, sort_order, is_active, definition_key, created_at, updated_at
      FROM daily_missions
@@ -643,21 +626,13 @@ router.post('/daily-missions/:id/complete', async (req, res) => {
     [req.user.uid, missionId, date, points, xpReward, ts]
   );
 
-  const xpRow = (await db.get('SELECT xp FROM user_xp WHERE user_id=?', [req.user.uid])) || { xp: 0 };
-  const newXp = (xpRow.xp || 0) + xpReward;
-  const level = levelFromXp(newXp);
-  await db.run(
-    'INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
-    [req.user.uid, newXp, level, newXp, level]
-  );
-  await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)', [
-    req.user.uid,
-    'daily_mission_completed',
-    'Ежедневное задание выполнено',
-    mission.title || '',
-    JSON.stringify({ mission_id: missionId, date, points, xp: xpReward }),
+  const { xp: newXp, level } = await awardXp(db, req.user.uid, xpReward, {
+    type: 'daily_mission_completed',
+    title: 'Ежедневное задание выполнено',
+    text: mission.title || '',
+    meta: { mission_id: missionId, date, points, xp: xpReward },
     ts,
-  ]);
+  });
 
   const summary = await loadDailyMissionSummary(db, req.user.uid, date);
   const mapped =
@@ -675,7 +650,207 @@ router.delete('/daily-missions/:id/complete', (req, res) =>
   res.status(405).json({ error: 'mission rewards cannot be revoked' })
 );
 
-async function recomputeGoal(db, userId, goalId) {
+const WEEKLY_MISSION_DEFINITIONS = [
+  {
+    key: 'active_days_4',
+    title: 'Будьте активны 4 дня',
+    description: 'Выполните хотя бы одно ежедневное задание минимум в 4 разных днях недели.',
+    target_value: 4,
+    progress_unit: 'days',
+    reward_points: 200,
+    reward_xp: 120,
+    progress_source: 'active_days',
+  },
+  {
+    key: 'perfect_days_2',
+    title: 'Соберите 2 идеальных дня',
+    description: 'Наберите полную дневную цель очков минимум 2 раза за неделю.',
+    target_value: 2,
+    progress_unit: 'days',
+    reward_points: 260,
+    reward_xp: 150,
+    progress_source: 'perfect_days',
+  },
+  {
+    key: 'weekly_points_2000',
+    title: 'Наберите 2000 очков активности',
+    description: 'Собирайте очки за ежедневные задания — суммарно 2000 очков за неделю.',
+    target_value: 2000,
+    progress_unit: 'points',
+    reward_points: 240,
+    reward_xp: 140,
+    progress_source: 'total_points',
+  },
+  {
+    key: 'missions_completed_15',
+    title: 'Выполните 15 ежедневных заданий',
+    description: 'Забирайте награды за ежедневные задания — суммарно 15 штук за неделю.',
+    target_value: 15,
+    progress_unit: 'missions',
+    reward_points: 220,
+    reward_xp: 130,
+    progress_source: 'missions_completed',
+  },
+  {
+    key: 'language_days_3',
+    title: 'Занимайтесь языком 3 дня',
+    description: 'Выполните задание «Практикуйтесь в языке» минимум в 3 разных днях недели.',
+    target_value: 3,
+    progress_unit: 'days',
+    reward_points: 220,
+    reward_xp: 130,
+    progress_source: 'language_days',
+  },
+];
+
+const getWeekStart = (date = new Date()) => {
+  const utcDate = new Date(Date.UTC(date.getUTCFullYear?.() ?? date.getFullYear(), date.getUTCMonth?.() ?? date.getMonth(), date.getUTCDate?.() ?? date.getDate()));
+  const day = utcDate.getUTCDay(); // 0 = Sunday
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  utcDate.setUTCDate(utcDate.getUTCDate() + diffToMonday);
+  return utcDate.toISOString().slice(0, 10);
+};
+
+const getWeekEnd = (weekStart) => {
+  const start = new Date(`${weekStart}T00:00:00Z`);
+  start.setUTCDate(start.getUTCDate() + 6);
+  return start.toISOString().slice(0, 10);
+};
+
+const sanitizeWeekStartParam = (value, fallback = getWeekStart()) => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return fallback;
+  return getWeekStart(new Date(`${trimmed}T00:00:00Z`));
+};
+
+const collectWeeklyMissionStats = async (db, userId, weekStart, weekEnd) => {
+  const rows = await db.all(
+    `SELECT c.date, c.points_awarded, dm.definition_key
+     FROM daily_mission_completions c
+     JOIN daily_missions dm ON dm.id = c.mission_id
+     WHERE c.user_id=? AND c.date BETWEEN ? AND ?`,
+    [userId, weekStart, weekEnd]
+  );
+  const pointsByDate = new Map();
+  const languageDateSet = new Set();
+  let totalPoints = 0;
+  rows.forEach((row) => {
+    const points = toNumber(row.points_awarded, 0);
+    pointsByDate.set(row.date, (pointsByDate.get(row.date) || 0) + points);
+    totalPoints += points;
+    if (row.definition_key === 'language_practice') languageDateSet.add(row.date);
+  });
+  const perfectDays = Array.from(pointsByDate.values()).filter((sum) => sum >= DAILY_MISSION_TARGET_POINTS).length;
+  return {
+    activeDays: pointsByDate.size,
+    perfectDays,
+    totalPoints,
+    missionsCompleted: rows.length,
+    languageDays: languageDateSet.size,
+    lastCompletedAt: rows.length ? rows[rows.length - 1].date : null,
+  };
+};
+
+const computeWeeklyMissionProgress = (definition, stats) => {
+  if (!definition) return 0;
+  switch (definition.progress_source) {
+    case 'active_days':
+      return Math.max(0, stats.activeDays || 0);
+    case 'perfect_days':
+      return Math.max(0, stats.perfectDays || 0);
+    case 'total_points':
+      return Math.max(0, stats.totalPoints || 0);
+    case 'missions_completed':
+      return Math.max(0, stats.missionsCompleted || 0);
+    case 'language_days':
+      return Math.max(0, stats.languageDays || 0);
+    default:
+      return 0;
+  }
+};
+
+const loadWeeklyMissionSummary = async (db, userId, weekStart) => {
+  const weekEnd = getWeekEnd(weekStart);
+  const stats = await collectWeeklyMissionStats(db, userId, weekStart, weekEnd);
+  const completions = await db.all(
+    'SELECT definition_key, points_awarded, xp_awarded, completed_at FROM weekly_mission_completions WHERE user_id=? AND week_start=?',
+    [userId, weekStart]
+  );
+  const completionMap = new Map();
+  completions.forEach((entry) => completionMap.set(entry.definition_key, entry));
+
+  const nowTs = new Date().toISOString();
+  const missions = [];
+  for (const definition of WEEKLY_MISSION_DEFINITIONS) {
+    const targetValue = Math.max(1, toNumber(definition.target_value, 1));
+    const rawProgress = computeWeeklyMissionProgress(definition, stats);
+    const clampedProgress = Math.min(rawProgress, targetValue);
+    const progressPct = Math.min(100, Math.round((clampedProgress * 100) / targetValue));
+    const completed = rawProgress >= targetValue;
+    let completion = completionMap.get(definition.key) || null;
+
+    if (completed && !completion) {
+      // Weekly missions auto-award as soon as the underlying weekly stats reach the target.
+      await db.run(
+        'INSERT INTO weekly_mission_completions(user_id, definition_key, week_start, points_awarded, xp_awarded, completed_at) VALUES(?,?,?,?,?,?)',
+        [userId, definition.key, weekStart, definition.reward_points, definition.reward_xp, nowTs]
+      );
+      await awardXp(db, userId, definition.reward_xp, {
+        type: 'weekly_mission_completed',
+        title: 'Еженедельное задание выполнено',
+        text: definition.title,
+        meta: { definition_key: definition.key, week_start: weekStart, points: definition.reward_points, xp: definition.reward_xp },
+        ts: nowTs,
+      });
+      completion = { definition_key: definition.key, points_awarded: definition.reward_points, xp_awarded: definition.reward_xp, completed_at: nowTs };
+      trackAction(userId, 'mission.weekly_complete');
+    }
+
+    missions.push({
+      key: definition.key,
+      title: definition.title,
+      description: definition.description,
+      target_value: targetValue,
+      progress_value: rawProgress,
+      progress_pct: progressPct,
+      progress_unit: definition.progress_unit,
+      reward_points: definition.reward_points,
+      reward_xp: definition.reward_xp,
+      completed,
+      completed_at: completion?.completed_at || null,
+    });
+  }
+
+  const rewardPointsEarned = missions.reduce((sum, m) => sum + (m.completed_at ? m.reward_points : 0), 0);
+  const rewardXpEarned = missions.reduce((sum, m) => sum + (m.completed_at ? m.reward_xp : 0), 0);
+
+  return {
+    week_start: weekStart,
+    week_end: weekEnd,
+    updated_at: nowTs,
+    total_points: stats.totalPoints,
+    total_completions: stats.missionsCompleted,
+    perfect_days: stats.perfectDays,
+    active_days: stats.activeDays,
+    reward_points_earned: rewardPointsEarned,
+    reward_xp_earned: rewardXpEarned,
+    completed_count: missions.filter((m) => m.completed).length,
+    total_count: missions.length,
+    daily_target_points: DAILY_MISSION_TARGET_POINTS,
+    missions,
+  };
+};
+
+router.get('/weekly-missions', async (req, res) => {
+  const db = await getDB();
+  const userId = req.user.uid;
+  const weekStart = sanitizeWeekStartParam(typeof req.query?.week_start === 'string' ? req.query.week_start : '');
+  const payload = await loadWeeklyMissionSummary(db, userId, weekStart);
+  res.json(payload);
+});
+
+export async function recomputeGoal(db, userId, goalId) {
   const goal = await db.get('SELECT * FROM yearly_goals WHERE id=? AND user_id=?', [goalId, userId]);
   if (!goal) return null;
 
@@ -726,24 +901,12 @@ async function recomputeGoal(db, userId, goalId) {
   );
 
   if (justArchived) {
-    const xpRow = await db.get('SELECT xp FROM user_xp WHERE user_id=?', [userId]) || { xp: 0 };
-    const newXp = (xpRow.xp || 0) + 100;
-    const level = levelFromXp(newXp);
-    await db.run(
-      'INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
-      [userId, newXp, level, newXp, level]
-    );
-    await db.run(
-      'INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)',
-      [
-        userId,
-        'goal_completed',
-        'Годовая цель выполнена',
-        goal.title || '',
-        JSON.stringify({ goal_id: goalId, completed }),
-        new Date().toISOString()
-      ]
-    );
+    await awardXp(db, userId, 100, {
+      type: 'goal_completed',
+      title: 'Годовая цель выполнена',
+      text: goal.title || '',
+      meta: { goal_id: goalId, completed },
+    });
   }
 
   return await db.get('SELECT * FROM yearly_goals WHERE id=? AND user_id=?', [goalId, userId]);
@@ -807,7 +970,7 @@ const mapCoursePdfPage = (row) => ({
   original_name: row.original_name || null
 });
 
-const mapCourseRow = (row, tags = []) => ({
+const mapCourseRow = (row, tags = [], lock = null) => ({
   id: row.id,
   title: row.title,
   provider: row.provider,
@@ -816,8 +979,18 @@ const mapCourseRow = (row, tags = []) => ({
   progress: row.progress ?? 0,
   status: row.status || 'in-progress',
   archived_at: row.archived_at,
+  learn_course_id: row.learn_course_id ?? null,
+  program_stage: lock?.stage ?? 1,
+  locked: !!lock?.locked,
+  lock_reason: lock?.reason || null,
   tags
 });
+
+const resolveLearnCourse = async (db, userId, value) => {
+  const id = Number(value);
+  if (!value || !Number.isInteger(id) || id <= 0) return null;
+  return db.get('SELECT id, language_id FROM lang_courses WHERE id=? AND user_id=?', [id, userId]);
+};
 
 const normalizeCourseProgress = (value) => {
   if (!Number.isFinite(Number(value))) return 0;
@@ -842,8 +1015,8 @@ async function logCourseProgress(db, userId, courseId, progress) {
   );
 }
 
-async function recomputeCourseProgress(db, userId, courseId) {
-  const course = await db.get('SELECT id, progress, status FROM courses WHERE id=? AND user_id=?', [courseId, userId]);
+export async function recomputeCourseProgress(db, userId, courseId) {
+  const course = await db.get('SELECT id, progress, status, learn_course_id FROM courses WHERE id=? AND user_id=?', [courseId, userId]);
   if (!course) return null;
 
   const pageStats = await db.get(
@@ -855,8 +1028,19 @@ async function recomputeCourseProgress(db, userId, courseId) {
     [userId, courseId]
   );
 
-  const total = Number(pageStats?.total || 0) + Number(pdfStats?.total || 0);
-  const completed = Number(pageStats?.completed || 0) + Number(pdfStats?.completed || 0);
+  // Уроки привязанного курса-тренировки считаются наравне с материалами.
+  const lessonStats = course.learn_course_id
+    ? await db.get(
+        `SELECT COUNT(l.id) AS total, SUM(CASE WHEN p.completed_count>0 THEN 1 ELSE 0 END) AS completed
+         FROM lang_lessons l JOIN lang_courses c ON c.id=l.course_id AND c.user_id=?
+         LEFT JOIN lang_lesson_progress p ON p.lesson_id=l.id AND p.user_id=c.user_id
+         WHERE l.course_id=?`,
+        [userId, course.learn_course_id]
+      )
+    : null;
+
+  const total = Number(pageStats?.total || 0) + Number(pdfStats?.total || 0) + Number(lessonStats?.total || 0);
+  const completed = Number(pageStats?.completed || 0) + Number(pdfStats?.completed || 0) + Number(lessonStats?.completed || 0);
   const normalized = normalizeCourseProgress(total > 0 ? Math.round((completed * 100) / total) : 0);
   const currentProgress = normalizeCourseProgress(course.progress);
   const desiredStatus = normalized >= 100 ? 'done' : 'in-progress';
@@ -888,153 +1072,10 @@ async function recomputeCourseProgress(db, userId, courseId) {
   return { total, completed, progress: normalized, status: desiredStatus };
 }
 
-const HABIT_MILESTONES = [1, 10, 25, 50, 100, 200];
-const LANGUAGE_MILESTONES = [25, 50, 75, 100];
-const COURSE_MILESTONES = [50, 100];
-const GOAL_MILESTONES = [50, 100];
-
-const formatDateToIso = (date) => {
-  if (!date || typeof date !== 'string') return null;
-  const iso = new Date(date.endsWith('Z') ? date : `${date}T00:00:00Z`);
-  if (Number.isNaN(iso.getTime())) return null;
-  return iso.toISOString();
-};
-
-async function buildDynamicBadges(db, userId) {
-  const dynamicBadges = [];
-
-  const habitRows = await db.all('SELECT id, title FROM habits WHERE user_id=? ORDER BY title COLLATE NOCASE', [userId]);
-  if (habitRows.length) {
-    const checkStats = await db.all(
-      'SELECT habit_id, COUNT(*) AS total, MAX(date) AS last_date FROM habit_checks WHERE user_id=? GROUP BY habit_id',
-      [userId]
-    );
-    const habitStats = new Map();
-    for (const row of checkStats) {
-      habitStats.set(row.habit_id, {
-        total: Number(row.total) || 0,
-        lastDate: formatDateToIso(row.last_date)
-      });
-    }
-    for (const habit of habitRows) {
-      const stats = habitStats.get(habit.id) || { total: 0, lastDate: null };
-      for (const milestone of HABIT_MILESTONES) {
-        if (stats.total >= milestone) {
-          const firstMilestone = milestone === HABIT_MILESTONES[0];
-          dynamicBadges.push({
-            id: `habit_${habit.id}_${milestone}`,
-            name: firstMilestone
-              ? `Первая отметка по привычке «${habit.title}»`
-              : `Привычка «${habit.title}» выполнена ${milestone} раз`,
-            description: `Вы отметили привычку «${habit.title}» ${stats.total} раз.`,
-            icon: '✅',
-            earned_at: stats.lastDate
-          });
-        }
-      }
-    }
-  }
-
-  const languageRows = await db.all(
-    `SELECT l.id, l.name,
-            COUNT(lp.id) AS total_pages,
-            SUM(CASE WHEN lp.done = 1 THEN 1 ELSE 0 END) AS done_pages,
-            MAX(lp.done_at) AS last_done
-     FROM languages l
-     LEFT JOIN language_pages lp
-       ON lp.language_id = l.id AND lp.user_id = l.user_id
-     WHERE l.user_id=?
-     GROUP BY l.id, l.name
-     ORDER BY l.name COLLATE NOCASE`,
-    [userId]
-  );
-  for (const lang of languageRows) {
-    const totalPages = Number(lang.total_pages) || 0;
-    const donePages = Number(lang.done_pages) || 0;
-    if (totalPages <= 0 || donePages <= 0) continue;
-    const completion = Math.round((donePages * 100) / totalPages);
-    for (const milestone of LANGUAGE_MILESTONES) {
-      if (completion >= milestone) {
-        dynamicBadges.push({
-          id: `language_${lang.id}_${milestone}`,
-          name: `Изучил язык «${lang.name}» на ${milestone}%`,
-          description: `Пройдено ${donePages} из ${totalPages} учебных страниц по языку «${lang.name}».`,
-          icon: '🗣️',
-          earned_at: formatDateToIso(lang.last_done)
-        });
-      }
-    }
-  }
-
-  const courseRows = await db.all(
-    'SELECT id, title, progress, status, archived_at FROM courses WHERE user_id=? ORDER BY title COLLATE NOCASE',
-    [userId]
-  );
-  for (const course of courseRows) {
-    const progress = Number(course.progress) || 0;
-    for (const milestone of COURSE_MILESTONES) {
-      if (progress >= milestone || (milestone === 100 && (course.status === 'completed' || course.archived_at))) {
-        dynamicBadges.push({
-          id: `course_${course.id}_${milestone}`,
-          name:
-            milestone === 100
-              ? `Курс «${course.title}» завершён`
-              : `Продвинулся в курсе «${course.title}» на ${milestone}%`,
-          description: `Текущий прогресс курса «${course.title}»: ${progress}%.`,
-          icon: '🎓',
-          earned_at: formatDateToIso(course.archived_at)
-        });
-      }
-    }
-  }
-
-  const goalRows = await db.all(
-    `SELECT g.id, g.title, g.target, g.completed, g.status, g.archived_at,
-            MAX(l.date) AS last_log
-     FROM yearly_goals g
-     LEFT JOIN yearly_goal_logs l
-       ON l.goal_id = g.id AND l.user_id = g.user_id
-     WHERE g.user_id=?
-     GROUP BY g.id, g.title, g.target, g.completed, g.status, g.archived_at
-     ORDER BY g.created_at DESC`,
-    [userId]
-  );
-  for (const goal of goalRows) {
-    const target = Math.max(0, Number(goal.target) || 0);
-    const completed = Math.max(0, Number(goal.completed) || 0);
-    const pct = target > 0 ? Math.min(100, Math.round((completed * 100) / target)) : 0;
-    for (const milestone of GOAL_MILESTONES) {
-      const reached =
-        milestone === 100
-          ? pct >= 100 || goal.status === 'archived'
-          : pct >= milestone;
-      if (reached && milestone === 100) {
-        dynamicBadges.push({
-          id: `goal_${goal.id}_100`,
-          name: `Годовая цель «${goal.title}» выполнена`,
-          description: `Цель достигнута: ${completed} из ${target}.`,
-          icon: '🎯',
-          earned_at: formatDateToIso(goal.archived_at || goal.last_log)
-        });
-      } else if (reached) {
-        dynamicBadges.push({
-          id: `goal_${goal.id}_${milestone}`,
-          name: `Цель «${goal.title}» достигнута на ${milestone}%`,
-          description: `Прогресс по цели: ${completed} из ${target}.`,
-          icon: '🎯',
-          earned_at: formatDateToIso(goal.last_log)
-        });
-      }
-    }
-  }
-
-  return dynamicBadges;
-}
-
 function attachGoalMeta(goal, logs) {
   const completionPct = goal.target > 0 ? Math.min(100, Math.round((goal.completed || 0) * 100 / goal.target)) : 0;
   const recent = logs.slice(0, 10);
-  const todayDone = logs.some(log => log === todayISO());
+  const todayDone = logs.some(log => log === toISODate(new Date()));
   return {
     id: goal.id,
     title: goal.title,
@@ -1047,6 +1088,9 @@ function attachGoalMeta(goal, logs) {
     created_at: goal.created_at,
     completion_pct: completionPct,
     today_done: todayDone,
+    auto_action: goal.auto_action || null,
+    auto_label: goal.auto_action ? ACTIONS_BY_KEY.get(goal.auto_action)?.label || goal.auto_action : null,
+    auto_min: goal.auto_min || 1,
     recent_logs: recent.map(date => ({ date }))
   };
 }
@@ -1165,6 +1209,14 @@ router.get('/search', async (req, res) => {
   const db = await getDB();
   const rawQuery = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
   const query = rawQuery.toLowerCase();
+  // Шаблон GLOB без учёта регистра для любого алфавита: «курс» → *[Кк][Уу][Рр][Сс]*
+  // (LOWER/LIKE в SQLite понимают регистр только латиницы).
+  const searchGlob = '*' + Array.from(rawQuery).map((ch) => {
+    const lower = ch.toLowerCase();
+    const upper = ch.toUpperCase();
+    if ('*?[]'.includes(ch)) return `[${ch}]`;
+    return lower === upper ? ch : `[${lower}${upper}]`;
+  }).join('') + '*';
   const tagParam = req.query?.tag_id ?? req.query?.tagId;
   const parsedTagId = Number(tagParam);
   const tagId = Number.isInteger(parsedTagId) && parsedTagId > 0 ? parsedTagId : null;
@@ -1187,8 +1239,8 @@ router.get('/search', async (req, res) => {
     let pageSql = 'SELECT jp.id, jp.title, jp.blocks_json, jp.updated_at, jp.created_at, jp.banner_url, jp.banner_gradient, jp.pinned FROM journal_pages jp WHERE jp.user_id=?';
     const pageParams = [req.user.uid];
     if (hasTextQuery) {
-      const like = '%' + query + '%';
-      pageSql += ' AND (LOWER(jp.title) LIKE ? OR LOWER(COALESCE(jp.blocks_json, "")) LIKE ?)';
+      const like = searchGlob;
+      pageSql += ' AND (jp.title GLOB ? OR COALESCE(jp.blocks_json, "") GLOB ?)';
       pageParams.push(like, like);
     }
     if (selectedTag) {
@@ -1221,8 +1273,8 @@ router.get('/search', async (req, res) => {
       bookmarkMap.set(row.id, row);
     }
     const extraRows = await db.all(
-      'SELECT jp.id, jp.title, jp.blocks_json FROM journal_pages jp WHERE jp.user_id=? AND LOWER(COALESCE(jp.blocks_json, "")) LIKE ? ORDER BY jp.updated_at DESC LIMIT ?',
-      [req.user.uid, '%' + query + '%', limit * 3]
+      'SELECT jp.id, jp.title, jp.blocks_json FROM journal_pages jp WHERE jp.user_id=? AND COALESCE(jp.blocks_json, "") GLOB ? ORDER BY jp.updated_at DESC LIMIT ?',
+      [req.user.uid, searchGlob, limit * 3]
     );
     for (const row of extraRows) {
       if (!bookmarkMap.has(row.id)) bookmarkMap.set(row.id, row);
@@ -1246,11 +1298,12 @@ router.get('/search', async (req, res) => {
 
   let languages = [];
   if (shouldSearchOther) {
+    const searchMinutes = await minutesTodayByLanguage(db, req.user.uid);
     let languageSql = 'SELECT id, name, level, minutes_today, image_url, banner_url FROM languages WHERE user_id=?';
     const languageParams = [req.user.uid];
     if (hasTextQuery) {
-      languageSql += ' AND LOWER(name) LIKE ?';
-      languageParams.push('%' + query + '%');
+      languageSql += ' AND name GLOB ?';
+      languageParams.push(searchGlob);
     }
     if (selectedTag) {
       languageSql +=
@@ -1266,7 +1319,7 @@ router.get('/search', async (req, res) => {
       id: row.id,
       name: row.name,
       level: row.level,
-      minutes_today: row.minutes_today,
+      minutes_today: searchMinutes.get(row.id) || 0,
       image_url: row.image_url || null,
       banner_url: row.banner_url || null,
       tags: languageTagMap.get(row.id) || []
@@ -1278,8 +1331,8 @@ router.get('/search', async (req, res) => {
     let courseSql = 'SELECT id, title, provider, progress, status, course_type FROM courses WHERE user_id=?';
     const courseParams = [req.user.uid];
     if (hasTextQuery) {
-      const like = '%' + query + '%';
-      courseSql += ' AND (LOWER(title) LIKE ? OR LOWER(COALESCE(provider, "")) LIKE ?)';
+      const like = searchGlob;
+      courseSql += ' AND (title GLOB ? OR COALESCE(provider, "") GLOB ?)';
       courseParams.push(like, like);
     }
     if (selectedTag) {
@@ -1308,8 +1361,8 @@ router.get('/search', async (req, res) => {
     let travelSql = 'SELECT id, title, location, date_from, date_to, status FROM travel_plans WHERE user_id=?';
     const travelParams = [req.user.uid];
     if (hasTextQuery) {
-      const like = '%' + query + '%';
-      travelSql += ' AND (LOWER(title) LIKE ? OR LOWER(COALESCE(location, "")) LIKE ?)';
+      const like = searchGlob;
+      travelSql += ' AND (title GLOB ? OR COALESCE(location, "") GLOB ?)';
       travelParams.push(like, like);
     }
     if (selectedTag) {
@@ -1338,8 +1391,8 @@ router.get('/search', async (req, res) => {
     let loanSql = 'SELECT id, bank, payment_monthly, remaining, due_day FROM loans WHERE user_id=?';
     const loanParams = [req.user.uid];
     if (hasTextQuery) {
-      loanSql += ' AND LOWER(bank) LIKE ?';
-      loanParams.push('%' + query + '%');
+      loanSql += ' AND bank GLOB ?';
+      loanParams.push(searchGlob);
     }
     if (selectedTag) {
       loanSql +=
@@ -1366,8 +1419,8 @@ router.get('/search', async (req, res) => {
     let habitSql = 'SELECT id, title, target_per_week, done_this_week FROM habits WHERE user_id=?';
     const habitParams = [req.user.uid];
     if (hasTextQuery) {
-      habitSql += ' AND LOWER(title) LIKE ?';
-      habitParams.push('%' + query + '%');
+      habitSql += ' AND title GLOB ?';
+      habitParams.push(searchGlob);
     }
     if (selectedTag) {
       habitSql +=
@@ -1393,8 +1446,8 @@ router.get('/search', async (req, res) => {
     let calendarSql = 'SELECT id, date, title, type, mood FROM calendar_events WHERE user_id=?';
     const calendarParams = [req.user.uid];
     if (hasTextQuery) {
-      calendarSql += ' AND (LOWER(title) LIKE ? OR LOWER(type) LIKE ?)';
-      const like = '%' + query + '%';
+      calendarSql += ' AND (title GLOB ? OR type GLOB ?)';
+      const like = searchGlob;
       calendarParams.push(like, like);
     }
     if (selectedTag) {
@@ -1421,8 +1474,8 @@ router.get('/search', async (req, res) => {
   if (hasTextQuery) {
     let goalSql = 'SELECT id, title, target, completed, status, streak_current, streak_best, archived_at, created_at FROM yearly_goals WHERE user_id=?';
     const goalParams = [req.user.uid];
-    goalSql += ' AND LOWER(title) LIKE ?';
-    goalParams.push('%' + query + '%');
+    goalSql += ' AND title GLOB ?';
+    goalParams.push(searchGlob);
     goalSql += ' ORDER BY status, created_at DESC LIMIT ?';
     goalParams.push(limit);
     const goalRows = await db.all(goalSql, goalParams);
@@ -1444,7 +1497,53 @@ router.get('/search', async (req, res) => {
     ? tags.filter((tag) => tag.label.toLowerCase().includes(query)).slice(0, limit)
     : [];
 
+  // Курсы-тренировки, уроки, слова словаря и ачивки. Фильтруем в JS: LOWER/LIKE в SQLite
+  // не понимают регистр кириллицы («Курс» не находился по запросу «курс»).
+  const matches = (...values) => values.some((v) => typeof v === 'string' && v.toLowerCase().replace(/ё/g, 'е').includes(query.replace(/ё/g, 'е')));
+  let learnCourses = [];
+  let learnLessons = [];
+  let vocab = [];
+  let achievements = [];
+  if (hasTextQuery) {
+    learnCourses = (await db.all('SELECT id, title, description, icon FROM lang_courses WHERE user_id=?', [req.user.uid]))
+      .filter((row) => matches(row.title, row.description))
+      .slice(0, limit);
+    learnLessons = (
+      await db.all(
+        `SELECT l.id, l.title, l.description, c.id AS course_id, c.title AS course_title, c.icon
+         FROM lang_lessons l JOIN lang_courses c ON c.id=l.course_id WHERE c.user_id=? ORDER BY l.position`,
+        [req.user.uid]
+      )
+    )
+      .filter((row) => matches(row.title, row.description))
+      .slice(0, limit);
+    vocab = (
+      await db.all(
+        `SELECT v.id, v.term, v.translation, v.note, v.language_id, l.name AS language_name
+         FROM language_vocab v JOIN languages l ON l.id=v.language_id WHERE v.user_id=?`,
+        [req.user.uid]
+      )
+    )
+      .filter((row) => matches(row.term, row.translation, row.note))
+      .slice(0, limit);
+    achievements = (
+      await db.all(
+        `SELECT a.id, a.title, a.description, a.icon, ua.earned_at FROM achievements a
+         LEFT JOIN user_achievements ua ON ua.achievement_id=a.id AND ua.user_id=?
+         WHERE a.is_active=1 AND (a.is_hidden=0 OR ua.earned_at IS NOT NULL)`,
+        [req.user.uid]
+      )
+    )
+      .filter((row) => matches(row.title, row.description))
+      .slice(0, limit)
+      .map((row) => ({ ...row, earned: !!row.earned_at }));
+  }
+
   res.json({
+    learn_courses: learnCourses,
+    learn_lessons: learnLessons,
+    vocab,
+    achievements,
     tags,
     selected_tag: selectedTag,
     tag_matches: tagMatches,
@@ -1460,26 +1559,82 @@ router.get('/search', async (req, res) => {
   });
 });
 
+// Оформление профиля в духе Steam: фон, главное достижение, набор и порядок витрин
+export const PROFILE_SHOWCASES = ['achievements', 'languages', 'courses', 'goals', 'activity', 'radar', 'feed'];
+const DEFAULT_PROFILE_STYLE = { background_url: null, background_preset: 'aurora', featured_id: null, showcases: ['achievements', 'languages', 'activity', 'goals'] };
+
+const readProfileStyle = (raw) => {
+  let parsed = {};
+  try {
+    parsed = raw ? JSON.parse(raw) : {};
+  } catch {
+    parsed = {};
+  }
+  const showcases = Array.isArray(parsed.showcases) ? parsed.showcases.filter((id) => PROFILE_SHOWCASES.includes(id)) : DEFAULT_PROFILE_STYLE.showcases;
+  return {
+    background_url: typeof parsed.background_url === 'string' ? parsed.background_url : null,
+    background_preset: typeof parsed.background_preset === 'string' ? parsed.background_preset.slice(0, 40) : DEFAULT_PROFILE_STYLE.background_preset,
+    featured_id: Number.isInteger(parsed.featured_id) ? parsed.featured_id : null,
+    showcases: Array.from(new Set(showcases)),
+  };
+};
+
+/** Счётчики для боковой панели профиля. */
+async function profileStats(db, userId) {
+  const one = async (sql, params = [userId]) => (await db.get(sql, params).catch(() => null))?.n || 0;
+  return {
+    languages: await one("SELECT COUNT(*) AS n FROM languages WHERE user_id=? AND COALESCE(status,'active')<>'archived'"),
+    courses: await one('SELECT COUNT(*) AS n FROM courses WHERE user_id=? AND archived_at IS NULL'),
+    courses_done: await one("SELECT COUNT(*) AS n FROM courses WHERE user_id=? AND archived_at IS NULL AND (status='done' OR progress>=100)"),
+    words: await one('SELECT COUNT(*) AS n FROM language_vocab WHERE user_id=?'),
+    lessons: await one('SELECT COUNT(*) AS n FROM lang_lesson_progress WHERE user_id=? AND completed_count>0'),
+    goals: await one("SELECT COUNT(*) AS n FROM yearly_goals WHERE user_id=? AND status<>'archived'"),
+    goals_done: await one("SELECT COUNT(*) AS n FROM yearly_goals WHERE user_id=? AND status='archived'"),
+    habits: await one('SELECT COUNT(*) AS n FROM habits WHERE user_id=?'),
+    pages: await one('SELECT COUNT(*) AS n FROM journal_pages WHERE user_id=?'),
+    trips: await one('SELECT COUNT(*) AS n FROM travel_plans WHERE user_id=?'),
+    active_days: await one('SELECT COUNT(DISTINCT date) AS n FROM user_action_log WHERE user_id=?'),
+  };
+}
+
+router.put('/profile/style', async (req, res) => {
+  const db = await getDB();
+  const row = await db.get('SELECT profile_style FROM users WHERE id=?', [req.user.uid]);
+  const style = readProfileStyle(row?.profile_style);
+  const body = req.body || {};
+  if (body.featured_id !== undefined) style.featured_id = Number.isInteger(Number(body.featured_id)) && body.featured_id !== null ? Number(body.featured_id) : null;
+  if (Array.isArray(body.showcases)) style.showcases = Array.from(new Set(body.showcases.filter((id) => PROFILE_SHOWCASES.includes(id))));
+  if (typeof body.background_preset === 'string') {
+    style.background_preset = body.background_preset.slice(0, 40);
+    style.background_url = null;
+  }
+  if (body.background_clear) style.background_url = null;
+  await db.run('UPDATE users SET profile_style=? WHERE id=?', [JSON.stringify(style), req.user.uid]);
+  res.json({ style });
+});
+
 router.get('/profile', async (req, res) => {
   const db = await getDB();
   const user = await db.get(
-    'SELECT id,name,avatar_url,banner_url,bio,city,profile_url,avatar_frame_main,avatar_frame_mini,weather_api_key FROM users WHERE id=?',
+    'SELECT id,name,username,role,is_verified,avatar_url,banner_url,bio,city,profile_url,avatar_frame_main,avatar_frame_mini,weather_api_key FROM users WHERE id=?',
     [req.user.uid]
   );
   const xp = await db.get('SELECT xp, level FROM user_xp WHERE user_id=?', [req.user.uid]) || { xp: 0, level: 1 };
-  const storedBadges = await db.all(
-    'SELECT b.*, ub.earned_at FROM user_badges ub JOIN badges b ON b.id=ub.badge_id WHERE ub.user_id=?',
-    [req.user.uid]
-  );
-  const dynamicBadges = await buildDynamicBadges(db, req.user.uid);
-  res.json({ user, xp, badges: [...storedBadges, ...dynamicBadges] });
+  // Значки профиля = полученные ачивки (настраиваются в админке).
+  const achievements = await listForUser(req.user.uid);
+  const badges = achievements
+    .filter((item) => item.earned)
+    .map((item) => ({ id: item.id, name: item.title, description: item.description, icon: item.icon, rarity: item.rarity, earned_at: item.earned_at }));
+  const styleRow = await db.get('SELECT profile_style FROM users WHERE id=?', [req.user.uid]);
+  res.json({ user, xp, badges, style: readProfileStyle(styleRow?.profile_style), stats: await profileStats(db, req.user.uid) });
 });
 
 router.post(
   '/profile',
   upload.fields([
     { name: 'avatar', maxCount: 1 },
-    { name: 'banner', maxCount: 1 }
+    { name: 'banner', maxCount: 1 },
+    { name: 'background', maxCount: 1 }
   ]),
   async (req, res) => {
     try {
@@ -1493,6 +1648,26 @@ router.post(
       if (typeof displayNameRaw === 'string') {
         updates.push('name=?');
         params.push(displayNameRaw);
+      }
+
+      const usernameRaw = req.body?.username;
+      if (typeof usernameRaw === 'string') {
+        const normalizedUsername = normalizeUsername(usernameRaw);
+        if (!normalizedUsername) {
+          return res.status(400).json({ error: 'bad_username' });
+        }
+        const existing = await db.get('SELECT id FROM users WHERE LOWER(username)=LOWER(?) AND id<>?', [normalizedUsername, req.user.uid]);
+        if (existing) {
+          return res.status(400).json({ error: 'username_taken' });
+        }
+        updates.push('username=?');
+        params.push(normalizedUsername);
+      } else {
+        const currentUsername = await db.get('SELECT username, name, email FROM users WHERE id=?', [req.user.uid]);
+        if (!currentUsername?.username) {
+          updates.push('username=?');
+          params.push(await generateUniqueUsername(db, currentUsername?.name || currentUsername?.email || `user-${req.user.uid}`, req.user.uid));
+        }
       }
 
       const bioRaw = req.body?.bio;
@@ -1550,13 +1725,26 @@ router.post(
         }
       }
 
+      // Фон страницы профиля (картинка)
+      let backgroundToRemove = null;
+      const backgroundFile = Array.isArray(req.files?.background) ? req.files.background[0] : null;
+      if (backgroundFile || req.body?.background_clear === '1') {
+        const styleRow = await db.get('SELECT profile_style FROM users WHERE id=?', [req.user.uid]);
+        const style = readProfileStyle(styleRow?.profile_style);
+        if (style.background_url) backgroundToRemove = style.background_url;
+        style.background_url = backgroundFile ? `/uploads/${backgroundFile.filename}` : null;
+        updates.push('profile_style=?');
+        params.push(JSON.stringify(style));
+      }
+
       if (updates.length > 0) {
         params.push(req.user.uid);
         await db.run(`UPDATE users SET ${updates.join(', ')} WHERE id=?`, params);
       }
+      if (backgroundToRemove) await removeLocalUpload(backgroundToRemove);
 
       const user = await db.get(
-        'SELECT id,name,avatar_url,banner_url,bio,city,profile_url,avatar_frame_main,avatar_frame_mini FROM users WHERE id=?',
+        'SELECT id,name,username,role,is_verified,avatar_url,banner_url,bio,city,profile_url,avatar_frame_main,avatar_frame_mini FROM users WHERE id=?',
         [req.user.uid]
       );
       res.json({ user });
@@ -1601,17 +1789,6 @@ router.get('/calendar', async (req, res) => {
     });
   }
 
-  const socials = await db.all('SELECT id, type, title, url, event_date FROM social_logs WHERE user_id=? AND event_date BETWEEN ? AND ? ORDER BY event_date ASC', [req.user.uid, startISO, endISO])
-    .then(rows => rows.map(row => ({
-      id: row.id ? 'social_' + row.id : 'social_' + row.event_date + '_' + (row.type || 'note'),
-      user_id: req.user.uid,
-      date: row.event_date,
-      title: row.title || '',
-      type: row.type || 'note',
-      mood: null,
-      url: row.url || null
-    })));
-
   const pages = await db.all(
     'SELECT id, title, page_date, banner_url, banner_gradient FROM journal_pages WHERE user_id=? AND page_date IS NOT NULL AND page_date BETWEEN ? AND ? ORDER BY page_date ASC',
     [req.user.uid, startISO, endISO]
@@ -1629,19 +1806,17 @@ router.get('/calendar', async (req, res) => {
       banner_gradient: row.banner_gradient || null
     })));
 
-  res.json({ items: [...storedWithTags, ...virtual, ...socials, ...pages] });
+  res.json({ items: [...storedWithTags, ...virtual, ...pages] });
 });
 router.post('/xp/add', async (req, res) => {
   const { amount = 0, note = null } = req.body || {};
   const db = await getDB();
-  const row = await db.get('SELECT xp FROM user_xp WHERE user_id=?', [req.user.uid]) || { xp: 0 };
-  const newXp = (row.xp || 0) + Math.max(0, amount);
-  const level = levelFromXp(newXp);
-  await db.run('INSERT INTO user_xp(user_id,xp,level) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET xp=?, level=?',
-    [req.user.uid, newXp, level, newXp, level]);
-  const ts = new Date().toISOString();
-  await db.run('INSERT INTO life_feed(user_id,type,title,text,meta,ts) VALUES(?,?,?,?,?,?)',
-    [req.user.uid, 'xp_gain', 'Получено XP', `+${amount}${note ? ` (${note})` : ''}`, JSON.stringify({ amount }), ts]);
+  const { xp: newXp, level } = await awardXp(db, req.user.uid, amount, {
+    type: 'xp_gain',
+    title: 'Получено XP',
+    text: `+${amount}${note ? ` (${note})` : ''}`,
+    meta: { amount },
+  });
   res.json({ xp: newXp, level });
 });
 
@@ -1962,6 +2137,30 @@ router.get('/ui-settings', async (req, res) => {
   });
 });
 
+// Раскладка Дэшборда — синхронизируется между устройствами
+router.get('/dashboard-layout', async (req, res) => {
+  const db = await getDB();
+  const row = await db.get('SELECT dashboard_layout FROM ui_settings WHERE user_id=?', [req.user.uid]);
+  res.json({ layout: parseJsonSafe(row?.dashboard_layout, null) });
+});
+
+router.put('/dashboard-layout', async (req, res) => {
+  const raw = Array.isArray(req.body?.layout) ? req.body.layout : null;
+  const layout = raw
+    ? raw
+        .filter((item) => item && typeof item.id === 'string')
+        .slice(0, 40)
+        .map((item) => ({ id: item.id.slice(0, 40), hidden: !!item.hidden, view: typeof item.view === 'string' ? item.view.slice(0, 20) : undefined }))
+    : null;
+  const db = await getDB();
+  await db.run(
+    `INSERT INTO ui_settings(user_id, dashboard_layout) VALUES(?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET dashboard_layout=excluded.dashboard_layout`,
+    [req.user.uid, layout ? JSON.stringify(layout) : null]
+  );
+  res.json({ layout });
+});
+
 router.put('/ui-settings', async (req, res) => {
   const db = await getDB();
   const existing = await db.get(
@@ -2010,6 +2209,14 @@ router.put('/ui-settings', async (req, res) => {
 
 function crud(table) {
   const routerCrud = express.Router();
+  // Пишем только существующие колонки таблицы (кроме id/user_id): имена ключей из тела
+  // запроса попадают в SQL, поэтому без белого списка это была бы SQL-инъекция.
+  let columnsPromise = null;
+  const pickColumns = async (db, body) => {
+    columnsPromise = columnsPromise || db.all(`PRAGMA table_info(${table})`).then((cols) => new Set(cols.map((c) => c.name).filter((n) => n !== 'id' && n !== 'user_id')));
+    const allowed = await columnsPromise;
+    return Object.keys(body || {}).filter((key) => allowed.has(key));
+  };
   routerCrud.get('/', async (req, res) => {
     const db = await getDB();
     const rows = await db.all(`SELECT * FROM ${table} WHERE user_id=?`, [req.user.uid]);
@@ -2017,7 +2224,8 @@ function crud(table) {
   });
   routerCrud.post('/', async (req, res) => {
     const db = await getDB();
-    const keys = Object.keys(req.body || {});
+    const keys = await pickColumns(db, req.body);
+    if (!keys.length) return res.status(400).json({ error: 'no_fields' });
     const vals = keys.map((k) => req.body[k]);
     const placeholders = keys.map(() => '?').join(',');
     const sql = `INSERT INTO ${table}(user_id,${keys.join(',')}) VALUES(?,${placeholders})`;
@@ -2026,7 +2234,8 @@ function crud(table) {
   });
   routerCrud.put('/:id', async (req, res) => {
     const db = await getDB();
-    const keys = Object.keys(req.body || {});
+    const keys = await pickColumns(db, req.body);
+    if (!keys.length) return res.status(400).json({ error: 'no_fields' });
     const sets = keys.map((k) => `${k}=?`).join(',');
     const vals = keys.map((k) => req.body[k]);
     const sql = `UPDATE ${table} SET ${sets} WHERE id=? AND user_id=?`;
@@ -2052,6 +2261,9 @@ const mapLanguageRow = (row, tags = []) => ({
   name: row.name,
   level: row.level,
   streak: row.streak ?? 0,
+  streak_best: row.streak_best ?? 0,
+  daily_goal_xp: row.daily_goal_xp ?? 50,
+  last_practice_date: row.last_practice_date || null,
   minutes_today: row.minutes_today ?? 0,
   image_url: row.image_url || null,
   banner_url: row.banner_url || null,
@@ -2060,15 +2272,30 @@ const mapLanguageRow = (row, tags = []) => ({
   tags
 });
 
+/** Минуты занятий за сегодня по каждому языку (из language_practice_sessions). */
+export async function minutesTodayByLanguage(db, userId) {
+  const local = toISODate(new Date());
+  const rows = await db.all(
+    'SELECT language_id, SUM(COALESCE(seconds_spent,0)) AS seconds FROM language_practice_sessions WHERE user_id=? AND date IN (?, ?) GROUP BY language_id',
+    [userId, todayISO(), local]
+  );
+  return new Map(rows.map((row) => [row.language_id, Math.round((row.seconds || 0) / 60)]));
+}
+
+const LANGUAGE_ROW_COLUMNS =
+  'id,name,level,streak,streak_best,daily_goal_xp,last_practice_date,minutes_today,status,image_url,banner_url,archived_at';
+
 const languagesRouter = express.Router();
 
 languagesRouter.get('/', async (req, res) => {
   const db = await getDB();
-  const rows = await db.all('SELECT id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at FROM languages WHERE user_id=? ORDER BY name COLLATE NOCASE', [req.user.uid]);
+  const rows = await db.all('SELECT ' + LANGUAGE_ROW_COLUMNS + ' FROM languages WHERE user_id=? ORDER BY name COLLATE NOCASE', [req.user.uid]);
   const ids = rows.map((row) => row.id);
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, ids);
+  const minutesToday = await minutesTodayByLanguage(db, req.user.uid);
+  for (const row of rows) row.minutes_today = minutesToday.get(row.id) || 0;
   const courseRows = await db.all(
-    'SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE user_id=?',
+    'SELECT id,title,provider,course_type,language_id,progress,status,archived_at,learn_course_id FROM courses WHERE user_id=?',
     [req.user.uid]
   );
   const courseTagMap = await fetchTagLinks(
@@ -2077,18 +2304,19 @@ languagesRouter.get('/', async (req, res) => {
     TAG_ENTITY_TYPES.COURSE,
     courseRows.map((course) => course.id)
   );
+  const locks = await loadCourseLocks(db, req.user.uid);
   const coursesByLanguage = new Map();
   for (const courseRow of courseRows) {
     if (courseRow.archived_at) continue;
     if (courseRow.language_id == null) continue;
-    const mappedCourse = mapCourseRow(courseRow, courseTagMap.get(courseRow.id) || []);
+    const mappedCourse = mapCourseRow(courseRow, courseTagMap.get(courseRow.id) || [], locks.courses.get(courseRow.id));
     if (!coursesByLanguage.has(courseRow.language_id)) {
       coursesByLanguage.set(courseRow.language_id, []);
     }
     coursesByLanguage.get(courseRow.language_id).push(mappedCourse);
   }
   for (const courseList of coursesByLanguage.values()) {
-    courseList.sort((a, b) => a.title.localeCompare(b.title));
+    courseList.sort((a, b) => a.program_stage - b.program_stage || a.title.localeCompare(b.title));
   }
   const active = [];
   const archived = [];
@@ -2097,7 +2325,10 @@ languagesRouter.get('/', async (req, res) => {
     const courseList = coursesByLanguage.get(row.id) || [];
     const totalCourses = courseList.length;
     const completedCourses = courseList.filter((course) => normalizeCourseProgress(course.progress) >= 100).length;
-    const courseProgressPct = totalCourses > 0 ? Math.round((completedCourses * 100) / totalCourses) : 0;
+    // Средний прогресс курсов языка — частично пройденные курсы тоже учитываются.
+    const courseProgressPct = totalCourses > 0
+      ? Math.round(courseList.reduce((sum, course) => sum + normalizeCourseProgress(course.progress), 0) / totalCourses)
+      : 0;
     const mapped = {
       ...base,
       courses: courseList,
@@ -2121,7 +2352,7 @@ languagesRouter.post('/', async (req, res) => {
   const imageUrl = normalizeNullableText(payload.image_url);
   const bannerUrl = normalizeNullableText(payload.banner_url);
   const result = await db.run('INSERT INTO languages(user_id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at) VALUES(?,?,?,?,?,?,?,?,NULL)', [req.user.uid, name, level, streak, minutes, status, imageUrl, bannerUrl]);
-  const row = await db.get('SELECT id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at FROM languages WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
+  const row = await db.get('SELECT ' + LANGUAGE_ROW_COLUMNS + ' FROM languages WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
   let tags = [];
   if (payload.tags !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, row.id, payload.tags);
@@ -2145,6 +2376,7 @@ languagesRouter.put('/:id', async (req, res) => {
   if (payload.level !== undefined) { updates.push('level=?'); values.push(String(payload.level)); }
   if (payload.streak !== undefined) { updates.push('streak=?'); values.push(Number(payload.streak) || 0); }
   if (payload.minutes_today !== undefined) { updates.push('minutes_today=?'); values.push(Number(payload.minutes_today) || 0); }
+  if (payload.daily_goal_xp !== undefined) { updates.push('daily_goal_xp=?'); values.push(Math.max(10, Number(payload.daily_goal_xp) || 50)); }
   if (payload.image_url !== undefined) { updates.push('image_url=?'); values.push(normalizeNullableText(payload.image_url)); }
   if (payload.banner_url !== undefined) { updates.push('banner_url=?'); values.push(normalizeNullableText(payload.banner_url)); }
   const tagsPayload = payload.tags;
@@ -2159,7 +2391,7 @@ languagesRouter.put('/:id', async (req, res) => {
     const result = await db.run('UPDATE languages SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
     if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
   }
-  const row = await db.get('SELECT id,name,level,streak,minutes_today,status,image_url,banner_url,archived_at FROM languages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  const row = await db.get('SELECT ' + LANGUAGE_ROW_COLUMNS + ' FROM languages WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   if (!row) return res.status(404).json({ error: 'not_found' });
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.LANGUAGE, [row.id]);
   res.json({ language: mapLanguageRow(row, tagMap.get(row.id) || []) });
@@ -2173,6 +2405,22 @@ languagesRouter.delete('/:id', async (req, res) => {
   res.json({ success: true });
 });
 
+// Программа обучения языка: этапы курсов
+languagesRouter.get('/:id/program', async (req, res) => {
+  const db = await getDB();
+  const program = await loadProgram(db, req.user.uid, Number(req.params.id));
+  if (!program) return res.status(404).json({ error: 'not_found' });
+  res.json(program);
+});
+
+languagesRouter.put('/:id/program', async (req, res) => {
+  const db = await getDB();
+  const languageId = Number(req.params.id);
+  const exists = await db.get('SELECT id FROM languages WHERE id=? AND user_id=?', [languageId, req.user.uid]);
+  if (!exists) return res.status(404).json({ error: 'not_found' });
+  res.json(await saveProgram(db, req.user.uid, languageId, req.body?.stages));
+});
+
 languagesRouter.post('/:id/restore', async (req, res) => {
   const db = await getDB();
   const result = await db.run("UPDATE languages SET status='active', archived_at=NULL WHERE id=? AND user_id=?", [req.params.id, req.user.uid]);
@@ -2184,13 +2432,14 @@ const coursesRouter = express.Router();
 
 coursesRouter.get('/', async (req, res) => {
   const db = await getDB();
-  const rows = await db.all('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE user_id=? ORDER BY title COLLATE NOCASE', [req.user.uid]);
+  const rows = await db.all('SELECT id,title,provider,course_type,language_id,progress,status,archived_at,learn_course_id FROM courses WHERE user_id=? ORDER BY title COLLATE NOCASE', [req.user.uid]);
   const ids = rows.map((row) => row.id);
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, ids);
+  const locks = await loadCourseLocks(db, req.user.uid);
   const active = [];
   const archived = [];
   for (const row of rows) {
-    const mapped = mapCourseRow(row, tagMap.get(row.id) || []);
+    const mapped = mapCourseRow(row, tagMap.get(row.id) || [], locks.courses.get(row.id));
     if (mapped.archived_at) archived.push(mapped); else active.push(mapped);
   }
   res.json({ items: active, archived });
@@ -2210,8 +2459,11 @@ coursesRouter.post('/', async (req, res) => {
   }
   const progress = normalizeCourseProgress(payload.progress);
   const status = typeof payload.status === 'string' ? payload.status : 'in-progress';
-  const result = await db.run('INSERT INTO courses(user_id,title,provider,course_type,language_id,progress,status,archived_at) VALUES(?,?,?,?,?,?,?,NULL)', [req.user.uid, title, provider, courseType, languageId, progress, status]);
-  const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
+  const learnCourse = await resolveLearnCourse(db, req.user.uid, payload.learn_course_id);
+  if (learnCourse && languageId == null) languageId = learnCourse.language_id ?? null;
+  const result = await db.run('INSERT INTO courses(user_id,title,provider,course_type,language_id,progress,status,archived_at,learn_course_id) VALUES(?,?,?,?,?,?,?,NULL,?)', [req.user.uid, title, provider, courseType, languageId, progress, status, learnCourse?.id ?? null]);
+  if (learnCourse) await recomputeCourseProgress(db, req.user.uid, result.lastID);
+  const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at,learn_course_id FROM courses WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
   let tags = [];
   if (payload.tags !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, row.id, payload.tags);
@@ -2231,7 +2483,7 @@ coursesRouter.put('/:id', async (req, res) => {
   const db = await getDB();
   const payload = req.body || {};
   const existing = await db.get(
-    'SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?',
+    'SELECT id,title,provider,course_type,language_id,progress,status,archived_at,learn_course_id FROM courses WHERE id=? AND user_id=?',
     [req.params.id, req.user.uid]
   );
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -2260,6 +2512,13 @@ coursesRouter.put('/:id', async (req, res) => {
     nextProgress = normalized;
   }
   if (payload.status !== undefined) { updates.push('status=?'); values.push(String(payload.status)); }
+  let relinked = false;
+  if (payload.learn_course_id !== undefined) {
+    const learnCourse = await resolveLearnCourse(db, req.user.uid, payload.learn_course_id);
+    updates.push('learn_course_id=?');
+    values.push(learnCourse?.id ?? null);
+    relinked = true;
+  }
   if (payload.tags !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, req.params.id, payload.tags);
     if (synced === null) {
@@ -2271,7 +2530,16 @@ coursesRouter.put('/:id', async (req, res) => {
     const result = await db.run('UPDATE courses SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
     if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
   }
-  const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at FROM courses WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  if (relinked) {
+    await recomputeCourseProgress(db, req.user.uid, req.params.id);
+    progressChanged = false; // recompute уже записал историю прогресса
+  }
+  // Язык курса = язык уроков: слова попадают в словарь, занятия — в стрик этого языка.
+  const linked = await db.get('SELECT learn_course_id, language_id FROM courses WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  if (linked?.learn_course_id) {
+    await db.run('UPDATE lang_courses SET language_id=? WHERE id=? AND user_id=?', [linked.language_id ?? null, linked.learn_course_id, req.user.uid]);
+  }
+  const row = await db.get('SELECT id,title,provider,course_type,language_id,progress,status,archived_at,learn_course_id FROM courses WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   if (!row) return res.status(404).json({ error: 'not_found' });
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.COURSE, [row.id]);
   if (progressChanged) {
@@ -2821,9 +3089,10 @@ router.delete('/language-pdf-pages/:id', async (req, res) => {
 });
 
 router.use('/languages', languagesRouter);
+router.use('/languages', languageLearningRouter);
 router.use('/courses', coursesRouter);
-router.use('/socials', crud('socials'));
 router.use('/journal', crud('journal'));
+router.use('/study-plan', studyPlanRouter);
 router.use('/habits', habitsRouter);
 router.use('/travel', travelRouter);
 
@@ -2880,17 +3149,33 @@ router.get('/yearly-goals', async (req, res) => {
   res.json({ active, archived });
 });
 
+// auto_action — ключ действия из каталога (или null), auto_min — сколько раз за день
+const sanitizeGoalAuto = (body) => {
+  const action = typeof body?.auto_action === 'string' && ACTIONS_BY_KEY.has(body.auto_action) ? body.auto_action : null;
+  const min = Math.min(1000, Math.max(1, parseInt(body?.auto_min, 10) || 1));
+  return { action, min };
+};
+
+// Сразу засчитать сегодняшний день, если действие уже выполнено
+const applyAutoForGoal = async (db, userId, goalId) => {
+  const goal = await db.get('SELECT auto_action FROM yearly_goals WHERE id=? AND user_id=?', [goalId, userId]);
+  if (goal?.auto_action) await applyGoalAutoChecks(db, userId, goal.auto_action, toISODate(new Date()));
+};
+
 router.post('/yearly-goals', async (req, res) => {
   const db = await getDB();
   const { title, target = 100 } = req.body || {};
   if (!title || !title.trim()) return res.status(400).json({ error: 'title_required' });
   const sanitizedTarget = Math.max(1, parseInt(target, 10) || 100);
+  const auto = sanitizeGoalAuto(req.body);
   const result = await db.run(
-    'INSERT INTO yearly_goals(user_id,title,target,completed,status,streak_current,streak_best,archived_at,created_at) VALUES(?,?,?,?,?,?,?,NULL, CURRENT_TIMESTAMP)',
-    [req.user.uid, title.trim(), sanitizedTarget, 0, 'active', 0, 0]
+    'INSERT INTO yearly_goals(user_id,title,target,completed,status,streak_current,streak_best,archived_at,created_at,auto_action,auto_min) VALUES(?,?,?,?,?,?,?,NULL, CURRENT_TIMESTAMP,?,?)',
+    [req.user.uid, title.trim(), sanitizedTarget, 0, 'active', 0, 0, auto.action, auto.min]
   );
+  await applyAutoForGoal(db, req.user.uid, result.lastID);
   const goal = await db.get('SELECT * FROM yearly_goals WHERE id=?', [result.lastID]);
-  res.json({ goal: attachGoalMeta(goal, []) });
+  const logs = await db.all('SELECT date FROM yearly_goal_logs WHERE goal_id=? ORDER BY date DESC', [result.lastID]);
+  res.json({ goal: attachGoalMeta(goal, logs.map((l) => l.date)) });
 });
 
 router.patch('/yearly-goals/:id', async (req, res) => {
@@ -2909,10 +3194,16 @@ router.patch('/yearly-goals/:id', async (req, res) => {
     updates.push('target=?');
     values.push(sanitizedTarget);
   }
+  if (req.body?.auto_action !== undefined) {
+    const auto = sanitizeGoalAuto(req.body);
+    updates.push('auto_action=?', 'auto_min=?');
+    values.push(auto.action, auto.min);
+  }
   if (updates.length) {
     values.push(req.params.id, req.user.uid);
     await db.run(`UPDATE yearly_goals SET ${updates.join(', ')} WHERE id=? AND user_id=?`, values);
   }
+  await applyAutoForGoal(db, req.user.uid, req.params.id);
   const updated = await recomputeGoal(db, req.user.uid, req.params.id);
   const logs = await db.all('SELECT date FROM yearly_goal_logs WHERE user_id=? AND goal_id=? ORDER BY date DESC', [req.user.uid, req.params.id]);
   res.json({ goal: attachGoalMeta(updated, logs.map(l => l.date)) });
@@ -4092,6 +4383,11 @@ router.get('/reports/period', async (req, res) => {
 
   if (!reportData) {
     reportData = await generateReportData(db, req.user.uid, context);
+    // Пустые отчёты не храним: только те, где есть хоть какая-то активность
+    if (!reportHasActivity(reportData)) {
+      if (stored) await db.run('DELETE FROM progress_reports WHERE id=?', [stored.id]);
+      return res.json({ period: rawPeriod, period_key: context.key, period_label: context.label, report_id: null, empty: true, report: reportData });
+    }
     const payload = JSON.stringify(reportData);
     const nowIso = new Date().toISOString();
     await db.run(
@@ -4120,40 +4416,6 @@ router.get('/reports/period', async (req, res) => {
     report_id: reportData.report_id || stored?.id || null,
     report: reportData
   });
-});
-
-router.post('/reports/share', async (req, res) => {
-  const imageBuffer = decodePngDataUrl(req.body?.image);
-  if (!imageBuffer) {
-    return res.status(400).json({ error: 'invalid_image' });
-  }
-  if (imageBuffer.length > MAX_REPORT_IMAGE_BYTES) {
-    return res.status(413).json({ error: 'image_too_large' });
-  }
-  const captionRaw = typeof req.body?.caption === 'string' ? req.body.caption.trim() : '';
-  const caption = captionRaw ? captionRaw.slice(0, MAX_TELEGRAM_CAPTION) : '';
-
-  await ensureSocialSchema();
-  const db = await getDB();
-  const settings = await db.get(
-    'SELECT tg_bot_token, tg_personal_chat_id FROM social_settings WHERE user_id=?',
-    [req.user.uid]
-  );
-  const botToken = settings?.tg_bot_token ? String(settings.tg_bot_token).trim() : '';
-  const chatId = settings?.tg_personal_chat_id ? String(settings.tg_personal_chat_id).trim() : '';
-  if (!botToken || !chatId) {
-    return res.status(400).json({ error: 'telegram_not_configured' });
-  }
-
-  const result = await sendReportToTelegram(botToken, chatId, imageBuffer, caption);
-  if (!result?.ok) {
-    return res.status(502).json({
-      error: 'telegram_send_failed',
-      description: result?.description || result?.reason || null,
-    });
-  }
-
-  res.json({ ok: true, message_id: result?.result?.message_id ?? null });
 });
 
 router.get('/reports/history', async (req, res) => {
@@ -4188,6 +4450,11 @@ router.get('/reports/history', async (req, res) => {
       const parsed = JSON.parse(row.data);
       const context = computePeriodContext(row.period, new Date(`${row.period_end || row.period_start}T00:00:00Z`));
       const report = normalizeStoredReport(parsed, context, row.generated_at, row.id);
+      // Старые пустые отчёты (сохранённые до этого правила) — удаляем
+      if (!reportHasActivity(report)) {
+        await db.run('DELETE FROM progress_reports WHERE id=?', [row.id]);
+        continue;
+      }
       items.push(report);
     } catch {
       // skip malformed entries

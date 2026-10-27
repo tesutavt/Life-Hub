@@ -1,0 +1,8 @@
+# HTTPS с автоматическим сертификатом Let's Encrypt (нужен домен, указывающий на IP сервера).
+# Установите Caddy, положите файл в /etc/caddy/Caddyfile, замените домен и выполните: sudo systemctl reload caddy
+# В docker-compose.yml тогда раскомментируйте TRUST_PROXY: "1" и закройте порт 4000 файрволом.
+
+lifehub.example.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:4000
+}

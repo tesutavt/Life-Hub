@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_today">Сегодня: стрик, задания, привычки</string>
+    <string name="widget_word">Слово дня из вашего словаря</string>
+    <string name="widget_quick">Быстрые действия: расход, слова, задания</string>
+</resources>

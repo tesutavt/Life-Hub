@@ -1,538 +1,658 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  CalendarDays,
+  FileText,
+  Image as ImageIcon,
+  Layers3,
+  Loader2,
+  Pin,
+  PinOff,
+  Save,
+  SquareCheckBig,
+  TimerReset,
+  Trash2,
+  Type,
+} from 'lucide-react';
 import Shell from '../components/Shell';
 import { api, resolveApiUrl } from '../api';
-import { useNavigate, useParams } from 'react-router-dom';
-import { CalendarDays, Edit3, Loader2, Pin, PinOff, Save, Trash2, X } from 'lucide-react';
 import PdfReader from '../components/pdf/PdfReader';
-import { gradients, palette } from '../theme';
+import KanaTrainerBlock from '../components/KanaTrainerBlock';
+import CountdownTimerBlock from '../components/CountdownTimerBlock';
+import TagBadge from '../components/tags/TagBadge';
 
-
-const uuid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+type TagOption = { id: number; label: string; color: string };
+type PageOption = { id: number; title: string; tags: TagOption[]; pinned?: boolean };
+type CalendarEventItem = { id: number; date: string; title: string; type?: string; mood?: string | null; tags: TagOption[] };
 
 type BlockType =
   | 'text'
-  | 'heading1'
-  | 'heading2'
-  | 'heading3'
+  | 'heading'
   | 'todo'
-  | 'bulleted'
-  | 'numbered'
-  | 'quote'
-  | 'code'
   | 'image'
   | 'pdf'
-  | 'divider';
+  | 'kana'
+  | 'timer'
+  | 'divider'
+  | 'calendar'
+  | 'pageNav'
+  | 'tabs';
 
-type Block = {
+type BlockLayout = { x: number; y: number; w: number; h: number };
+type BlockDisplay = { customTitle: string; hideChrome: boolean; hideHeader: boolean; locked: boolean };
+type TabItem = { id: string; title: string };
+type BlockMeta = {
+  layout?: BlockLayout;
+  links?: string[];
+  originalName?: string | null;
+  markers?: any[];
+  kanaTrainer?: any;
+  countdownTimer?: { title: string; target: string };
+  display?: Partial<BlockDisplay>;
+  selectedTagIds?: number[];
+  tabs?: TabItem[];
+  activeTabId?: string | null;
+  tabGroupId?: string | null;
+  tabId?: string | null;
+};
+type PageBlock = {
   id: string;
   type: BlockType;
   text?: string;
   checked?: boolean;
   url?: string | null;
   relation?: string | null;
-  meta?: any;
+  meta?: BlockMeta | null;
+};
+type DragState = { mode: 'move' | 'resize'; blockId: string; startX: number; startY: number; origin: BlockLayout } | null;
+type ContextMenuState =
+  | { kind: 'page'; x: number; y: number }
+  | { kind: 'block'; x: number; y: number; blockId: string }
+  | null;
+
+const uuid = () =>
+  (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+
+const PAGE_MIN_WIDTH = 1280;
+const PAGE_MIN_HEIGHT = 900;
+const DEFAULT_DISPLAY: BlockDisplay = { customTitle: '', hideChrome: false, hideHeader: false, locked: false };
+
+const BLOCK_PRESETS: Record<BlockType, { label: string; icon: React.ComponentType<{ className?: string }>; size: Pick<BlockLayout, 'w' | 'h'> }> = {
+  text: { label: 'Текст', icon: Type, size: { w: 360, h: 190 } },
+  heading: { label: 'Заголовок', icon: FileText, size: { w: 520, h: 120 } },
+  todo: { label: 'Задача', icon: SquareCheckBig, size: { w: 320, h: 120 } },
+  image: { label: 'Изображение', icon: ImageIcon, size: { w: 420, h: 320 } },
+  pdf: { label: 'PDF', icon: FileText, size: { w: 580, h: 540 } },
+  kana: { label: 'Kana', icon: Type, size: { w: 430, h: 440 } },
+  timer: { label: 'Таймер', icon: TimerReset, size: { w: 390, h: 260 } },
+  divider: { label: 'Разделитель', icon: FileText, size: { w: 520, h: 48 } },
+  calendar: { label: 'Календарь', icon: CalendarDays, size: { w: 580, h: 420 } },
+  pageNav: { label: 'Навигация', icon: Layers3, size: { w: 420, h: 360 } },
+  tabs: { label: 'Tabs', icon: Layers3, size: { w: 620, h: 420 } },
 };
 
-type PdfMarker = {
-  id: string;
-  title: string;
-  page: number | null;
-  done: boolean;
+const formatTitle = (value: string) => (value.trim() ? value.trim() : 'Untitled page');
+const sameDay = (iso: string, day: string) => iso.slice(0, 10) === day;
+
+const getDisplay = (block: PageBlock): BlockDisplay => ({ ...DEFAULT_DISPLAY, ...(block.meta?.display || {}) });
+const setDisplay = (block: PageBlock, patch: Partial<BlockDisplay>): PageBlock => ({
+  ...block,
+  meta: { ...(block.meta || {}), display: { ...getDisplay(block), ...patch } },
+});
+const getLayout = (block: PageBlock, index = 0): BlockLayout => {
+  const layout = block.meta?.layout;
+  const preset = BLOCK_PRESETS[block.type] ?? BLOCK_PRESETS.text;
+  return {
+    x: typeof layout?.x === 'number' ? layout.x : 80 + (index % 3) * 60,
+    y: typeof layout?.y === 'number' ? layout.y : 110 + index * 50,
+    w: typeof layout?.w === 'number' ? layout.w : preset.size.w,
+    h: typeof layout?.h === 'number' ? layout.h : preset.size.h,
+  };
+};
+const setLayout = (block: PageBlock, layout: BlockLayout): PageBlock => ({ ...block, meta: { ...(block.meta || {}), layout } });
+const getLinks = (block: PageBlock) => {
+  const rawLinks = Array.isArray(block.meta?.links) ? block.meta.links : [];
+  const relation = typeof block.relation === 'string' && block.relation.trim() ? [block.relation.trim()] : [];
+  return [...new Set([...rawLinks.filter((item: unknown) => typeof item === 'string' && item.trim()), ...relation])];
+};
+const setLinks = (block: PageBlock, links: string[]): PageBlock => ({ ...block, relation: links[0] || null, meta: { ...(block.meta || {}), links } });
+const createTabItem = (title = 'Tab'): TabItem => ({ id: uuid(), title });
+const getTabs = (block: PageBlock) => {
+  const tabs = Array.isArray(block.meta?.tabs) ? block.meta.tabs : [];
+  const normalizedTabs = tabs
+    .map((tab, index) => {
+      if (!tab || typeof tab !== 'object') return null;
+      const id = typeof tab.id === 'string' && tab.id.trim() ? tab.id : `legacy-tab-${index + 1}`;
+      const title = typeof tab.title === 'string' && tab.title.trim() ? tab.title : `Tab ${index + 1}`;
+      return { id, title };
+    })
+    .filter(Boolean) as TabItem[];
+  return normalizedTabs.length ? normalizedTabs : [createTabItem('Tab 1')];
+};
+const getActiveTabId = (block: PageBlock) => {
+  const tabs = getTabs(block);
+  const active = typeof block.meta?.activeTabId === 'string' ? block.meta.activeTabId : null;
+  return tabs.some((tab) => tab.id === active) ? active : tabs[0]?.id || null;
+};
+const updateTabs = (block: PageBlock, tabs: TabItem[], activeTabId?: string | null): PageBlock => ({
+  ...block,
+  meta: { ...(block.meta || {}), tabs, activeTabId: activeTabId === undefined ? getActiveTabId(block) : activeTabId },
+});
+
+const getTabBinding = (block: PageBlock) => ({
+  tabGroupId: typeof block.meta?.tabGroupId === 'string' ? block.meta.tabGroupId : null,
+  tabId: typeof block.meta?.tabId === 'string' ? block.meta.tabId : null,
+});
+
+const isBlockVisibleForTabs = (block: PageBlock, allBlocks: PageBlock[]) => {
+  if (block.type === 'tabs') return true;
+  const binding = getTabBinding(block);
+  if (!binding.tabGroupId || !binding.tabId) return true;
+  const tabsBlock = allBlocks.find((item) => item.id === binding.tabGroupId && item.type === 'tabs');
+  if (!tabsBlock) return true;
+  return getActiveTabId(tabsBlock) === binding.tabId;
 };
 
-type PdfMeta = {
-  markers: PdfMarker[];
-  originalName?: string | null;
-};
-
-type MenuState = { blockId: string; x: number; y: number };
-
-const BLOCK_LABELS: Record<BlockType, string> = {
-  text: 'Текст',
-  heading1: 'Заголовок 1',
-  heading2: 'Заголовок 2',
-  heading3: 'Заголовок 3',
-  todo: 'Чек-лист',
-  bulleted: 'Маркированный список',
-  numbered: 'Нумерованный список',
-  quote: 'Цитата',
-  code: 'Код',
-  image: 'Изображение',
-  pdf: 'PDF документ',
-  divider: 'Разделитель'
-};
-
-const EDITABLE_TYPES: BlockType[] = ['text', 'heading1', 'heading2', 'heading3', 'bulleted', 'numbered', 'quote', 'code', 'todo'];
-const RICH_TEXT_TYPES: BlockType[] = ['text', 'heading1', 'heading2', 'heading3', 'bulleted', 'numbered', 'quote', 'todo'];
-const BASE_EDITABLE_CLASS = 'min-h-[24px] w-full whitespace-pre-wrap leading-relaxed focus:outline-none';
-const LTR_STYLE: React.CSSProperties = { direction: 'ltr', unicodeBidi: 'plaintext', textAlign: 'left' };
-
-const DEFAULT_BANNER_GRADIENT = gradients.hero;
-
-const BANNER_GRADIENT_PRESETS = [
-  { label: 'Глубина', value: 'linear-gradient(135deg, rgba(5, 24, 36, 0.92) 0%, rgba(22, 41, 54, 0.88) 100%)' },
-  { label: 'Атмосфера', value: 'linear-gradient(135deg, rgba(22, 41, 54, 0.92) 0%, rgba(59, 82, 101, 0.85) 100%)' },
-  { label: 'Мята', value: 'linear-gradient(135deg, rgba(39, 233, 181, 0.3) 0%, rgba(39, 233, 181, 0.05) 100%)' },
-  { label: 'Сияние', value: 'linear-gradient(135deg, rgba(5, 24, 36, 0.92) 0%, rgba(39, 233, 181, 0.25) 100%)' }
-];
-
-const FORMAT_COLORS = [
-  palette.mint,
-  '#5ef0c9',
-  '#93f5dc',
-  palette.steel,
-  '#1f3a4a',
-  palette.midnight,
-  '#0b1d29',
-  palette.deep,
-  '#162936'
-];
-const FONT_FAMILIES = [
-  { label: 'Системный', value: 'inherit' },
-  { label: 'Serif', value: 'Georgia, Times, serif' },
-  { label: 'Sans-serif', value: 'Inter, Arial, sans-serif' },
-  { label: 'Mono', value: '"Fira Code", "Courier New", monospace' }
-];
-const FONT_SIZES = [
-  { label: 'Мелкий', value: 2 },
-  { label: 'Обычный', value: 3 },
-  { label: 'Крупный', value: 4 },
-  { label: 'Очень крупный', value: 5 }
-];
-const EMOJI_OPTIONS = ['😀', '😁', '😂', '😊', '😍', '🤩', '🤔', '😎', '😭', '🙌', '🔥', '🚀', '🌟', '✅', '❤️'];
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-const ensurePdfMeta = (meta: any): PdfMeta => {
-  if (meta && typeof meta === 'object') {
-    const markers = Array.isArray(meta.markers)
-      ? meta.markers
-          .map((marker: any) => ({
-            id: marker.id || uuid(),
-            title: typeof marker.title === 'string' ? marker.title : 'Страница',
-            page:
-              marker.page == null || Number.isNaN(Number(marker.page))
-                ? null
-                : Number.parseInt(marker.page, 10),
-            done: !!marker.done
-          }))
-      : [];
-    return { markers, originalName: typeof meta.originalName === 'string' ? meta.originalName : null };
+const getTabsDebugLabel = (block: PageBlock, allBlocks: PageBlock[]) => {
+  if (block.type === 'tabs') {
+    const activeTabId = getActiveTabId(block);
+    const activeTab = getTabs(block).find((tab) => tab.id === activeTabId);
+    return `DEBUG Tabs active=${activeTab?.title || activeTabId || 'none'} id=${activeTabId || 'none'}`;
   }
-  return { markers: [], originalName: null };
+  const binding = getTabBinding(block);
+  if (!binding.tabGroupId || !binding.tabId) return 'DEBUG Tabs none';
+  const tabsBlock = allBlocks.find((item) => item.id === binding.tabGroupId && item.type === 'tabs');
+  const tabsTitle = tabsBlock ? getDisplay(tabsBlock).customTitle.trim() || tabsBlock.text?.trim() || 'Tabs' : 'missing';
+  const boundTab = tabsBlock ? getTabs(tabsBlock).find((tab) => tab.id === binding.tabId) : null;
+  const visible = isBlockVisibleForTabs(block, allBlocks) ? 'visible' : 'hidden';
+  return `DEBUG Tabs=${tabsTitle} tab=${boundTab?.title || binding.tabId} active=${tabsBlock ? getActiveTabId(tabsBlock) : 'none'} state=${visible}`;
 };
 
-const getBlockHtml = (block: Block) => {
-  if (RICH_TEXT_TYPES.includes(block.type)) {
-    const html = block.meta?.html;
-    if (typeof html === 'string') return { __html: html };
-  }
-  const text = block.text ?? '';
-  return { __html: escapeHtml(text) };
+const createBlock = (type: BlockType, index: number, x = 120, y = 160): PageBlock => {
+  const preset = BLOCK_PRESETS[type] ?? BLOCK_PRESETS.text;
+  return {
+    id: uuid(),
+    type,
+    text: type === 'heading' ? 'Новый заголовок' : type === 'calendar' ? 'Календарь' : type === 'pageNav' ? 'Страницы' : type === 'tabs' ? 'Tabs' : '',
+    checked: false,
+    url: '',
+    relation: null,
+    meta: {
+      layout: { x, y, w: preset.size.w, h: preset.size.h },
+      links: [],
+      markers: [],
+      originalName: null,
+      kanaTrainer: null,
+      countdownTimer: { title: '', target: '' },
+      display: DEFAULT_DISPLAY,
+      selectedTagIds: [],
+      tabs: type === 'tabs' ? [createTabItem('Tab 1')] : undefined,
+      activeTabId: type === 'tabs' ? null : undefined,
+      tabGroupId: null,
+      tabId: null,
+    },
+  };
 };
 
-const createBlock = (type: BlockType = 'text'): Block => {
-  if (type === 'divider') return { id: uuid(), type };
-  if (type === 'todo') return { id: uuid(), type, text: '', checked: false, meta: { html: '' } };
-  if (type === 'image') return { id: uuid(), type, text: '', url: '' };
-  if (type === 'pdf') return { id: uuid(), type, text: '', url: '', meta: { markers: [] } };
-  return { id: uuid(), type, text: '', meta: { html: '' } };
+const normalizeBlocks = (input: unknown): PageBlock[] => {
+  if (!Array.isArray(input) || input.length === 0) return [createBlock('text', 0)];
+  const blocks = input.map((raw: any, index) => {
+    const type = typeof raw?.type === 'string' && raw.type in BLOCK_PRESETS ? (raw.type as BlockType) : 'text';
+    const block: PageBlock = {
+      id: raw?.id || uuid(),
+      type,
+      text: typeof raw?.text === 'string' ? raw.text : '',
+      checked: !!raw?.checked,
+      url: typeof raw?.url === 'string' ? raw.url : '',
+      relation: typeof raw?.relation === 'string' ? raw.relation : null,
+      meta: raw?.meta && typeof raw.meta === 'object' ? raw.meta : {},
+    };
+    const normalizedBlock = setDisplay(setLayout(block, getLayout(block, index)), getDisplay(block));
+    return normalizedBlock.type === 'tabs' ? updateTabs(normalizedBlock, getTabs(normalizedBlock), getActiveTabId(normalizedBlock)) : normalizedBlock;
+  });
+  const ids = new Set(blocks.map((item) => item.id));
+  return blocks.map((block) => setLinks(block, getLinks(block).filter((targetId) => ids.has(targetId) && targetId !== block.id)));
 };
 
-function normaliseBlocks(input: any): Block[] {
-  if (!input) return [createBlock('text')];
+const getPageBounds = (blocks: PageBlock[]) => {
+  let width = PAGE_MIN_WIDTH;
+  let height = PAGE_MIN_HEIGHT;
+  blocks.forEach((block, index) => {
+    const layout = getLayout(block, index);
+    width = Math.max(width, layout.x + layout.w + 120);
+    height = Math.max(height, layout.y + layout.h + 120);
+  });
+  return { width, height };
+};
 
-  if (Array.isArray(input)) {
-    return input.map((raw: any) => {
-      const type = (raw.type as BlockType) || 'text';
-      const block: Block = {
-        id: raw.id || uuid(),
-        type,
-        text: raw.text ?? '',
-        checked: raw.checked ?? false,
-        url: raw.url ?? null,
-        relation: raw.relation ?? null
-      };
-      if (type === 'pdf') {
-        block.meta = ensurePdfMeta(raw.meta);
-      } else if (raw.meta && typeof raw.meta === 'object') {
-        block.meta = raw.meta;
-      }
-      return block;
-    });
-  }
+const isInteractiveTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  return !!element.closest('textarea, input, button, label, select, a, canvas');
+};
 
-  if (input.blocks) {
-    return normaliseBlocks(input.blocks);
-  }
+function CalendarBlock({
+  block,
+  events,
+  tags,
+  onChange,
+}: {
+  block: PageBlock;
+  events: CalendarEventItem[];
+  tags: TagOption[];
+  onChange: (patch: Partial<PageBlock> | ((prev: PageBlock) => PageBlock)) => void;
+}) {
+  const selectedTagIds = Array.isArray(block.meta?.selectedTagIds) ? block.meta.selectedTagIds : [];
+  const filteredEvents = events.filter((event) => selectedTagIds.length === 0 || event.tags.some((tag) => selectedTagIds.includes(tag.id)));
+  const now = new Date();
+  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const cells = Array.from({ length: 42 }, (_, index) => {
+    const dateNumber = index - startOffset + 1;
+    if (dateNumber < 1 || dateNumber > daysInMonth) return null;
+    const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(dateNumber).padStart(2, '0')}`;
+    return { day, number: dateNumber, events: filteredEvents.filter((item) => sameDay(item.date, day)) };
+  });
 
-  if (input.type === 'doc' && Array.isArray(input.content)) {
-    const flattened: Block[] = [];
-    for (const node of input.content) {
-      if (node.type === 'heading' && node.attrs?.level) {
-        const level = Math.min(Math.max(node.attrs.level, 1), 3) as 1 | 2 | 3;
-        flattened.push({ id: uuid(), type: (heading as BlockType), text: (node.content || []).map((child: any) => child.text || '').join('') });
-        continue;
-      }
-      if (node.type === 'bulletList') {
-        flattened.push({
-          id: uuid(),
-          type: 'bulleted',
-          text: (node.content || [])
-            .map((item: any) => (item.content || []).map((child: any) => child.text || '').join(''))
-            .join('\n')
-        });
-        continue;
-      }
-      if (node.type === 'orderedList') {
-        flattened.push({
-          id: uuid(),
-          type: 'numbered',
-          text: (node.content || [])
-            .map((item: any) => (item.content || []).map((child: any) => child.text || '').join(''))
-            .join('\n')
-        });
-        continue;
-      }
-      if (node.type === 'taskList') {
-        for (const item of node.content || []) {
-          flattened.push({
-            id: uuid(),
-            type: 'todo',
-            text: (item.content || []).map((child: any) => child.text || '').join(''),
-            checked: !!item.attrs?.checked
-          });
-        }
-        continue;
-      }
-      if (node.type === 'image') {
-        flattened.push({ id: uuid(), type: 'image', text: '', url: node.attrs?.src || '' });
-        continue;
-      }
-      if (node.type === 'horizontalRule') {
-        flattened.push({ id: uuid(), type: 'divider' });
-        continue;
-      }
-      if (node.type === 'blockquote') {
-        flattened.push({ id: uuid(), type: 'quote', text: (node.content || []).map((child: any) => child.text || '').join('') });
-        continue;
-      }
-      if (node.type === 'codeBlock') {
-        flattened.push({ id: uuid(), type: 'code', text: (node.content || []).map((child: any) => child.text || '').join('\n') });
-        continue;
-      }
-      flattened.push({ id: uuid(), type: 'text', text: (node.content || []).map((child: any) => child.text || '').join('') });
-    }
-    return flattened.length ? flattened : [createBlock('text')];
-  }
-
-  return [createBlock('text')];
+  return (
+    <div className="flex h-full flex-col gap-3 p-4">
+      <div className="flex flex-wrap gap-2">
+        {tags.map((tag) => {
+          const active = selectedTagIds.includes(tag.id);
+          return (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() =>
+                onChange((prev) => ({
+                  ...prev,
+                  meta: {
+                    ...(prev.meta || {}),
+                    selectedTagIds: active ? selectedTagIds.filter((id) => id !== tag.id) : [...selectedTagIds, tag.id],
+                  },
+                }))
+              }
+              className={`rounded-full border px-3 py-1 text-xs ${active ? 'border-white/40 bg-white/15 text-white' : 'border-white/10 text-white/60 hover:bg-white/10'}`}
+            >
+              {tag.label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="grid flex-1 grid-cols-7 gap-2 text-xs text-white/70">
+        {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map((item) => (
+          <div key={item} className="pb-1 text-center uppercase tracking-wide text-white/35">
+            {item}
+          </div>
+        ))}
+        {cells.map((cell, index) => (
+          <div key={cell?.day || `empty-${index}`} className={`min-h-[78px] rounded-2xl border p-2 ${cell ? 'border-white/10 bg-white/[0.03]' : 'border-transparent bg-transparent'}`}>
+            {cell ? (
+              <>
+                <div className="text-white/80">{cell.number}</div>
+                <div className="mt-1 space-y-1">
+                  {cell.events.slice(0, 2).map((event) => (
+                    <div key={event.id} className="truncate rounded-lg bg-white/10 px-2 py-1 text-[11px] text-white/75">
+                      {event.title}
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-const formatTitle = (value: string) => (typeof value === 'string' && value.trim() ? value.trim() : 'Untitled page');
+function PageNavBlock({ block, pages, tags }: { block: PageBlock; pages: PageOption[]; tags: TagOption[] }) {
+  const selectedTagIds = Array.isArray(block.meta?.selectedTagIds) ? block.meta.selectedTagIds : [];
+  const filteredPages = pages.filter((page) => selectedTagIds.length === 0 || page.tags.some((tag) => selectedTagIds.includes(tag.id)));
+  return (
+    <div className="flex h-full flex-col gap-3 p-4">
+      <div className="flex flex-wrap gap-2">
+        {selectedTagIds.length === 0 ? <span className="text-xs text-white/45">Показаны все страницы</span> : null}
+        {selectedTagIds.map((tagId) => {
+          const tag = tags.find((item) => item.id === tagId);
+          return tag ? <TagBadge key={tag.id} tag={tag} compact /> : null;
+        })}
+      </div>
+      <div className="space-y-2 overflow-auto">
+        {filteredPages.map((page) => (
+          <Link key={page.id} to={`/pages/${page.id}`} className="block rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-white/80 hover:bg-white/10">
+            <div className="flex items-center justify-between gap-3">
+              <div className="truncate">{page.title || 'Без названия'}</div>
+              {page.pinned ? <Pin className="h-4 w-4 text-amber-300" /> : null}
+            </div>
+            {page.tags.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {page.tags.slice(0, 4).map((tag) => (
+                  <TagBadge key={tag.id} tag={tag} compact />
+                ))}
+              </div>
+            ) : null}
+          </Link>
+        ))}
+        {filteredPages.length === 0 ? <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-white/50">Нет страниц по выбранным тегам</div> : null}
+      </div>
+    </div>
+  );
+}
 
-export default function PageEditor(){
+function TabsBlock({
+  block,
+  groupedCount,
+  selectedBlock,
+  onAssignSelected,
+  onUnassignSelected,
+  onChange,
+}: {
+  block: PageBlock;
+  groupedCount: number;
+  selectedBlock: PageBlock | null;
+  onAssignSelected: () => void;
+  onUnassignSelected: () => void;
+  onChange: (patch: Partial<PageBlock> | ((prev: PageBlock) => PageBlock)) => void;
+}) {
+  const tabs = getTabs(block);
+  const activeTabId = getActiveTabId(block);
+  const activeTab = tabs.find((item) => item.id === activeTabId) || tabs[0];
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onChange((prev) => updateTabs(prev, getTabs(prev), tab.id));
+            }}
+            onDoubleClick={() => {
+              const value = window.prompt('Название вкладки', tab.title);
+              if (value === null) return;
+              onChange((prev) => updateTabs(prev, getTabs(prev).map((item) => (item.id === tab.id ? { ...item, title: value || 'Tab' } : item)), tab.id));
+            }}
+            className={`rounded-xl px-3 py-2 text-sm ${tab.id === activeTabId ? 'bg-white text-slate-950' : 'border border-white/10 bg-white/[0.03] text-white/75'}`}
+          >
+            {tab.title}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onChange((prev) => {
+              const nextTabs = [...getTabs(prev), createTabItem(`Tab ${getTabs(prev).length + 1}`)];
+              return updateTabs(prev, nextTabs, nextTabs.at(-1)?.id || null);
+            });
+          }}
+          className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/75"
+        >
+          + Tab
+        </button>
+      </div>
+      <div className="hidden mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
+        <div className="font-medium text-white">{activeTab?.title || 'Tab'}</div>
+        <div className="mt-2">Это переключатель вкладок для уже существующих блоков страницы.</div>
+        <div className="mt-1 text-white/50">Выдели любой существующий блок на странице и добавь его в активную вкладку этой панели.</div>
+        <div className="mt-3 text-xs uppercase tracking-wide text-white/40">Блоков в текущем Tabs: {groupedCount}</div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onAssignSelected}
+            disabled={!selectedBlock || selectedBlock.id === block.id}
+            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Добавить выбранный блок в активную вкладку
+          </button>
+          <button
+            type="button"
+            onClick={onUnassignSelected}
+            disabled={!selectedBlock || selectedBlock.id === block.id}
+            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Убрать выбранный блок из Tabs
+          </button>
+        </div>
+        {selectedBlock && selectedBlock.id !== block.id ? (
+          <div className="mt-2 text-xs text-white/45">
+            Выбран блок: {getDisplay(selectedBlock).customTitle.trim() || selectedBlock.text?.trim() || BLOCK_PRESETS[selectedBlock.type].label}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function BlockBody({
+  block,
+  tags,
+  pages,
+  calendarItems,
+  groupedCount,
+  selectedBlock,
+  onAssignSelected,
+  onUnassignSelected,
+  onChange,
+  onUploadPdf,
+}: {
+  block: PageBlock;
+  tags: TagOption[];
+  pages: PageOption[];
+  calendarItems: CalendarEventItem[];
+  groupedCount: number;
+  selectedBlock: PageBlock | null;
+  onAssignSelected: () => void;
+  onUnassignSelected: () => void;
+  onChange: (patch: Partial<PageBlock> | ((prev: PageBlock) => PageBlock)) => void;
+  onUploadPdf: (file: File) => void;
+}) {
+  if (block.type === 'text') return <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent p-4 text-sm leading-6 text-white outline-none" placeholder="Текстовый блок" />;
+  if (block.type === 'heading') return <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent p-4 text-3xl font-semibold leading-tight text-white outline-none" placeholder="Заголовок" />;
+  if (block.type === 'todo') {
+    return (
+      <div className="flex h-full gap-3 p-4">
+        <input type="checkbox" checked={!!block.checked} onChange={(e) => onChange({ checked: e.target.checked })} className="mt-1 h-5 w-5 rounded" />
+        <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent text-sm leading-6 text-white outline-none" placeholder="Описание задачи" />
+      </div>
+    );
+  }
+  if (block.type === 'image') {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <input value={block.url || ''} onChange={(e) => onChange({ url: e.target.value })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="URL изображения" />
+        <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm text-white outline-none" placeholder="Подпись" />
+        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black/20">
+          {block.url ? <img src={block.url} alt={block.text || 'image'} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-sm text-white/40">Нет изображения</div>}
+        </div>
+      </div>
+    );
+  }
+  if (block.type === 'pdf') {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="flex gap-2">
+          <input value={block.url || ''} onChange={(e) => onChange({ url: e.target.value })} className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="URL PDF" />
+          <label className="cursor-pointer rounded-xl border border-white/10 px-3 py-2 text-sm text-white/80 hover:bg-white/10">
+            Upload
+            <input
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onUploadPdf(file);
+                e.currentTarget.value = '';
+              }}
+            />
+          </label>
+        </div>
+        <input value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="Название PDF" />
+        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black/20">
+          {block.url ? (
+            <PdfReader
+              src={resolveApiUrl(block.url)}
+              title={block.text || 'PDF'}
+              originalName={typeof block.meta?.originalName === 'string' ? block.meta.originalName : null}
+              markers={Array.isArray(block.meta?.markers) ? block.meta.markers : []}
+              className="h-full"
+              onAddMarker={({ title, page }) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), markers: [...(Array.isArray(prev.meta?.markers) ? prev.meta.markers : []), { id: uuid(), title, page, done: false }] } }))}
+              onToggleMarker={(markerId) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), markers: (Array.isArray(prev.meta?.markers) ? prev.meta.markers : []).map((m: any) => (m.id === markerId ? { ...m, done: !m.done } : m)) } }))}
+              onRemoveMarker={(markerId) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), markers: (Array.isArray(prev.meta?.markers) ? prev.meta.markers : []).filter((m: any) => m.id !== markerId) } }))}
+              onRenameMarker={(markerId, title) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), markers: (Array.isArray(prev.meta?.markers) ? prev.meta.markers : []).map((m: any) => (m.id === markerId ? { ...m, title } : m)) } }))}
+              onChangeMarkerPage={(markerId, page) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), markers: (Array.isArray(prev.meta?.markers) ? prev.meta.markers : []).map((m: any) => (m.id === markerId ? { ...m, page } : m)) } }))}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-white/40">Укажите ссылку или загрузите PDF</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (block.type === 'kana') return <KanaTrainerBlock value={block.meta?.kanaTrainer} onChange={(next) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), kanaTrainer: next } }))} />;
+  if (block.type === 'timer') return <CountdownTimerBlock value={block.meta?.countdownTimer} onChange={(next) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), countdownTimer: next } }))} />;
+  if (block.type === 'calendar') return <CalendarBlock block={block} events={calendarItems} tags={tags} onChange={onChange} />;
+  if (block.type === 'pageNav') return <PageNavBlock block={block} pages={pages} tags={tags} />;
+  if (block.type === 'tabs') return <TabsBlock block={block} groupedCount={groupedCount} selectedBlock={selectedBlock} onAssignSelected={onAssignSelected} onUnassignSelected={onUnassignSelected} onChange={onChange} />;
+  return <div className="flex h-full items-center px-4"><div className="w-full border-t border-dashed border-white/30" /></div>;
+}
+
+function BlockCard({
+  block,
+  allBlocks,
+  selected,
+  tags,
+  pages,
+  calendarItems,
+  groupedCount,
+  selectedBlock,
+  onAssignSelected,
+  onUnassignSelected,
+  onPointerDown,
+  onContextMenu,
+  onResizeStart,
+  onChange,
+  onUploadPdf,
+}: {
+  block: PageBlock;
+  allBlocks: PageBlock[];
+  selected: boolean;
+  tags: TagOption[];
+  pages: PageOption[];
+  calendarItems: CalendarEventItem[];
+  groupedCount: number;
+  selectedBlock: PageBlock | null;
+  onAssignSelected: () => void;
+  onUnassignSelected: () => void;
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
+  onResizeStart: (event: React.PointerEvent<HTMLButtonElement>) => void;
+  onChange: (patch: Partial<PageBlock> | ((prev: PageBlock) => PageBlock)) => void;
+  onUploadPdf: (file: File) => void;
+}) {
+  const layout = getLayout(block);
+  const display = getDisplay(block);
+  const headerTitle = display.customTitle.trim() || block.text?.trim() || BLOCK_PRESETS[block.type].label;
+  const chromeClass = display.hideChrome ? 'border-transparent bg-transparent shadow-none backdrop-blur-none' : selected ? 'border-cyan-300/80 bg-[#10202c]/95 shadow-[0_12px_40px_rgba(0,0,0,0.35)]' : 'border-white/10 bg-[#10202c]/90 shadow-[0_8px_30px_rgba(0,0,0,0.24)]';
+  const bodyHeight = display.hideHeader ? '100%' : 'calc(100% - 45px)';
+
+  return (
+    <div className={`absolute overflow-hidden rounded-[24px] border backdrop-blur-sm transition ${chromeClass}`} style={{ left: layout.x, top: layout.y, width: layout.w, height: layout.h }} onPointerDown={onPointerDown} onMouseDown={(e) => e.stopPropagation()} onContextMenu={onContextMenu}>
+      {!display.hideHeader ? (
+        <div className={`flex items-center justify-between border-b px-4 py-2 ${display.hideChrome ? 'border-white/0 bg-transparent' : 'border-white/10'}`}>
+          <div className="truncate text-xs uppercase tracking-[0.24em] text-white/50">{headerTitle}</div>
+          <div className="truncate text-[11px] text-white/30">{display.locked ? 'Зафиксирован' : 'ПКМ для действий'}</div>
+        </div>
+      ) : null}
+      <div className="overflow-auto" style={{ height: bodyHeight }}>
+        <BlockBody block={block} tags={tags} pages={pages} calendarItems={calendarItems} groupedCount={groupedCount} selectedBlock={selectedBlock} onAssignSelected={onAssignSelected} onUnassignSelected={onUnassignSelected} onChange={onChange} onUploadPdf={onUploadPdf} />
+      </div>
+      {!display.locked ? <button type="button" onPointerDown={onResizeStart} className="absolute bottom-2 right-2 h-5 w-5 rounded border border-white/10 bg-white/10" aria-label="Resize" /> : null}
+    </div>
+  );
+}
+
+export default function PageEditor() {
   const { id } = useParams();
-  const nav = useNavigate();
+  const navigate = useNavigate();
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [title, setTitle] = useState('');
   const [pageDate, setPageDate] = useState('');
   const [pinned, setPinned] = useState(false);
   const [bannerUrl, setBannerUrl] = useState('');
   const [bannerGradient, setBannerGradient] = useState('');
-  const [blocks, setBlocks] = useState<Block[]>([createBlock('text')]);
+  const [showPageSettings, setShowPageSettings] = useState(false);
+  const [blocks, setBlocks] = useState<PageBlock[]>([createBlock('text', 0)]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+  const [showTabsDropdownFor, setShowTabsDropdownFor] = useState<string | null>(null);
+  const [dragState, setDragState] = useState<DragState>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [menu, setMenu] = useState<MenuState | null>(null);
-  const [formatMenu, setFormatMenu] = useState<MenuState | null>(null);
-  const [emojiMenu, setEmojiMenu] = useState<MenuState | null>(null);
-  const [uploadingPdfBlockId, setUploadingPdfBlockId] = useState<string | null>(null);
-  const [pdfErrors, setPdfErrors] = useState<Record<string, string | null>>({});
-  const [focusId, setFocusId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showBannerSettings, setShowBannerSettings] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const formatMenuRef = useRef<HTMLDivElement | null>(null);
-  const emojiMenuRef = useRef<HTMLDivElement | null>(null);
-  const blockRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const selectionRef = useRef<Range | null>(null);
-  const lastSelectionRef = useRef<Range | null>(null);
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  const [pageOptions, setPageOptions] = useState<PageOption[]>([]);
+  const [calendarItems, setCalendarItems] = useState<CalendarEventItem[]>([]);
 
-  const trimmedBannerUrl = bannerUrl.trim();
-  const trimmedBannerGradient = bannerGradient.trim();
-  const bannerPreviewStyle = useMemo<React.CSSProperties>(() => {
-    const style: React.CSSProperties = {
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-      backgroundRepeat: 'no-repeat'
-    };
-    if (trimmedBannerUrl) {
-      style.backgroundImage = `url(${trimmedBannerUrl})`;
-    } else {
-      style.backgroundImage = trimmedBannerGradient || DEFAULT_BANNER_GRADIENT;
-    }
-    return style;
-  }, [trimmedBannerGradient, trimmedBannerUrl]);
-
-  const formattedPageDate = useMemo(() => {
-    if (!pageDate) return '';
-    const iso = pageDate.includes('T') ? pageDate : `${pageDate}T00:00:00`;
-    const parsed = new Date(iso);
-    if (Number.isNaN(parsed.getTime())) return pageDate;
-    return parsed.toLocaleDateString();
-  }, [pageDate]);
-
-  const focusBlock = useCallback((blockId: string | null) => {
-    if (!blockId) return;
-    requestAnimationFrame(() => {
-      const element = document.querySelector<HTMLElement>(`[data-block-id="${blockId}"]`);
-      if (!element) return;
-      element.focus();
-      if (element instanceof HTMLDivElement) {
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        range.collapse(false);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-      }
-    });
-  }, []);
+  const pageBounds = useMemo(() => getPageBounds(blocks), [blocks]);
+  const visibleBlocks = useMemo(() => blocks.filter((block) => isBlockVisibleForTabs(block, blocks)), [blocks]);
+  const countBlocksInTabGroup = useCallback(
+    (groupId: string) =>
+      blocks.filter((block) => {
+        const binding = getTabBinding(block);
+        return block.type !== 'tabs' && binding.tabGroupId === groupId;
+      }).length,
+    [blocks]
+  );
+  const tabsBlocks = useMemo(() => blocks.filter((block) => block.type === 'tabs'), [blocks]);
+  const selectedBlock = useMemo(() => blocks.find((block) => block.id === selectedId) || null, [blocks, selectedId]);
 
   useEffect(() => {
-    if (!focusId) return;
-    focusBlock(focusId);
-    setFocusId(null);
-  }, [blocks, focusBlock, focusId]);
+    if (!selectedId) return;
+    const block = blocks.find((item) => item.id === selectedId);
+    if (block && isBlockVisibleForTabs(block, blocks)) return;
+    setSelectedId(null);
+  }, [blocks, selectedId]);
 
   useEffect(() => {
-    if (!menu) return;
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (menuRef.current && target && menuRef.current.contains(target)) return;
-      setMenu(null);
-      setFormatMenu(null);
-      setEmojiMenu(null);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMenu(null);
-    };
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [menu]);
+    if (!connectingFrom) return;
+    const block = blocks.find((item) => item.id === connectingFrom);
+    if (block && isBlockVisibleForTabs(block, blocks)) return;
+    setConnectingFrom(null);
+  }, [blocks, connectingFrom]);
 
-  useLayoutEffect(() => {
-    if (!menu) return;
-    const node = menuRef.current;
-    if (!node) return;
-    const padding = 12;
-    const rect = node.getBoundingClientRect();
-    let nextX = menu.x;
-    let nextY = menu.y;
-    const maxX = window.innerWidth - rect.width - padding;
-    const maxY = window.innerHeight - rect.height - padding;
-    if (nextX > maxX) nextX = Math.max(padding, maxX);
-    if (nextY > maxY) nextY = Math.max(padding, maxY);
-    if (nextX < padding) nextX = padding;
-    if (nextY < padding) nextY = padding;
-    if (nextX !== menu.x || nextY !== menu.y) {
-      setMenu(prev => (prev ? { ...prev, x: nextX, y: nextY } : prev));
-    }
-  }, [menu]);
-
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      try {
-        const range = selection.getRangeAt(0);
-        lastSelectionRef.current = range.cloneRange();
-      } catch {
-        // ignore
-      }
-    };
-    document.addEventListener('selectionchange', handleSelectionChange);
-    return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!formatMenu) return;
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (formatMenuRef.current && target && formatMenuRef.current.contains(target)) return;
-      setFormatMenu(null);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setFormatMenu(null);
-    };
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [formatMenu]);
-
-  useEffect(() => {
-    if (!emojiMenu) return;
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (emojiMenuRef.current && target && emojiMenuRef.current.contains(target)) return;
-      setEmojiMenu(null);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setEmojiMenu(null);
-    };
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [emojiMenu]);
-
-  useLayoutEffect(() => {
-    if (!formatMenu) return;
-    const node = formatMenuRef.current;
-    if (!node) return;
-    const padding = 12;
-    const rect = node.getBoundingClientRect();
-    let nextX = formatMenu.x;
-    let nextY = formatMenu.y;
-    const maxX = window.innerWidth - rect.width - padding;
-    const maxY = window.innerHeight - rect.height - padding;
-    if (nextX > maxX) nextX = Math.max(padding, maxX);
-    if (nextY > maxY) nextY = Math.max(padding, maxY);
-    if (nextX < padding) nextX = padding;
-    if (nextY < padding) nextY = padding;
-    if (nextX !== formatMenu.x || nextY !== formatMenu.y) {
-      setFormatMenu(prev => (prev ? { ...prev, x: nextX, y: nextY } : prev));
-    }
-  }, [formatMenu]);
-
-  useLayoutEffect(() => {
-    if (!emojiMenu) return;
-    const node = emojiMenuRef.current;
-    if (!node) return;
-    const padding = 12;
-    const rect = node.getBoundingClientRect();
-    let nextX = emojiMenu.x;
-    let nextY = emojiMenu.y;
-    const maxX = window.innerWidth - rect.width - padding;
-    const maxY = window.innerHeight - rect.height - padding;
-    if (nextX > maxX) nextX = Math.max(padding, maxX);
-    if (nextY > maxY) nextY = Math.max(padding, maxY);
-    if (nextX < padding) nextX = padding;
-    if (nextY < padding) nextY = padding;
-    if (nextX !== emojiMenu.x || nextY !== emojiMenu.y) {
-      setEmojiMenu(prev => (prev ? { ...prev, x: nextX, y: nextY } : prev));
-    }
-  }, [emojiMenu]);
-
-  const registerBlockRef = useCallback((blockId: string, element: HTMLElement | null) => {
-    if (!element) {
-      blockRefs.current.delete(blockId);
-      return;
-    }
-    blockRefs.current.set(blockId, element);
-  }, []);
-
-  const updateBlock = useCallback((blockId: string, patch: Partial<Block> | ((prev: Block) => Block)) => {
-    setBlocks(prev => prev.map(block => {
-      if (block.id !== blockId) return block;
-      if (typeof patch === 'function') return (patch as (b: Block) => Block)(block);
-      return { ...block, ...patch };
-    }));
-  }, []);
-
-  const insertBlockAfter = useCallback((blockId: string, type: BlockType = 'text') => {
-    const newBlock = createBlock(type);
-    setBlocks(prev => {
-      const index = prev.findIndex(block => block.id === blockId);
-      const next = [...prev];
-      const insertIndex = index === -1 ? next.length : index + 1;
-      next.splice(insertIndex, 0, newBlock);
-      return next;
-    });
-    setFocusId(newBlock.id);
-  }, []);
-
-  const insertBlockAtEnd = useCallback((type: BlockType = 'text') => {
-    const newBlock = createBlock(type);
-    setBlocks(prev => [...prev, newBlock]);
-    setFocusId(newBlock.id);
+  const updateBlock = useCallback((blockId: string, patch: Partial<PageBlock> | ((prev: PageBlock) => PageBlock)) => {
+    setBlocks((prev) => prev.map((block) => (block.id !== blockId ? block : typeof patch === 'function' ? patch(block) : { ...block, ...patch })));
   }, []);
 
   const removeBlock = useCallback((blockId: string) => {
-    setBlocks(prev => {
-      if (prev.length === 1) return [createBlock('text')];
-      const index = prev.findIndex(block => block.id === blockId);
-      const next = prev.filter(block => block.id !== blockId);
-      const fallback = next[index - 1] || next[index] || next[0];
-      if (fallback) setFocusId(fallback.id);
-      return next;
+    setBlocks((prev) => {
+      const next = prev.filter((block) => block.id !== blockId).map((block) => setLinks(block, getLinks(block).filter((target) => target !== blockId)));
+      return next.length ? next : [createBlock('text', 0)];
     });
+    setSelectedId((prev) => (prev === blockId ? null : prev));
+    setConnectingFrom((prev) => (prev === blockId ? null : prev));
   }, []);
 
   const duplicateBlock = useCallback((blockId: string) => {
-    setBlocks(prev => {
-      const index = prev.findIndex(block => block.id === blockId);
-      if (index === -1) return prev;
-      const copy: Block = { ...prev[index], id: uuid() };
-      const next = [...prev];
-      next.splice(index + 1, 0, copy);
-      return next;
+    setBlocks((prev) => {
+      const source = prev.find((block) => block.id === blockId);
+      if (!source) return prev;
+      const layout = getLayout(source);
+      return [...prev, setLayout({ ...source, id: uuid(), relation: null, meta: { ...(source.meta || {}), links: [] } }, { ...layout, x: layout.x + 36, y: layout.y + 36 })];
     });
   }, []);
 
-  const convertBlockType = useCallback((blockId: string, type: BlockType) => {
-    updateBlock(blockId, current => {
-      const base: Block = { id: current.id, type, relation: current.relation ?? null };
-      if (type === 'divider') return base;
-      if (type === 'pdf') {
-        const meta = ensurePdfMeta(current.meta);
-        return { ...base, text: current.text || '', url: current.url || '', meta };
-      }
-      if (type === 'todo') {
-        const html = typeof current.meta?.html === 'string' ? current.meta.html : current.text || '';
-        return { ...base, text: current.text || '', checked: current.checked ?? false, meta: { html } };
-      }
-      if (type === 'image') return { ...base, text: current.text || '', url: current.url || '' };
-      if (type === 'code') return { ...base, text: current.text || '' };
-      const html = typeof current.meta?.html === 'string' ? current.meta.html : current.text || '';
-      return { ...base, text: current.text || '', url: null, checked: undefined, meta: { html } };
-    });
-  }, [updateBlock]);
-
-  const setRelation = useCallback((blockId: string) => {
-    const value = window.prompt('Ссылка или идентификатор связи');
-    if (value === null) return;
-    const trimmed = value.trim();
-    updateBlock(blockId, { relation: trimmed || null });
-  }, [updateBlock]);
-
-  const setImageUrl = useCallback((blockId: string) => {
-    const value = window.prompt('Ссылка на изображение');
-    if (value === null) return;
-    updateBlock(blockId, { url: value.trim() });
-  }, [updateBlock]);
-
-  const openMenu = useCallback((blockId: string, x: number, y: number) => {
-    setFormatMenu(null);
-    setEmojiMenu(null);
-    setMenu({ blockId, x, y });
+  const addBlock = useCallback((type: BlockType, x = 120, y = 160) => {
+    setBlocks((prev) => [...prev, createBlock(type, prev.length, x, y)]);
   }, []);
 
   const loadPage = useCallback(async () => {
@@ -541,38 +661,110 @@ export default function PageEditor(){
     setError(null);
     try {
       const response = await api.get(`/api/life/pages/${id}`);
-      setTitle(response.page?.title || '');
-      setPageDate(response.page?.page_date || '');
-      setPinned(!!response.page?.pinned);
-      setBannerUrl(response.page?.banner_url ?? response.page?.bannerUrl ?? '');
-      setBannerGradient(response.page?.banner_gradient ?? response.page?.bannerGradient ?? '');
-      setShowBannerSettings(false);
-      const incoming = response.page?.blocks ?? response.page?.content ?? [];
-      const normalised = normaliseBlocks(incoming);
-      setBlocks(normalised.length ? normalised : [createBlock('text')]);
+      const page = response.page || {};
+      setTitle(page.title || '');
+      setPageDate(page.page_date || '');
+      setPinned(!!page.pinned);
+      setBannerUrl(page.banner_url ?? page.bannerUrl ?? '');
+      setBannerGradient(page.banner_gradient ?? page.bannerGradient ?? '');
+      const normalized = normalizeBlocks(page.blocks ?? page.content ?? []);
+      setBlocks(normalized);
+      setSelectedId(normalized[0]?.id ?? null);
     } catch (err: any) {
-      setError(err.message || 'Failed to load page');
+      setError(err?.message || 'Failed to load page');
     } finally {
       setLoading(false);
     }
   }, [id]);
 
-  useEffect(() => { loadPage(); }, [loadPage]);
+  const loadAuxData = useCallback(async () => {
+    const [tagsResponse, pagesResponse] = await Promise.all([
+      api.get('/api/life/pages/tags', { silentError: true }),
+      api.get('/api/life/pages', { silentError: true }),
+    ]);
 
-  const togglePinned = useCallback(async () => {
-    if (!id) return;
-    const next = !pinned;
-    setPinned(next);
-    setError(null);
-    try {
-      await api.put(`/api/life/pages/${id}`, { pinned: next });
-    } catch (err: any) {
-      setPinned(!next);
-      setError(err?.message || 'Failed to update pinned state');
-    }
-  }, [id, pinned]);
+    setTagOptions(Array.isArray(tagsResponse?.items) ? tagsResponse.items.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color })) : []);
+    setPageOptions(Array.isArray(pagesResponse?.items) ? pagesResponse.items.map((page: any) => ({ id: page.id, title: page.title || 'Без названия', pinned: !!page.pinned, tags: Array.isArray(page.tags) ? page.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color })) : [] })) : []);
 
-  const handleSave = async () => {
+    const current = new Date();
+    const calendarResponse = await api.get(`/api/life/calendar?y=${current.getFullYear()}&m=${current.getMonth() + 1}`, { silentError: true });
+    setCalendarItems(Array.isArray(calendarResponse?.items) ? calendarResponse.items.map((item: any) => ({ id: item.id, date: item.date, title: item.title, type: item.type, mood: item.mood ?? null, tags: Array.isArray(item.tags) ? item.tags.map((tag: any) => ({ id: tag.id, label: tag.label, color: tag.color })) : [] })) : []);
+  }, []);
+
+  useEffect(() => {
+    loadPage();
+    loadAuxData();
+  }, [loadAuxData, loadPage]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleMouseDown = (event: MouseEvent) => {
+      if (menuRef.current && event.target instanceof Node && menuRef.current.contains(event.target)) return;
+      setContextMenu(null);
+      setShowTabsDropdownFor(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+        setShowTabsDropdownFor(null);
+      }
+    };
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!dragState) return;
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!pageRef.current) return;
+      const pageRect = pageRef.current.getBoundingClientRect();
+      const dx = event.clientX - pageRect.left - dragState.startX;
+      const dy = event.clientY - pageRect.top - dragState.startY;
+      setBlocks((prev) =>
+        prev.map((block) => {
+          if (block.id !== dragState.blockId) return block;
+          const current = dragState.origin;
+          if (dragState.mode === 'move') return setLayout(block, { ...current, x: Math.max(0, current.x + dx), y: Math.max(0, current.y + dy) });
+          return setLayout(block, { ...current, w: Math.max(220, current.w + dx), h: Math.max(block.type === 'divider' ? 36 : 100, current.h + dy) });
+        })
+      );
+    };
+    const handlePointerUp = () => setDragState(null);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [dragState]);
+
+  const startDrag = useCallback((blockId: string, mode: 'move' | 'resize', clientX: number, clientY: number) => {
+    if (!pageRef.current) return;
+    const block = blocks.find((item) => item.id === blockId);
+    if (!block || getDisplay(block).locked) return;
+    const pageRect = pageRef.current.getBoundingClientRect();
+    setSelectedId(blockId);
+    setDragState({ mode, blockId, startX: clientX - pageRect.left, startY: clientY - pageRect.top, origin: getLayout(block) });
+  }, [blocks]);
+
+  const assignBlockToTabs = useCallback((tabsBlockId: string) => {
+    const tabsBlock = blocks.find((block) => block.id === tabsBlockId && block.type === 'tabs');
+    if (!tabsBlock || !selectedBlock || selectedBlock.id === tabsBlockId) return;
+    const activeTabId = getActiveTabId(tabsBlock);
+    if (!activeTabId) return;
+    updateBlock(selectedBlock.id, (prev) => ({ ...prev, meta: { ...(prev.meta || {}), tabGroupId: tabsBlockId, tabId: activeTabId } }));
+  }, [blocks, selectedBlock, updateBlock]);
+
+  const unassignSelectedBlockFromTabs = useCallback(() => {
+    if (!selectedBlock || selectedBlock.type === 'tabs') return;
+    updateBlock(selectedBlock.id, (prev) => ({ ...prev, meta: { ...(prev.meta || {}), tabGroupId: null, tabId: null } }));
+  }, [selectedBlock, updateBlock]);
+
+  const handleSave = useCallback(async () => {
     if (!id) return;
     setSaving(true);
     setError(null);
@@ -581,855 +773,277 @@ export default function PageEditor(){
         title: formatTitle(title),
         page_date: pageDate || null,
         pinned,
-        banner_url: bannerUrl.trim() ? bannerUrl.trim() : null,
-        banner_gradient: bannerGradient.trim() ? bannerGradient.trim() : null,
-        blocks: blocks.map(block => ({
-          id: block.id,
-          type: block.type,
-          text: block.text ?? '',
-          checked: block.checked ?? false,
-          url: block.url ?? null,
-          relation: block.relation ?? null,
-          meta: block.meta ?? null
-        }))
+        banner_url: bannerUrl || null,
+        banner_gradient: bannerGradient || null,
+        blocks: blocks.map((block) => ({
+          ...block,
+          meta: {
+            ...(block.meta || {}),
+            layout: getLayout(block),
+            links: getLinks(block),
+            display: getDisplay(block),
+            ...(block.type === 'tabs' ? { tabs: getTabs(block), activeTabId: getActiveTabId(block) } : null),
+          },
+        })),
       });
+      await loadAuxData();
     } catch (err: any) {
-      setError(err.message || 'Failed to save page');
+      setError(err?.message || 'Failed to save page');
     } finally {
       setSaving(false);
     }
-  };
+  }, [bannerGradient, bannerUrl, blocks, id, loadAuxData, pageDate, pinned, title]);
 
-  const handleDelete = async () => {
+  const togglePinned = useCallback(async () => {
     if (!id) return;
-    if (!window.confirm('Delete this page?')) return;
+    const next = !pinned;
+    setPinned(next);
+    try {
+      await api.put(`/api/life/pages/${id}`, { pinned: next }, { silentSuccess: true });
+    } catch (err: any) {
+      setPinned(!next);
+      setError(err?.message || 'Failed to update pinned state');
+    }
+  }, [id, pinned]);
+
+  const handleDeletePage = useCallback(async () => {
+    if (!id || !window.confirm('Удалить страницу полностью?')) return;
     await api.del(`/api/life/pages/${id}`);
-    nav('/pages');
-  };
+    navigate('/pages');
+  }, [id, navigate]);
 
-  const handleBlockInput = (blockId: string, value: string, html?: string) => {
-    updateBlock(blockId, current => {
-      const next: Block = { ...current, text: value };
-      if (html !== undefined && RICH_TEXT_TYPES.includes(current.type)) {
-        const meta = typeof current.meta === 'object' && current.meta !== null ? { ...current.meta } : {};
-        next.meta = { ...meta, html };
-      }
-      return next;
-    });
-    setFocusId(blockId);
-  };
-
-  const commitRichText = useCallback((blockId: string) => {
-    const element = blockRefs.current.get(blockId);
-    if (!element) return;
-    const text = element.innerText;
-    const html = element.innerHTML;
-    updateBlock(blockId, current => {
-      if (!RICH_TEXT_TYPES.includes(current.type)) {
-        return { ...current, text };
-      }
-      const meta = typeof current.meta === 'object' && current.meta !== null ? { ...current.meta } : {};
-      return { ...current, text, meta: { ...meta, html } };
-    });
+  const uploadPdfForBlock = useCallback(async (blockId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/api/life/uploads/pdf', formData);
+    updateBlock(blockId, (prev) => ({ ...prev, url: response.url || '', text: prev.text || file.name.replace(/\.pdf$/i, ''), meta: { ...(prev.meta || {}), originalName: response.originalName || file.name } }));
   }, [updateBlock]);
 
-  const applyFormatting = useCallback(
-    (command: string, value?: string) => {
-      if (!formatMenu) return;
-      const selection = window.getSelection();
-      if (selectionRef.current) {
-        selection?.removeAllRanges();
-        selection?.addRange(selectionRef.current);
-      }
-      try {
-        document.execCommand(command, false, value);
-      } catch (err) {
-        console.error(err);
-      }
-      commitRichText(formatMenu.blockId);
-      selectionRef.current = null;
-      setFormatMenu(null);
-    },
-    [commitRichText, formatMenu]
-  );
-
-  const insertEmoji = useCallback(
-    (blockId: string, emoji: string) => {
-      const element = blockRefs.current.get(blockId);
-      if (!element) return;
-      element.focus();
-      const selection = window.getSelection();
-      if (lastSelectionRef.current) {
-        selection?.removeAllRanges();
-        selection?.addRange(lastSelectionRef.current);
-      } else {
-        selection?.selectAllChildren(element);
-        selection?.collapseToEnd();
-      }
-      try {
-        document.execCommand('insertText', false, emoji);
-      } catch (err) {
-        console.error(err);
-      }
-      commitRichText(blockId);
-      setEmojiMenu(null);
-    },
-    [commitRichText]
-  );
-
-  const updatePdfMeta = useCallback(
-    (blockId: string, mutate: (meta: PdfMeta) => PdfMeta) => {
-      updateBlock(blockId, current => {
-        const meta = ensurePdfMeta(current.meta);
-        const nextMeta = mutate(meta);
-        return { ...current, meta: nextMeta };
-      });
-    },
-    [updateBlock]
-  );
-
-  const addPdfMarker = useCallback(
-    (blockId: string, marker: PdfMarker) => {
-      updatePdfMeta(blockId, meta => ({ ...meta, markers: [...meta.markers, marker] }));
-    },
-    [updatePdfMeta]
-  );
-
-  const togglePdfMarker = useCallback(
-    (blockId: string, markerId: string) => {
-      updatePdfMeta(blockId, meta => ({
-        ...meta,
-        markers: meta.markers.map(marker =>
-          marker.id === markerId ? { ...marker, done: !marker.done } : marker
-        )
-      }));
-    },
-    [updatePdfMeta]
-  );
-
-  const updatePdfMarker = useCallback(
-    (blockId: string, markerId: string, updates: Partial<PdfMarker>) => {
-      updatePdfMeta(blockId, meta => ({
-        ...meta,
-        markers: meta.markers.map(marker =>
-          marker.id === markerId ? { ...marker, ...updates } : marker
-        )
-      }));
-    },
-    [updatePdfMeta]
-  );
-  const removePdfMarker = useCallback(
-    (blockId: string, markerId: string) => {
-      updatePdfMeta(blockId, meta => ({
-        ...meta,
-        markers: meta.markers.filter(marker => marker.id !== markerId)
-      }));
-    },
-    [updatePdfMeta]
-  );
-
-  const handlePdfFileChange = useCallback(
-    async (blockId: string, file: File | null) => {
-      if (!file) return;
-      setUploadingPdfBlockId(blockId);
-      setPdfErrors(prev => ({ ...prev, [blockId]: null }));
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        const response = await api.post('/api/life/uploads/pdf', formData, { silentSuccess: true });
-        if (response?.url) {
-          updateBlock(blockId, current => {
-            const meta = ensurePdfMeta(current.meta);
-            const fallbackTitle = file.name.replace(/\.pdf$/i, '');
-            return {
-              ...current,
-              text: current.text && current.text.trim().length > 0 ? current.text : fallbackTitle,
-              url: response.url,
-              meta: { ...meta, originalName: file.name }
-            };
-          });
-        }
-      } catch (err: any) {
-        setPdfErrors(prev => ({ ...prev, [blockId]: err?.message || 'Не удалось загрузить файл' }));
-      } finally {
-        setUploadingPdfBlockId(null);
-      }
-    },
-    [updateBlock]
-  );
-
-  const setPdfUrl = useCallback(
-    (blockId: string) => {
-      const value = window.prompt('Ссылка на PDF документ');
-      if (value === null) return;
-      const trimmed = value.trim();
-      if (!trimmed) return;
-      setPdfErrors(prev => ({ ...prev, [blockId]: null }));
-      updateBlock(blockId, current => ({
-        ...current,
-        url: trimmed,
-        meta: ensurePdfMeta(current.meta)
-      }));
-    },
-    [updateBlock]
-  );
-
-  const handleBlockContextMenu = (event: React.MouseEvent, block: Block) => {
-    if (RICH_TEXT_TYPES.includes(block.type)) {
-      const selection = window.getSelection();
-      if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
-        try {
-          const range = selection.getRangeAt(0);
-          const container = blockRefs.current.get(block.id);
-          if (container && container.contains(range.commonAncestorContainer)) {
-            if (selection.toString().trim().length > 0) {
-              event.preventDefault();
-              selectionRef.current = range.cloneRange();
-              setFormatMenu({ blockId: block.id, x: event.clientX, y: event.clientY });
-              setMenu(null);
-              setEmojiMenu(null);
-              return;
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-    event.preventDefault();
-    selectionRef.current = null;
-    setFormatMenu(null);
-    setEmojiMenu(null);
-    openMenu(block.id, event.clientX, event.clientY);
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent, block: Block) => {
-    if (event.key === 'Enter' && !event.shiftKey && EDITABLE_TYPES.includes(block.type)) {
-      event.preventDefault();
-      insertBlockAfter(block.id, block.type === 'bulleted' || block.type === 'numbered' ? block.type : 'text');
-      return;
-    }
-    if (event.key === 'Backspace') {
-      const target = event.currentTarget as HTMLElement;
-      if ((target.textContent || '').trim().length === 0) {
-        event.preventDefault();
-        removeBlock(block.id);
-      }
-    }
-  };
-
-  const openEmojiMenuForBlock = (block: Block, event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!RICH_TEXT_TYPES.includes(block.type)) {
-      focusBlock(block.id);
-      return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      try {
-        lastSelectionRef.current = selection.getRangeAt(0).cloneRange();
-      } catch {
-        lastSelectionRef.current = null;
-      }
-    }
-    setEmojiMenu({ blockId: block.id, x: rect.left, y: rect.bottom + 6 });
-    setMenu(null);
-    setFormatMenu(null);
-  };
+  const connections = useMemo(() => {
+    const layouts = new Map(visibleBlocks.map((block) => [block.id, getLayout(block)]));
+    return visibleBlocks.flatMap((block) => {
+      const from = layouts.get(block.id);
+      if (!from) return [];
+      return getLinks(block).map((targetId) => {
+        const to = layouts.get(targetId);
+        if (!to) return null;
+        return { id: `${block.id}-${targetId}`, x1: from.x + from.w / 2, y1: from.y + from.h / 2, x2: to.x + to.w / 2, y2: to.y + to.h / 2 };
+      }).filter(Boolean) as Array<{ id: string; x1: number; y1: number; x2: number; y2: number }>;
+    });
+  }, [visibleBlocks]);
 
   if (loading) {
     return (
       <Shell>
-        <div className="text-sm opacity-70">Loading page…</div>
+        <div className="flex items-center gap-3 text-white/70">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Загрузка редактора страницы...
+        </div>
       </Shell>
     );
   }
 
   return (
     <Shell>
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <input
-          className="flex-1 text-3xl font-semibold bg-transparent outline-none border-b border-transparent focus:border-white/20"
-          value={title}
-          onChange={event => setTitle(event.target.value)}
-          placeholder="Untitled page"
-        />
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={togglePinned}
-            className={`flex h-10 w-10 items-center justify-center rounded-full border transition ${
-              pinned
-                ? 'border-amber-400/60 bg-amber-300 text-black hover:bg-amber-200'
-                : 'border-white/15 bg-white/10 text-white/80 hover:bg-white/15'
-            }`}
-            title={pinned ? 'Открепить страницу' : 'Закрепить страницу'}
-            aria-label={pinned ? 'Открепить страницу' : 'Закрепить страницу'}
+      <div className="space-y-4">
+        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#10202c]">
+          <div
+            className="relative border-b border-white/10 px-6 py-6"
+            style={{
+              backgroundImage: bannerUrl.trim()
+                ? `linear-gradient(rgba(8,16,24,0.68), rgba(8,16,24,0.88)), url(${bannerUrl.trim()})`
+                : bannerGradient.trim() || 'linear-gradient(135deg, rgba(14,27,38,0.95) 0%, rgba(22,41,54,0.92) 100%)',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
           >
-            {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white/80 transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
-            title="Сохранить страницу"
-            aria-label="Сохранить страницу"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          </button>
-          <button
-            onClick={handleDelete}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-red-400/40 bg-red-500/40 text-red-100 transition hover:bg-red-500/60"
-            title="Удалить страницу"
-            aria-label="Удалить страницу"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 mb-3 text-sm">
-        <label className="flex items-center gap-2">
-          <span className="opacity-70">Page date</span>
-          <input
-            type="date"
-            value={pageDate}
-            onChange={event => setPageDate(event.target.value)}
-            className="px-3 py-1 rounded bg-white/10 text-white"
-          />
-        </label>
-        {pageDate && (
-          <button
-            type="button"
-            onClick={() => setPageDate('')}
-            className="px-2 py-1 text-xs rounded bg-white/10 text-white/80 hover:bg-white/20"
-          >
-            Clear date
-          </button>
-        )}
-      </div>
-
-      {error && <div className="text-sm text-red-300 mb-3">{error}</div>}
-
-      <div className="mb-6 space-y-4">
-        <div className="relative h-48 overflow-hidden rounded-3xl border border-white/10 bg-black/40">
-          <div className="absolute inset-0" style={bannerPreviewStyle} />
-          <div className="absolute inset-0 bg-black/40" />
-          <button
-            type="button"
-            onClick={() => setShowBannerSettings(prev => !prev)}
-            className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white transition hover:bg-black/60"
-            title={showBannerSettings ? 'Скрыть настройки баннера' : 'Настроить баннер'}
-            aria-label={showBannerSettings ? 'Скрыть настройки баннера' : 'Настроить баннер'}
-          >
-            {showBannerSettings ? <X className="h-4 w-4" /> : <Edit3 className="h-4 w-4" />}
-          </button>
-          <div className="absolute inset-0 flex flex-col justify-end p-6 text-white">
-            <div className="text-3xl font-semibold drop-shadow">{formatTitle(title)}</div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/80">
-              {pinned && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-300/90 px-3 py-0.5 text-black font-semibold uppercase tracking-wide text-[10px]">
-                  <Pin className="h-3 w-3" /> Закреплено
-                </span>
-              )}
-              {formattedPageDate && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-white/30 bg-black/40 px-3 py-0.5">
-                  <CalendarDays className="h-3 w-3" /> {formattedPageDate}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {showBannerSettings && (
-          <div className="space-y-4 rounded-3xl border border-white/10 bg-black/30 p-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex flex-col gap-2 text-sm text-white/80">
-                <span className="text-xs uppercase tracking-wide text-white/60">Ссылка на изображение</span>
-                <div className="flex gap-2">
-                  <input
-                    value={bannerUrl}
-                    onChange={event => setBannerUrl(event.target.value)}
-                    placeholder="https://..."
-                    className="flex-1 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-white/30 focus:outline-none"
-                  />
-                  {bannerUrl && (
-                    <button
-                      type="button"
-                      onClick={() => setBannerUrl('')}
-                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white/80 transition hover:bg-white/20"
-                      title="Убрать изображение"
-                      aria-label="Убрать изображение"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-                <span className="text-xs text-white/50">Если указано изображение, оно перекроет градиент.</span>
-              </label>
-
-              <label className="flex flex-col gap-2 text-sm text-white/80">
-                <span className="text-xs uppercase tracking-wide text-white/60">CSS-градиент</span>
-                <textarea
-                  rows={2}
-                  value={bannerGradient}
-                  onChange={event => setBannerGradient(event.target.value)}
-                  placeholder="linear-gradient(...)"
-                  className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-white/30 focus:outline-none"
-                />
-                <span className="text-xs text-white/50">Введите CSS-значение или выберите вариант ниже.</span>
-              </label>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs uppercase tracking-wide text-white/60">Пресеты:</span>
-              {BANNER_GRADIENT_PRESETS.map(preset => {
-                const isActive = trimmedBannerGradient === preset.value;
-                return (
-                  <button
-                    key={preset.value}
-                    type="button"
-                    onClick={() => setBannerGradient(preset.value)}
-                    className={`h-12 w-20 rounded-xl border transition ${
-                      isActive ? 'border-white/70 ring-2 ring-white/60' : 'border-white/10 hover:border-white/40'
-                    }`}
-                    style={{
-                      backgroundImage: preset.value,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center'
-                    }}
-                    title={preset.label}
-                    aria-label={`Установить градиент: ${preset.label}`}
-                  />
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => setBannerGradient(DEFAULT_BANNER_GRADIENT)}
-                className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10"
-              >
-                По умолчанию
-              </button>
-              <button
-                type="button"
-                onClick={() => setBannerGradient('')}
-                className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10"
-              >
-                Очистить
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="card p-4 space-y-4">
-        {blocks.map((block, index) => {
-          const isPdf = block.type === 'pdf';
-          const pdfMeta = isPdf ? ensurePdfMeta(block.meta) : null;
-          const pdfError = pdfErrors[block.id] || null;
-          const pdfSrc = block.url ? resolveApiUrl(block.url) : '';
-          const pdfTitle = block.text || pdfMeta?.originalName || 'PDF документ';
-
-          return (
-            <div
-              key={block.id}
-              className="group relative flex items-start gap-3 rounded-xl p-2 transition-colors hover:bg-white/5"
-              onContextMenu={event => handleBlockContextMenu(event, block)}
-            >
-              <div className="w-32 shrink-0 text-xs uppercase tracking-wide text-white/40">{BLOCK_LABELS[block.type]}</div>
-
-              {block.type === 'divider' ? (
-                <div className="flex-1 pt-3" style={LTR_STYLE}>
-                  <div className="h-px bg-white/20" />
-                </div>
-              ) : block.type === 'image' ? (
-                <div className="flex-1 space-y-2" style={LTR_STYLE}>
-                  {block.url ? (
-                    <img
-                      src={block.url}
-                      alt="page block"
-                      className="max-h-96 rounded-xl border border-white/10 object-contain"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="px-3 py-2 text-sm rounded bg-white/10"
-                      onClick={() => setImageUrl(block.id)}
-                    >
-                      Указать ссылку
-                    </button>
-                  )}
-                  <input
-                    value={block.text || ''}
-                    onChange={event => handleBlockInput(block.id, event.target.value)}
-                    placeholder="Подпись (опционально)"
-                    className="w-full px-3 py-2 rounded bg-white/10 text-sm"
-                  />
-                </div>
-              ) : block.type === 'pdf' ? (
-                <div className="flex-1 space-y-3" style={LTR_STYLE}>
-                  <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                    <input
-                      value={block.text || ''}
-                      onChange={event => handleBlockInput(block.id, event.target.value)}
-                      placeholder="Название документа"
-                      className="flex-1 px-3 py-2 rounded bg-white/10 text-sm"
-                    />
-                    <div className="flex gap-2 flex-wrap">
-                      <label className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded bg-white/10 cursor-pointer">
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          className="hidden"
-                          onChange={event => handlePdfFileChange(block.id, event.target.files?.[0] || null)}
-                          disabled={uploadingPdfBlockId === block.id}
-                        />
-                        {uploadingPdfBlockId === block.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Загрузить PDF</span>}
-                      </label>
-                      <button
-                        type="button"
-                        className="px-3 py-2 text-xs rounded bg-white/10 hover:bg-white/20"
-                        onClick={() => setPdfUrl(block.id)}
-                      >
-                        Указать ссылку
-                      </button>
-                      {block.url && (
-                        <a
-                          href={pdfSrc}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="px-3 py-2 text-xs rounded bg-white/10 hover:bg-white/20"
-                        >
-                          Открыть PDF
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                  {pdfMeta?.originalName && (
-                    <div className="text-xs opacity-70">Исходный файл: {pdfMeta.originalName}</div>
-                  )}
-                  {pdfError && (
-                    <div className="text-xs text-red-300">{pdfError}</div>
-                  )}
-                  {block.url ? (
-                    <PdfReader
-                      src={pdfSrc}
-                      title={pdfTitle}
-                      originalName={pdfMeta?.originalName ?? null}
-                      markers={pdfMeta?.markers || []}
-                      onAddMarker={({ title, page }) =>
-                        addPdfMarker(block.id, { id: uuid(), title, page, done: false })
-                      }
-                      onToggleMarker={markerId => togglePdfMarker(block.id, markerId)}
-                      onRemoveMarker={markerId => removePdfMarker(block.id, markerId)}
-                      onRenameMarker={(markerId, value) =>
-                        updatePdfMarker(block.id, markerId, { title: value })
-                      }
-                      onChangeMarkerPage={(markerId, page) => updatePdfMarker(block.id, markerId, { page })}
-                    />
-                  ) : (
-                    <div className="text-xs opacity-60">Загрузите файл или укажите ссылку, чтобы просмотреть PDF.</div>
-                  )}
-                </div>
-              ) : block.type === 'todo' ? (
-                <label className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
-                  <input
-                    type="checkbox"
-                    checked={!!block.checked}
-                    onChange={event => updateBlock(block.id, { checked: event.target.checked })}
-                    className="mt-1"
-                  />
-                  <div
-                    className={BASE_EDITABLE_CLASS}
-                    contentEditable
-                    suppressContentEditableWarning
-                    data-block-id={block.id}
-                    ref={element => registerBlockRef(block.id, element)}
-                    onInput={event => {
-                      const target = event.currentTarget as HTMLElement;
-                      handleBlockInput(block.id, target.innerText, target.innerHTML);
-                    }}
-                    onKeyDown={event => handleKeyDown(event, block)}
-                    style={LTR_STYLE}
-                    dangerouslySetInnerHTML={getBlockHtml(block)}
-                  />
-                </label>
-              ) : block.type === 'bulleted' ? (
-                <div className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
-                  <span className="mt-1 text-white/70">•</span>
-                  <div
-                    className={BASE_EDITABLE_CLASS}
-                    contentEditable
-                    suppressContentEditableWarning
-                    data-block-id={block.id}
-                    ref={element => registerBlockRef(block.id, element)}
-                    onInput={event => {
-                      const target = event.currentTarget as HTMLElement;
-                      handleBlockInput(block.id, target.innerText, target.innerHTML);
-                    }}
-                    onKeyDown={event => handleKeyDown(event, block)}
-                    style={LTR_STYLE}
-                    dangerouslySetInnerHTML={getBlockHtml(block)}
-                  />
-                </div>
-              ) : block.type === 'numbered' ? (
-                <div className="flex-1 flex items-start gap-3" style={LTR_STYLE}>
-                  <span className="mt-1 text-white/70">{index + 1}.</span>
-                  <div
-                    className={BASE_EDITABLE_CLASS}
-                    contentEditable
-                    suppressContentEditableWarning
-                    data-block-id={block.id}
-                    ref={element => registerBlockRef(block.id, element)}
-                    onInput={event => {
-                      const target = event.currentTarget as HTMLElement;
-                      handleBlockInput(block.id, target.innerText, target.innerHTML);
-                    }}
-                    onKeyDown={event => handleKeyDown(event, block)}
-                    style={LTR_STYLE}
-                    dangerouslySetInnerHTML={getBlockHtml(block)}
-                  />
-                </div>
-              ) : (
-                <div className="flex-1">
-                  <div
-                    className={[
-                      BASE_EDITABLE_CLASS,
-                      block.type === 'heading1' ? 'text-4xl font-semibold' : '',
-                      block.type === 'heading2' ? 'text-3xl font-semibold' : '',
-                      block.type === 'heading3' ? 'text-2xl font-semibold' : '',
-                      block.type === 'quote' ? 'border-l-4 border-white/30 pl-4 italic text-white/70' : '',
-                      block.type === 'code' ? 'font-mono bg-black/40 border border-white/10 rounded-lg px-3 py-2' : ''
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    contentEditable
-                    suppressContentEditableWarning
-                    data-block-id={block.id}
-                    ref={element => registerBlockRef(block.id, element)}
-                    onInput={event => {
-                      const target = event.currentTarget as HTMLElement;
-                      handleBlockInput(block.id, target.innerText, target.innerHTML);
-                    }}
-                    onKeyDown={event => handleKeyDown(event, block)}
-                    style={LTR_STYLE}
-                    dangerouslySetInnerHTML={getBlockHtml(block)}
-                  />
-                </div>
-              )}
-
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
-                <button
-                  type="button"
-                  className="px-2 py-1 text-xs rounded bg-white/10"
-                  onClick={event => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    openMenu(block.id, rect.left, rect.bottom + 4);
-                  }}
-                >
-                  Тип
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-3">
+                <button type="button" onClick={() => navigate('/pages')} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/80 hover:bg-white/10">
+                  <ArrowLeft className="mr-2 inline h-4 w-4" />
+                  К списку
                 </button>
-                <button type="button" className="px-2 py-1 text-xs rounded bg-white/10" onClick={() => insertBlockAfter(block.id)}>
-                  +
+                <div>
+                  <input value={title} onChange={(e) => setTitle(e.target.value)} className="w-full min-w-[280px] bg-transparent text-3xl font-semibold text-white outline-none" placeholder="Название страницы" />
+                  <div className="mt-2 text-sm text-white/55">ПКМ по странице добавляет блоки. ПКМ по блоку открывает настройки и действия.</div>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => setShowPageSettings((prev) => !prev)} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/80 hover:bg-white/10">Настройки страницы</button>
+                <button type="button" onClick={togglePinned} className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/80 hover:bg-white/10">
+                  {pinned ? <PinOff className="mr-2 inline h-4 w-4" /> : <Pin className="mr-2 inline h-4 w-4" />}
+                  {pinned ? 'Открепить' : 'Закрепить'}
                 </button>
-                <button
-                  type="button"
-                  className="px-2 py-1 text-xs rounded bg-white/10"
-                  onClick={event => openEmojiMenuForBlock(block, event)}
-                >
-                  😊
+                <button type="button" onClick={handleSave} disabled={saving} className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-950">
+                  {saving ? <Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> : <Save className="mr-2 inline h-4 w-4" />}
+                  Сохранить
                 </button>
-                <button type="button" className="px-2 py-1 text-xs rounded bg-white/10" onClick={() => duplicateBlock(block.id)}>
-                  Копировать
-                </button>
-                <button type="button" className="px-2 py-1 text-xs rounded bg-red-500/40" onClick={() => removeBlock(block.id)}>
-                  Удалить
+                <button type="button" onClick={handleDeletePage} className="rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-sm text-red-100 hover:bg-red-500/15">
+                  <Trash2 className="mr-2 inline h-4 w-4" />
+                  Удалить страницу
                 </button>
               </div>
-
-              {block.relation && (
-                <div className="absolute -bottom-2 right-3 rounded-full bg-white/10 px-3 py-1 text-[10px] uppercase tracking-wide text-white/60">
-                  Связь: {block.relation}
-                </div>
-              )}
             </div>
-          );
-        })}
 
-        <button
-          type="button"
-          onClick={() => insertBlockAtEnd('text')}
-          className="w-full px-3 py-2 rounded-xl border border-dashed border-white/20 text-sm text-white/70 hover:border-white/40"
-        >
-          Добавить блок
-        </button>
-      </div>
-
-      {menu && (
-        <div
-          ref={menuRef}
-          className="fixed z-50 w-64 rounded-xl border border-white/10 bg-neutral-900/95 shadow-2xl p-2"
-          style={{ left: menu.x, top: menu.y }}
-        >
-          <div className="text-xs uppercase tracking-wide text-white/40 px-2 mb-1">Тип блока</div>
-          <div className="space-y-1">
-            {Object.entries(BLOCK_LABELS).map(([value, label]) => (
-              <button
-                key={value}
-                className="w-full text-left px-2 py-1 rounded hover:bg-white/10 text-sm"
-                onClick={() => {
-                  convertBlockType(menu.blockId, value as BlockType);
-                  if (value === 'image') setTimeout(() => setImageUrl(menu.blockId), 0);
-                  setMenu(null);
-                }}
-              >
-                {label}
-              </button>
-            ))}
+            {showPageSettings ? (
+              <div className="mt-5 grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 md:grid-cols-3">
+                <input type="date" value={pageDate} onChange={(e) => setPageDate(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" />
+                <input value={bannerUrl} onChange={(e) => setBannerUrl(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="URL баннера" />
+                <input value={bannerGradient} onChange={(e) => setBannerGradient(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="CSS gradient" />
+              </div>
+            ) : null}
           </div>
-          <div className="border-t border-white/10 my-2" />
-          <button
-            className="w-full text-left px-2 py-1 rounded hover:bg-white/10 text-sm"
-            onClick={() => {
-              setRelation(menu.blockId);
-              setMenu(null);
-            }}
-          >
-            Указать связь...
-          </button>
-          <button
-            className="w-full text-left px-2 py-1 rounded hover:bg-white/10 text-sm"
-            onClick={() => {
-              duplicateBlock(menu.blockId);
-              setMenu(null);
-            }}
-          >
-            Дублировать
-          </button>
-          <button
-            className="w-full text-left px-2 py-1 rounded hover:bg-white/10 text-sm"
-            onClick={() => {
-              insertBlockAfter(menu.blockId);
-              setMenu(null);
-            }}
-          >
-            Вставить ниже
-          </button>
-          <button
-            className="w-full text-left px-2 py-1 rounded hover:bg-red-500/20 text-sm text-red-200"
-            onClick={() => {
-              removeBlock(menu.blockId);
-              setMenu(null);
-            }}
-          >
-            Удалить блок
-          </button>
-        </div>
-      )}
 
-      {formatMenu && (
-        <div
-          ref={formatMenuRef}
-          className="fixed z-50 w-72 rounded-xl border border-white/10 bg-neutral-900/95 shadow-2xl p-3 space-y-3"
-          style={{ left: formatMenu.x, top: formatMenu.y }}
-        >
-          <div className="text-xs uppercase tracking-wide text-white/50">Форматирование текста</div>
-          <div className="flex flex-wrap gap-2">
-            {FORMAT_COLORS.map(color => (
-              <button
-                key={color}
-                type="button"
-                className="h-6 w-6 rounded-full border border-white/20"
-                style={{ backgroundColor: color }}
-                onClick={() => applyFormatting('foreColor', color)}
-                title={`Цвет ${color}`}
-              />
-            ))}
-          </div>
-          <div className="space-y-2">
-            <select
-              className="w-full px-2 py-1 rounded bg-white/10 text-sm"
-              onChange={event => {
-                const value = event.target.value;
-                if (value === 'inherit') {
-                  applyFormatting('removeFormat');
-                } else {
-                  applyFormatting('fontName', value);
-                }
+          <div className="overflow-auto bg-[#0b1720] p-6">
+            <div
+              ref={pageRef}
+              className="relative mx-auto rounded-[30px] border border-white/10 bg-[#10202c]"
+              style={{ width: pageBounds.width, height: pageBounds.height }}
+              onMouseDown={() => {
+                setSelectedId(null);
+                setConnectingFrom(null);
+                setShowTabsDropdownFor(null);
               }}
-              defaultValue="inherit"
+              onContextMenu={(event) => {
+                event.preventDefault();
+                const rect = event.currentTarget.getBoundingClientRect();
+                setShowTabsDropdownFor(null);
+                setContextMenu({ kind: 'page', x: event.clientX - rect.left, y: event.clientY - rect.top });
+              }}
             >
-              {FONT_FAMILIES.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
+              <svg className="pointer-events-none absolute inset-0 h-full w-full">
+                {connections.map((line) => (
+                  <path key={line.id} d={`M ${line.x1} ${line.y1} C ${line.x1 + 120} ${line.y1}, ${line.x2 - 120} ${line.y2}, ${line.x2} ${line.y2}`} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="2.5" />
+                ))}
+              </svg>
+
+              {visibleBlocks.map((block) => (
+                <BlockCard
+                  key={block.id}
+                  block={block}
+                  allBlocks={blocks}
+                  selected={selectedId === block.id}
+                  tags={tagOptions}
+                  pages={pageOptions}
+                  calendarItems={calendarItems}
+                  groupedCount={block.type === 'tabs' ? countBlocksInTabGroup(block.id) : 0}
+                  selectedBlock={selectedBlock}
+                  onAssignSelected={() => assignBlockToTabs(block.id)}
+                  onUnassignSelected={unassignSelectedBlockFromTabs}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0 || isInteractiveTarget(event.target)) return;
+                    event.stopPropagation();
+                    startDrag(block.id, 'move', event.clientX, event.clientY);
+                    setSelectedId(block.id);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const rect = pageRef.current?.getBoundingClientRect();
+                    if (!rect) return;
+                    setSelectedId(block.id);
+                    setShowTabsDropdownFor(null);
+                    setContextMenu({ kind: 'block', blockId: block.id, x: event.clientX - rect.left, y: event.clientY - rect.top });
+                  }}
+                  onResizeStart={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    startDrag(block.id, 'resize', event.clientX, event.clientY);
+                  }}
+                  onChange={(patch) => updateBlock(block.id, patch)}
+                  onUploadPdf={(file) => uploadPdfForBlock(block.id, file)}
+                />
               ))}
-            </select>
-            <div className="flex flex-wrap gap-2">
-              {FONT_SIZES.map(size => (
-                <button
-                  key={size.value}
-                  type="button"
-                  className="px-2 py-1 text-xs rounded bg-white/10 hover:bg-white/20"
-                  onClick={() => applyFormatting('fontSize', String(size.value))}
+
+              {contextMenu ? (
+                <div
+                  ref={menuRef}
+                  className="absolute z-50 min-w-[240px] rounded-2xl border border-white/10 bg-[#122330] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.35)]"
+                  style={{ left: contextMenu.x, top: contextMenu.y }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  {size.label}
-                </button>
-              ))}
+                  {contextMenu.kind === 'page' ? (
+                    <div className="space-y-1">
+                      {(Object.keys(BLOCK_PRESETS) as BlockType[]).map((type) => (
+                        <button key={type} type="button" onClick={() => { addBlock(type, contextMenu.x, contextMenu.y); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">
+                          Добавить: {BLOCK_PRESETS[type].label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {contextMenu.kind === 'block' ? (
+                    <div className="space-y-1">
+                      <button type="button" onClick={() => { duplicateBlock(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Дублировать блок</button>
+                      <button type="button" onClick={() => { const current = blocks.find((b) => b.id === contextMenu.blockId); if (!current) return; const value = window.prompt('Собственное название блока', getDisplay(current).customTitle || ''); if (value !== null) updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { customTitle: value })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Свое название блока</button>
+                      <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { hideChrome: !getDisplay(prev).hideChrome })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Показать/скрыть оконтовку</button>
+                      <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { hideHeader: !getDisplay(prev).hideHeader })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Показать/скрыть заголовок</button>
+                      <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { locked: !getDisplay(prev).locked })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Зафиксировать / снять фиксацию</button>
+                      <button type="button" onClick={() => { setConnectingFrom(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Начать связь с этим блоком</button>
+                      <button type="button" onClick={() => { if (connectingFrom && connectingFrom !== contextMenu.blockId) updateBlock(connectingFrom, (prev) => setLinks(prev, [...getLinks(prev), contextMenu.blockId])); setConnectingFrom(null); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Связать сюда</button>
+                      <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setLinks(prev, [])); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Очистить связи</button>
+                      {blocks.find((item) => item.id === contextMenu.blockId)?.type !== 'tabs' && tabsBlocks.length > 0 ? (
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => setShowTabsDropdownFor((prev) => (prev === contextMenu.blockId ? null : contextMenu.blockId))}
+                            className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10"
+                          >
+                            Добавить в Вкладку...
+                          </button>
+                          {showTabsDropdownFor === contextMenu.blockId ? (
+                            <div className="ml-2 space-y-1 rounded-xl border border-white/10 bg-black/20 p-2">
+                              {tabsBlocks.map((tabsBlock) => {
+                                const activeId = getActiveTabId(tabsBlock);
+                                const activeTab = getTabs(tabsBlock).find((tab) => tab.id === activeId);
+                                const title = getDisplay(tabsBlock).customTitle.trim() || tabsBlock.text?.trim() || 'Tabs';
+                                return (
+                                  <button
+                                    key={tabsBlock.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (!activeTab) return;
+                                      updateBlock(contextMenu.blockId, (prev) => ({ ...prev, meta: { ...(prev.meta || {}), tabGroupId: tabsBlock.id, tabId: activeTab.id } }));
+                                      setContextMenu(null);
+                                      setShowTabsDropdownFor(null);
+                                    }}
+                                    className="block w-full rounded-lg px-3 py-2 text-left text-xs text-white/75 hover:bg-white/10"
+                                  >
+                                    {title} / {activeTab?.title || 'Tab'}
+                                  </button>
+                                );
+                              })}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateBlock(contextMenu.blockId, (prev) => ({ ...prev, meta: { ...(prev.meta || {}), tabGroupId: null, tabId: null } }));
+                                  setContextMenu(null);
+                                  setShowTabsDropdownFor(null);
+                                }}
+                                className="block w-full rounded-lg px-3 py-2 text-left text-xs text-white/60 hover:bg-white/10"
+                              >
+                                Убрать из Tabs
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {['calendar', 'pageNav'].includes(blocks.find((item) => item.id === contextMenu.blockId)?.type || '') ? (
+                        <button type="button" onClick={() => { const current = blocks.find((item) => item.id === contextMenu.blockId); if (!current) return; const selected = Array.isArray(current.meta?.selectedTagIds) ? current.meta.selectedTagIds : []; const value = window.prompt('ID тегов через запятую', selected.join(', ')); if (value !== null) { const ids = value.split(',').map((item) => Number.parseInt(item.trim(), 10)).filter((item) => Number.isInteger(item)); updateBlock(contextMenu.blockId, (prev) => ({ ...prev, meta: { ...(prev.meta || {}), selectedTagIds: ids } })); } setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Фильтр по тегам</button>
+                      ) : null}
+                      <button type="button" onClick={() => { removeBlock(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10">Удалить блок</button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
-          <div className="flex flex-col gap-2 text-sm">
-            <button
-              type="button"
-              className="px-3 py-2 rounded bg-white/10 hover:bg-white/20"
-              onClick={() => {
-                const url = window.prompt('Введите ссылку');
-                if (!url) return;
-                applyFormatting('createLink', url);
-              }}
-            >
-              Сделать ссылкой
-            </button>
-            <button
-              type="button"
-              className="px-3 py-2 rounded bg-white/10 hover:bg-white/20"
-              onClick={() => applyFormatting('removeFormat')}
-            >
-              Очистить форматирование
-            </button>
-          </div>
         </div>
-      )}
 
-      {emojiMenu && (
-        <div
-          ref={emojiMenuRef}
-          className="fixed z-50 w-56 rounded-xl border border-white/10 bg-neutral-900/95 shadow-2xl p-2 flex flex-wrap gap-1"
-          style={{ left: emojiMenu.x, top: emojiMenu.y }}
-        >
-          {EMOJI_OPTIONS.map(emoji => (
-            <button
-              key={emoji}
-              type="button"
-              className="h-8 w-8 rounded bg-white/10 text-lg hover:bg-white/20"
-              onClick={() => insertEmoji(emojiMenu.blockId, emoji)}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
+        {error ? <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-100">{error}</div> : null}
+      </div>
     </Shell>
   );
 }
-
-
-
-
-
-
-
-
-

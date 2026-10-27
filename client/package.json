@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/nunito": "^5.1.0",
     "@tiptap/extension-heading": "^3.4.5",
     "@tiptap/extension-image": "^3.4.5",
     "@tiptap/extension-task-item": "^3.4.5",
@@ -19,12 +20,14 @@
     "html-to-image": "^1.11.11",
     "lucide-react": "^0.460.0",
     "pdfjs-dist": "^3.11.174",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

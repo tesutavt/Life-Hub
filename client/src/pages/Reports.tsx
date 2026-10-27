@@ -2,9 +2,9 @@ import React, { useEffect, useState } from "react";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { ReportData, ReportHistoryResponse } from "../types/reports";
-import { Modal } from "../components/ui/Modal";
-import ReportView from "../components/reports/ReportView";
-import { RefreshCcw } from "lucide-react";
+import ReportImageModal from "../components/reports/ReportImageModal";
+import ReportView, { reportHasActivity, sectionHasActivity } from "../components/reports/ReportView";
+import { ImageDown, RefreshCcw } from "lucide-react";
 
 type PeriodFilter = "all" | "daily" | "weekly" | "monthly";
 
@@ -26,59 +26,35 @@ const formatSigned = (value: number) => {
   return "0";
 };
 
+const SECTION_EMOJI: Record<string, string> = { fitness: "💪", languages: "🗣️", courses: "🎓", goals: "🎯" };
+
+/** Карточка отчёта в списке: только то, что реально сделано за период. */
 const ReportHistoryCard = ({ report, onOpen }: { report: ReportData; onOpen: (report: ReportData) => void }) => {
   const generated = dateFormatter.format(new Date(report.generated_at));
+  const active = [report.sections.fitness, report.sections.languages, report.sections.courses, report.sections.goals].filter(sectionHasActivity);
   return (
-    <div className="card space-y-3">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-white">{report.period_label}</div>
-          <div className="text-xs text-white/50">
-            Период: {report.range.label || `${report.range.start} — ${report.range.end}`}
-          </div>
-          <div className="text-xs text-white/40">Сформирован: {generated}</div>
-        </div>
-        <button
-          onClick={() => onOpen(report)}
-          className="self-start sm:self-auto rounded-full border border-white/20 px-4 py-1.5 text-xs uppercase tracking-wide text-white/70 hover:bg-white/10"
-        >
-          Открыть
-        </button>
+    <button
+      type="button"
+      onClick={() => onOpen(report)}
+      className="card flex w-full flex-col gap-2 text-left transition hover:border-brand-mint/40 sm:flex-row sm:items-center"
+    >
+      <div className="min-w-0 sm:w-72">
+        <div className="truncate text-sm font-semibold text-white">{report.period_label}</div>
+        <div className="text-xs text-white/45">Сформирован {generated}</div>
       </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-sm text-white/80">
-        {[
-          {
-            key: 'fitness',
-            label: report.sections.fitness?.title || 'Фитнес',
-            section: report.sections.fitness,
-          },
-          { key: 'languages', label: 'Языки', section: report.sections.languages },
-          { key: 'courses', label: 'Курсы', section: report.sections.courses },
-          { key: 'goals', label: 'Цели', section: report.sections.goals },
-        ]
-          .filter((entry) => entry.section)
-          .map((entry) => {
-            const unitSuffix = entry.section?.unit ? ` ${entry.section.unit}` : '';
-            return (
-              <div
-                key={entry.key}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-              >
-                <div className="text-xs uppercase tracking-wide text-white/50">
-                  {entry.label}
-                </div>
-                <div className="font-semibold text-white mt-1">
-                  {formatNumber(entry.section!.summary.current)}{unitSuffix}
-                </div>
-                <div className="text-xs text-white/50">
-                  {formatSigned(entry.section!.summary.difference)}{unitSuffix} vs прошлый период
-                </div>
-              </div>
-            );
-          })}
+      <div className="flex flex-1 flex-wrap gap-2">
+        {active.map((section) => {
+          const grew = section.summary.previous > 0 && section.summary.current > section.summary.previous;
+          return (
+            <span key={section.key} className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1 text-sm text-white/85">
+              {SECTION_EMOJI[section.key] || "✨"} {formatNumber(section.summary.current)} {section.unit}
+              {grew && <span className="text-xs text-emerald-300">▲ {formatSigned(section.summary.difference)}</span>}
+            </span>
+          );
+        })}
       </div>
-    </div>
+      <span className="shrink-0 text-xs text-brand-mint">Открыть →</span>
+    </button>
   );
 };
 
@@ -87,6 +63,11 @@ export default function Reports() {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<PeriodFilter>("all");
   const [selected, setSelected] = useState<ReportData | null>(null);
+  const [imageOpen, setImageOpen] = useState(false);
+  // Пустые периоды (без активности) по умолчанию скрыты
+  const [showEmpty, setShowEmpty] = useState(false);
+  const visibleReports = showEmpty ? reports : reports.filter((report) => reportHasActivity(report));
+  const hiddenCount = reports.length - visibleReports.length;
 
   const loadReports = async (activeFilter: PeriodFilter) => {
     setLoading(true);
@@ -110,15 +91,23 @@ export default function Reports() {
     <Shell>
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <div className="text-2xl font-semibold text-white">Мастер-отчёты</div>
-          <div className="text-sm text-white/60">История ежедневных, недельных и месячных отчётов.</div>
+          <div className="text-2xl font-semibold text-white">Отчёты</div>
+          <div className="text-sm text-white/60">Что получилось за день, неделю и месяц.</div>
         </div>
-        <button
-          onClick={() => loadReports(filter)}
-          className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-wide text-white/70 hover:bg-white/10"
-        >
-          <RefreshCcw className="w-4 h-4" /> Обновить
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setImageOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full bg-brand-mint px-4 py-2 text-xs font-semibold uppercase tracking-wide text-brand-deep hover:brightness-110"
+          >
+            <ImageDown className="w-4 h-4" /> Итоги картинкой
+          </button>
+          <button
+            onClick={() => loadReports(filter)}
+            className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-xs uppercase tracking-wide text-white/70 hover:bg-white/10"
+          >
+            <RefreshCcw className="w-4 h-4" /> Обновить
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 mt-4">
@@ -140,40 +129,26 @@ export default function Reports() {
       <div className="mt-6 space-y-4">
         {loading ? (
           <div className="text-sm text-white/60">Загружаем историю отчётов…</div>
-        ) : reports.length === 0 ? (
-          <div className="text-sm text-white/60">Отчёты ещё не сформированы.</div>
+        ) : visibleReports.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-white/15 p-8 text-center">
+            <div className="text-5xl">🌱</div>
+            <div className="mt-2 font-semibold text-white">Пока нечего показать</div>
+            <div className="mt-1 text-sm text-white/60">Отчёт появится, как только вы что-нибудь сделаете: пройдёте урок, отметите привычку или шаг к цели.</div>
+          </div>
         ) : (
-          reports.map((report) => (
+          visibleReports.map((report) => (
             <ReportHistoryCard key={`${report.period_key}-${report.period}`} report={report} onOpen={setSelected} />
           ))
         )}
+        {!loading && hiddenCount > 0 && (
+          <button type="button" onClick={() => setShowEmpty((v) => !v)} className="text-xs text-white/45 hover:text-white">
+            {showEmpty ? "Скрыть пустые периоды" : `Показать пустые периоды (${hiddenCount})`}
+          </button>
+        )}
       </div>
 
-      <Modal
-        open={!!selected}
-        onClose={() => setSelected(null)}
-        closeOnOverlayClick
-        overlayClassName="bg-black/70 backdrop-blur-sm"
-        contentClassName="w-full max-w-6xl max-h-[85vh] overflow-y-auto rounded-3xl border border-white/10 bg-brand-night/80 px-6 py-6"
-      >
-        {selected && (
-          <div className="space-y-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-xs uppercase tracking-wide text-white/60">Сохранённый отчёт</div>
-                <div className="text-xl font-semibold text-white mt-1">{selected.period_label}</div>
-              </div>
-              <button
-                onClick={() => setSelected(null)}
-                className="rounded-full border border-white/20 px-3 py-1 text-xs uppercase tracking-wide text-white/70 hover:bg-white/10"
-              >
-                Закрыть
-              </button>
-            </div>
-            <ReportView report={selected} />
-          </div>
-        )}
-      </Modal>
+      <ReportImageModal open={!!selected} report={selected} onClose={() => setSelected(null)} />
+      <ReportImageModal open={imageOpen} onClose={() => setImageOpen(false)} />
     </Shell>
   );
 }

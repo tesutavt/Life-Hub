@@ -1,2 +1,0 @@
-const result = await db.run(UPDATE languages SET  WHERE id=? AND user_id=?, [...values, req.params.id, req.user.uid]);
-  if (result.chang

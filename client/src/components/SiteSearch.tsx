@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { Search as SearchIcon } from 'lucide-react';
+import { matchCommands, SearchCommand } from './searchCommands';
 import TagBadge from './tags/TagBadge';
 import { api } from '../api';
 
@@ -101,7 +103,16 @@ type SearchGoal = {
   created_at?: string | null;
 };
 
+type SearchLearnCourse = { id: number; title: string; description?: string | null; icon?: string | null };
+type SearchLearnLesson = { id: number; title: string; description?: string | null; course_id: number; course_title: string; icon?: string | null };
+type SearchVocab = { id: number; term: string; translation: string; note?: string | null; language_id: number; language_name: string };
+type SearchAchievement = { id: number; title: string; description?: string | null; icon: string; earned: boolean };
+
 type SearchResponse = {
+  learn_courses: SearchLearnCourse[];
+  learn_lessons: SearchLearnLesson[];
+  vocab: SearchVocab[];
+  achievements: SearchAchievement[];
   tags: SearchTag[];
   selected_tag: SearchTag | null;
   tag_matches: SearchTag[];
@@ -135,6 +146,8 @@ type SiteSearchProps = {
   placeholder?: string;
   autoFocus?: boolean;
   initialTagId?: number | null;
+  /** Вызывается после перехода по быстрой команде (например, закрыть окно поиска). */
+  onNavigate?: () => void;
 };
 
 const DEFAULT_SECTIONS: SearchSection[] = [
@@ -158,6 +171,11 @@ const LANGUAGE_BANNER_FALLBACKS = [
 
 const hasQuery = (value: string) => value.trim().length > 0;
 
+const nothingFound = (r: SearchResponse) =>
+  [r.pages, r.pdf_bookmarks, r.languages, r.courses, r.travel, r.loans, r.habits, r.calendar, r.goals, r.learn_courses, r.learn_lessons, r.vocab, r.achievements].every(
+    (list) => !list?.length
+  );
+
 export type { SearchPage, SearchPdfBookmark };
 
 export default function SiteSearch({
@@ -165,10 +183,12 @@ export default function SiteSearch({
   onSelectPdfBookmark,
   sections = DEFAULT_SECTIONS,
   className = '',
-  placeholder = 'Search anything...',
+  placeholder = 'Найти страницу, курс, привычку или раздел…',
   autoFocus = false,
   initialTagId = null,
+  onNavigate,
 }: SiteSearchProps) {
+  const navigate = useNavigate();
   const [inputValue, setInputValue] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedTagId, setSelectedTagId] = useState<number | null>(initialTagId);
@@ -203,6 +223,10 @@ export default function SiteSearch({
         const showPageResults = hasTextQuery || selectedTagId !== null;
         const allowSecondary = showPageResults;
         const payload: SearchResponse = {
+          learn_courses: hasTextQuery ? response?.learn_courses || [] : [],
+          learn_lessons: hasTextQuery ? response?.learn_lessons || [] : [],
+          vocab: hasTextQuery ? response?.vocab || [] : [],
+          achievements: hasTextQuery ? response?.achievements || [] : [],
           tags: response?.tags || [],
           selected_tag: response?.selected_tag || null,
           tag_matches: hasTextQuery ? response?.tag_matches || [] : [],
@@ -222,7 +246,7 @@ export default function SiteSearch({
         }
       } catch (err: any) {
         if (cancelled) return;
-        setError(err?.message || 'Unable to load search results');
+        setError(err?.message || 'Не удалось выполнить поиск');
         setResults(null);
       } finally {
         if (!cancelled) setLoading(false);
@@ -260,6 +284,13 @@ export default function SiteSearch({
   const showPageSection = selectedTagId !== null || hasTextQuery;
   const showSecondarySections = showPageSection;
 
+  const commandMatches = useMemo(() => matchCommands(inputValue), [inputValue]);
+
+  const runCommand = (command: SearchCommand) => {
+    navigate(command.path);
+    onNavigate?.();
+  };
+
   const clearFilters = () => {
     setInputValue('');
     setDebouncedQuery('');
@@ -269,7 +300,7 @@ export default function SiteSearch({
   const renderSectionTitle = (title: string) => (
     <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-white/60">
       <span>{title}</span>
-      {loading && <span className="text-[10px] text-white/40">Loading...</span>}
+      {loading && <span className="text-[10px] text-white/40">Загрузка…</span>}
     </div>
   );
 
@@ -278,13 +309,26 @@ export default function SiteSearch({
       className={`flex max-h-[80vh] flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-4 ${className}`.trim()}
     >
       <div className="flex flex-wrap items-center gap-3">
-        <input
-          value={inputValue}
-          onChange={(event) => setInputValue(event.target.value)}
-          placeholder={placeholder}
-          className="flex-1 min-w-[12rem] rounded-xl bg-black/30 px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/30"
-          autoFocus={autoFocus}
-        />
+        <div className="relative min-w-[12rem] flex-1">
+          <SearchIcon size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+          <input
+            value={inputValue}
+            onChange={(event) => setInputValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && commandMatches[0]) {
+                event.preventDefault();
+                runCommand(commandMatches[0]);
+              }
+              if (event.key === 'Escape' && inputValue) {
+                event.stopPropagation();
+                setInputValue('');
+              }
+            }}
+            placeholder={placeholder}
+            className="w-full rounded-xl bg-black/30 py-2.5 pl-9 pr-4 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/30"
+            autoFocus={autoFocus}
+          />
+        </div>
         <div className="flex items-center gap-2 text-xs text-white/60">
           {(hasTextQuery || selectedTagId !== null) && (
             <button
@@ -292,7 +336,7 @@ export default function SiteSearch({
               onClick={clearFilters}
               className="rounded-full bg-white/10 px-3 py-1 hover:bg-white/20"
             >
-              Clear
+              Очистить
             </button>
           )}
         </div>
@@ -319,7 +363,7 @@ export default function SiteSearch({
 
       {tagMatches.length > 0 && hasTextQuery && (
         <div className="mt-3 space-y-2">
-          <div className="text-[11px] uppercase tracking-wide text-white/50">Matching tags</div>
+          <div className="text-[11px] uppercase tracking-wide text-white/50">Подходящие теги</div>
           <div className="flex flex-wrap gap-2">
             {tagMatches.map((tag) => (
               <TagBadge
@@ -340,21 +384,104 @@ export default function SiteSearch({
 
       <div className="mt-4 flex-1 overflow-y-auto pr-1">
         <div className="space-y-4">
+          {commandMatches.length > 0 && (
+            <section className="space-y-2">
+              {renderSectionTitle('Перейти')}
+              <div className="grid gap-2 sm:grid-cols-2">
+                {commandMatches.map((command, index) => (
+                  <button
+                    key={command.id}
+                    type="button"
+                    onClick={() => runCommand(command)}
+                    className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left transition hover:border-brand-mint/50 hover:bg-white/10"
+                  >
+                    <span className="text-xl">{command.emoji}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-white">{command.label}</span>
+                      <span className="block truncate text-xs text-white/50">{command.hint}</span>
+                    </span>
+                    {index === 0 && <kbd className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/60">Enter</kbd>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+          {(results?.learn_courses?.length || 0) > 0 && (
+            <section className="space-y-2">
+              {renderSectionTitle('Курсы-тренировки')}
+              {results!.learn_courses.map((course) => (
+                <Link key={`lc-${course.id}`} to={`/learn/${course.id}`} onClick={() => onNavigate?.()} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 transition hover:border-brand-mint/50 hover:bg-white/10">
+                  <span className="text-xl">{course.icon || '📘'}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-white">{course.title}</span>
+                    {course.description && <span className="block truncate text-xs text-white/50">{course.description}</span>}
+                  </span>
+                  <span className="text-xs text-brand-mint">Открыть →</span>
+                </Link>
+              ))}
+            </section>
+          )}
+          {(results?.learn_lessons?.length || 0) > 0 && (
+            <section className="space-y-2">
+              {renderSectionTitle('Уроки')}
+              {results!.learn_lessons.map((lesson) => (
+                <Link key={`ll-${lesson.id}`} to={`/learn/lesson/${lesson.id}`} onClick={() => onNavigate?.()} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 transition hover:border-brand-mint/50 hover:bg-white/10">
+                  <span className="text-xl">{lesson.icon || '⭐'}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-white">{lesson.title}</span>
+                    <span className="block truncate text-xs text-white/50">{lesson.course_title}</span>
+                  </span>
+                  <span className="text-xs text-brand-mint">Начать →</span>
+                </Link>
+              ))}
+            </section>
+          )}
+          {(results?.vocab?.length || 0) > 0 && (
+            <section className="space-y-2">
+              {renderSectionTitle('Слова из словаря')}
+              {results!.vocab.map((word) => (
+                <Link key={`v-${word.id}`} to={`/languages?vocab=${word.language_id}`} onClick={() => onNavigate?.()} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 transition hover:border-brand-mint/50 hover:bg-white/10">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-white">
+                      {word.term} <span className="font-normal text-white/60">— {word.translation}</span>
+                    </span>
+                    <span className="block truncate text-xs text-white/50">{word.language_name}{word.note ? ` · ${word.note}` : ''}</span>
+                  </span>
+                  <span className="text-xs text-brand-mint">Словарь →</span>
+                </Link>
+              ))}
+            </section>
+          )}
+          {(results?.achievements?.length || 0) > 0 && (
+            <section className="space-y-2">
+              {renderSectionTitle('Ачивки')}
+              {results!.achievements.map((item) => (
+                <Link key={`a-${item.id}`} to="/achievements" onClick={() => onNavigate?.()} className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 transition hover:border-brand-mint/50 hover:bg-white/10">
+                  <span className={item.earned ? 'text-xl' : 'text-xl opacity-40 grayscale'}>{item.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-white">{item.title}</span>
+                    <span className="block truncate text-xs text-white/50">{item.earned ? 'получена ✓' : item.description}</span>
+                  </span>
+                </Link>
+              ))}
+            </section>
+          )}
           {sectionOrder.map((section) => {
           if (section === 'pages') {
             if (!showPageSection) return null;
             const pages = results?.pages ?? [];
             const hasPages = pages.length > 0;
+            if (!hasPages) return null;
             return (
               <section key="pages" className="space-y-2">
-                {renderSectionTitle('Pages')}
+                {renderSectionTitle('Страницы')}
                 {hasPages ? (
                   <div className="space-y-2">
                     {pages.map((page) => (
                       <div key={page.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold text-white">{page.title || 'Untitled page'}</div>
+                            <div className="text-sm font-semibold text-white">{page.title || 'Без названия'}</div>
                             {page.tags.length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">
                                 {page.tags.map((tag) => (
@@ -364,21 +491,21 @@ export default function SiteSearch({
                             )}
                           </div>
                           <div className="flex flex-col items-end gap-2 text-xs text-white/50">
-                            {page.updated_at && <span>Updated: {new Date(page.updated_at).toLocaleDateString()}</span>}
+                            {page.updated_at && <span>Обновлено: {new Date(page.updated_at).toLocaleDateString()}</span>}
                             {onSelectPage ? (
                               <button
                                 type="button"
                                 onClick={() => onSelectPage(page)}
                                 className="rounded bg-white px-3 py-1 text-xs font-semibold text-black hover:bg-white/90"
                               >
-                                Select
+                                Выбрать
                               </button>
                             ) : (
                               <Link
                                 to={`/pages/${page.id}`}
                                 className="rounded bg-white/10 px-3 py-1 text-xs text-white/80 hover:bg-white/20"
                               >
-                                Open
+                                Открыть
                               </Link>
                             )}
                           </div>
@@ -397,9 +524,10 @@ export default function SiteSearch({
             if (!hasTextQuery) return null;
             const bookmarks = results?.pdf_bookmarks ?? [];
             const hasBookmarks = bookmarks.length > 0;
+            if (!hasBookmarks) return null;
             return (
               <section key="pdfBookmarks" className="space-y-2">
-                {renderSectionTitle('PDF bookmarks')}
+                {renderSectionTitle('Закладки PDF')}
                 {hasBookmarks ? (
                   <div className="space-y-2">
                     {bookmarks.map((bookmark) => (
@@ -458,9 +586,10 @@ export default function SiteSearch({
             if (!showSecondarySections) return null;
             const languages = results?.languages ?? [];
             const hasLanguages = languages.length > 0;
+            if (!hasLanguages) return null;
             return (
               <section key="languages" className="space-y-2">
-                {renderSectionTitle('Languages')}
+                {renderSectionTitle('Языки')}
                 {hasLanguages ? (
                   <div className="grid gap-2">
                     {languages.map((item) => {
@@ -486,7 +615,7 @@ export default function SiteSearch({
                           <div className="relative space-y-1 bg-black/40 px-3 py-2 backdrop-blur-sm">
                             <div className="font-medium text-white">{item.name}</div>
                             <div className="text-xs text-white/70">
-                              Level: {item.level || 'n/a'} • Today: {item.minutes_today ?? 0} min
+                              Уровень {item.level || '—'} • сегодня {item.minutes_today ?? 0} мин
                             </div>
                             {item.tags.length > 0 && (
                               <div className="mt-1 flex flex-wrap gap-1">
@@ -511,16 +640,17 @@ export default function SiteSearch({
             if (!showSecondarySections) return null;
             const courses = results?.courses ?? [];
             const hasCourses = courses.length > 0;
+            if (!hasCourses) return null;
             return (
               <section key="courses" className="space-y-2">
-                {renderSectionTitle('Courses')}
+                {renderSectionTitle('Курсы')}
                 {hasCourses ? (
                   <div className="grid gap-2">
                     {courses.map((course) => (
                       <div key={course.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
                         <div className="font-medium text-white">{course.title}</div>
                         <div className="text-xs text-white/60">
-                          {course.provider || 'No provider'} • Status: {course.status || 'in-progress'} • {course.progress ?? 0}%
+                          {course.provider || 'без автора'} • {course.status === 'done' ? 'завершён' : 'в процессе'} • {course.progress ?? 0}%
                         </div>
                         {course.tags.length > 0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -543,9 +673,10 @@ export default function SiteSearch({
             if (!showSecondarySections) return null;
             const trips = results?.travel ?? [];
             const hasTrips = trips.length > 0;
+            if (!hasTrips) return null;
             return (
               <section key="travel" className="space-y-2">
-                {renderSectionTitle('Travel plans')}
+                {renderSectionTitle('Путешествия')}
                 {hasTrips ? (
                   <div className="grid gap-2">
                     {trips.map((trip) => (
@@ -582,9 +713,10 @@ export default function SiteSearch({
             if (!showSecondarySections) return null;
             const loans = results?.loans ?? [];
             const hasLoans = loans.length > 0;
+            if (!hasLoans) return null;
             return (
               <section key="loans" className="space-y-2">
-                {renderSectionTitle('Credits & loans')}
+                {renderSectionTitle('Кредиты')}
                 {hasLoans ? (
                   <div className="grid gap-2">
                     {loans.map((loan) => (
@@ -614,9 +746,10 @@ export default function SiteSearch({
             if (!showSecondarySections) return null;
             const habits = results?.habits ?? [];
             const hasHabits = habits.length > 0;
+            if (!hasHabits) return null;
             return (
               <section key="habits" className="space-y-2">
-                {renderSectionTitle('Habits')}
+                {renderSectionTitle('Привычки')}
                 {hasHabits ? (
                   <div className="grid gap-2">
                     {habits.map((habit) => (
@@ -646,9 +779,10 @@ export default function SiteSearch({
             if (!showSecondarySections) return null;
             const events = results?.calendar ?? [];
             const hasEvents = events.length > 0;
+            if (!hasEvents) return null;
             return (
               <section key="calendar" className="space-y-2">
-                {renderSectionTitle('Calendar events')}
+                {renderSectionTitle('Календарь')}
                 {hasEvents ? (
                   <div className="grid gap-2">
                     {events.map((event) => (
@@ -682,16 +816,17 @@ export default function SiteSearch({
             if (!hasTextQuery) return null;
             const goals = results?.goals ?? [];
             const hasGoals = goals.length > 0;
+            if (!hasGoals) return null;
             return (
               <section key="goals" className="space-y-2">
-                {renderSectionTitle('Year goals')}
+                {renderSectionTitle('Цели на год')}
                 {hasGoals ? (
                   <div className="grid gap-2">
                     {goals.map((goal) => (
                       <div key={goal.id} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
                         <div className="font-medium text-white">{goal.title}</div>
                         <div className="text-xs text-white/60">
-                          {goal.completed}/{goal.target} • {goal.completion_pct}% • Status: {goal.status}
+                          {goal.completed}/{goal.target} • {goal.completion_pct}% • {goal.status === 'archived' ? 'в архиве' : 'активна'}
                         </div>
                       </div>
                     ))}
@@ -708,10 +843,8 @@ export default function SiteSearch({
           })}
         </div>
       </div>
-      {!loading && !error && !results?.pages?.length && !hasTextQuery && selectedTagId === null && (
-        <div className="mt-4 rounded border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
-          Use search or pick a tag to explore your content.
-        </div>
+      {!loading && hasTextQuery && commandMatches.length === 0 && results && nothingFound(results) && (
+        <div className="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-6 text-center text-sm text-white/55">Ничего не найдено 🙈 Попробуйте другое слово.</div>
       )}
     </div>
   );
