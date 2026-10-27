@@ -77,7 +77,13 @@ object Api {
         val obj = json.parseToJsonElement(text).jsonObject
         (obj["message"] ?: obj["error"])?.jsonPrimitive?.contentOrNull
     } catch (_: Exception) {
-        text.takeIf { it.isNotBlank() && it.length < 200 }
+        when {
+            // Express отвечает HTML «Cannot POST /api/...», если на сервере ещё нет этого API
+            Regex("Cannot (GET|POST|PUT|PATCH|DELETE) ").containsMatchIn(text) ->
+                "Сервер Life Hub устарел — обновите приложение на компьютере или сервере"
+            text.trimStart().startsWith("<") -> null
+            else -> text.takeIf { it.isNotBlank() && it.length < 200 }
+        }
     }
 
     /** Проверка, что по адресу работает сервер Life Hub (до выбора сервера). */

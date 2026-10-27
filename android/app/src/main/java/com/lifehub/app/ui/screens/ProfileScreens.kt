@@ -378,6 +378,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             RemindersSection()
             CalendarSyncSection()
+            HealthSection()
             SectionTitle("Аккаунт и сервер")
             SettingRow(Icons.Default.Dns, "Сервер", server.removePrefix("http://").removePrefix("https://")) { Session.clearServer() }
             SettingRow(Icons.Default.OpenInBrowser, "Открыть веб-версию", "Страницы, финансы, отчёты и админка — в браузере") {

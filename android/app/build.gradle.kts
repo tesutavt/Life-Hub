@@ -13,8 +13,8 @@ android {
         applicationId = "com.lifehub.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildTypes {
@@ -62,6 +62,8 @@ dependencies {
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     // Виджеты на рабочий стол
     implementation("androidx.glance:glance-appwidget:1.1.1")
+    // Данные браслета из Health Connect (Notify, Simple Health, Zepp и др.)
+    implementation("androidx.health.connect:connect-client:1.1.0-alpha10")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
 }

@@ -17,7 +17,7 @@
 
 <br/><br/>
 
-[⬇️ Скачать](https://github.com/tesutavt/Life-Hub/releases/latest) · [🐛 Сообщить об ошибке](https://github.com/tesutavt/Life-Hub/issues) · [💡 Предложить идею](https://github.com/tesutavt/Life-Hub/issues)
+[⬇️ Скачать](https://github.com/tesutavt/Life-Hub/releases/latest) · [📜 Что нового](CHANGELOG.md) · [📚 Вики](https://github.com/tesutavt/Life-Hub/wiki) · [🐛 Сообщить об ошибке](https://github.com/tesutavt/Life-Hub/issues) · [💡 Предложить идею](https://github.com/tesutavt/Life-Hub/issues)
 
 </div>
 

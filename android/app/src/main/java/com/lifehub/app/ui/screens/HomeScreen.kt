@@ -95,7 +95,7 @@ import java.util.Locale
 @Serializable data class DashboardWidget(val id: String = "", val hidden: Boolean = false)
 @Serializable data class DashboardLayout(val layout: List<DashboardWidget>? = null)
 
-private val DEFAULT_ORDER = listOf("weather", "missions", "learn", "habits", "languages", "calendar", "goals", "spend", "loans")
+private val DEFAULT_ORDER = listOf("weather", "missions", "fitness", "learn", "habits", "languages", "calendar", "goals", "spend", "loans")
 
 private data class HomeData(
     val profile: ProfileResponse,
@@ -114,7 +114,11 @@ private data class HomeData(
     val recentAchievements: List<Achievement>,
     val lifeCourses: List<com.lifehub.app.data.LifeCourse>,
     val weather: Weather?,
+    val fitness: FitnessMetrics?,
 )
+
+/** Показатели дня с браслета (GET /api/fitness/metrics). */
+@Serializable data class FitnessMetrics(val steps: Int = 0, val hr: Int = 0, val sleepH: Double = 0.0, val activeCalories: Double = 0.0)
 
 /** Погода — как карточка на Дэшборде веб-версии (OpenWeather, город и ключ из профиля). */
 data class Weather(val city: String, val country: String?, val description: String, val temp: Int, val main: String, val isNight: Boolean)
@@ -159,7 +163,10 @@ private val money = NumberFormat.getIntegerInstance(Locale("ru"))
 @Composable
 fun HomeScreen(nav: NavController) {
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val state = rememberLoadable {
+        // Сначала забираем свежие данные браслета из Health Connect и отправляем на сервер
+        runCatching { com.lifehub.app.health.HealthSync.sync(context) }
         coroutineScope {
             val profile = async { Api.get<ProfileResponse>("/api/life/profile") }
             val activity = async { Api.get<Activity>("/api/achievements/activity?days=7") }
@@ -186,6 +193,7 @@ fun HomeScreen(nav: NavController) {
                     tx.filter { day(it) >= today.withDayOfMonth(1) }.sumOf { -it.amount } to tx.filter { day(it) >= today.minusDays(6) }.sumOf { -it.amount }
                 }.getOrNull()
             }
+            val fitness = async { runCatching { Api.get<FitnessMetrics>("/api/fitness/metrics?day=${today()}") }.getOrNull() }
             val lifeCourses = async { runCatching { Api.get<com.lifehub.app.data.LifeCourses>("/api/life/courses").items }.getOrDefault(emptyList()) }
             val loans = async { runCatching { Api.get<Items<Loan>>("/api/loans/summary").items }.getOrDefault(emptyList()) }
             val achievements = async {
@@ -198,7 +206,7 @@ fun HomeScreen(nav: NavController) {
                 prof, activity.await(), missions.await(), courses.await(), habits.await(),
                 checks.await().map { it.habitId }.toSet(), order, languages.await(), goals.await(),
                 events.await().filter { it.type != "mood" && it.title.isNotBlank() && it.date >= today() }.sortedBy { it.date }.take(3),
-                spend.await()?.first, spend.await()?.second, loans.await(), achievements.await(), lifeCourses.await(), weather,
+                spend.await()?.first, spend.await()?.second, loans.await(), achievements.await(), lifeCourses.await(), weather, fitness.await(),
             )
         }
     }
@@ -267,6 +275,7 @@ fun HomeScreen(nav: NavController) {
                         "goals" -> GoalsBlock(data) { nav.navigate("goals") }
                         "spend" -> SpendBlock(data) { nav.navigate(it) }
                         "courses" -> CoursesBlock(data) { nav.navigate(it) }
+                        "fitness" -> FitnessBlock(data) { nav.navigate("settings") }
                         "loans" -> LoansBlock(data) { nav.navigate("finance") }
                         "achievements" -> AchievementsBlock(data) { nav.navigate("achievements") }
                     }
@@ -568,6 +577,35 @@ private fun GoalsBlock(data: HomeData, open: () -> Unit) {
                 ThinBar(g.completionPct / 100f, Brand.Rose, Modifier.fillMaxWidth())
             }
         }
+    }
+}
+
+/** Шаги, сон, пульс и калории за сегодня — как блок «Фитнес» на веб-дэшборде. */
+@Composable
+private fun FitnessBlock(data: HomeData, openSettings: () -> Unit) {
+    val f = data.fitness ?: return
+    val empty = f.steps == 0 && f.hr == 0 && f.sleepH == 0.0 && f.activeCalories == 0.0
+    Block("Фитнес · сегодня", if (empty) "подключить" else null, if (empty) openSettings else null) {
+        if (empty) {
+            Text("Нет данных с браслета. Подключите Health Connect в настройках — туда пишут Notify и Simple Health.",
+                color = Brand.TextMuted, fontSize = 13.sp, modifier = Modifier.padding(14.dp))
+            return@Block
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 10.dp)) {
+            listOf(
+                Triple("👟", money.format(f.steps.toLong()), "шагов"),
+                Triple("😴", if (f.sleepH > 0) "%.1f ч".format(f.sleepH) else "—", "сон"),
+                Triple("❤️", if (f.hr > 0) "${f.hr}" else "—", "пульс"),
+                Triple("🔥", money.format(f.activeCalories.toLong()), "ккал"),
+            ).forEach { (emoji, value, label) ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(emoji, fontSize = 20.sp)
+                    Text(value, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1)
+                    Text(label, color = Brand.TextMuted, fontSize = 11.sp)
+                }
+            }
+        }
+        ThinBar(f.steps / 10000f, Brand.Green, Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp))
     }
 }
 

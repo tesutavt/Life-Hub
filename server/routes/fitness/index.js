@@ -928,6 +928,58 @@ function mapSleepRow(row) {
   };
 }
 
+// Данные с телефона (Health Connect: Notify, Simple Health и т. п.) — по дням.
+// Пустые показатели не затирают уже сохранённые: сон и пульс пишутся, только если они есть.
+const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+protectedRouter.post('/import', async (req, res) => {
+  if (!req.user?.uid) return res.status(401).json({ error: 'no token' });
+  const days = Array.isArray(req.body?.days) ? req.body.days.slice(0, 120) : [];
+  const db = await getDB();
+  const now = new Date().toISOString();
+  let saved = 0;
+  for (const day of days) {
+    const date = typeof day?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day.date) ? day.date : null;
+    if (!date) continue;
+    const steps = Math.round(num(day.steps));
+    const calories = num(day.calories);
+    const distance = num(day.distance);
+    const moveMinutes = Math.round(num(day.move_minutes));
+    const activeMinutes = Math.round(num(day.active_minutes));
+    if (steps > 0 || calories > 0 || distance > 0 || activeMinutes > 0) {
+      await db.run(
+        'INSERT INTO fitness_activity(user_id,date,steps,calories,distance,move_minutes,active_minutes,updated_at) VALUES(?,?,?,?,?,?,?,?) ' +
+          'ON CONFLICT(user_id,date) DO UPDATE SET steps=excluded.steps, calories=excluded.calories, distance=excluded.distance, move_minutes=excluded.move_minutes, active_minutes=excluded.active_minutes, updated_at=excluded.updated_at',
+        [req.user.uid, date, steps, calories, distance, moveMinutes, activeMinutes, now]
+      );
+    }
+    if (num(day.hr_samples) > 0) {
+      await db.run(
+        'INSERT INTO fitness_heart_rate(user_id,date,avg_bpm,min_bpm,max_bpm,samples,updated_at) VALUES(?,?,?,?,?,?,?) ' +
+          'ON CONFLICT(user_id,date) DO UPDATE SET avg_bpm=excluded.avg_bpm, min_bpm=excluded.min_bpm, max_bpm=excluded.max_bpm, samples=excluded.samples, updated_at=excluded.updated_at',
+        [req.user.uid, date, num(day.hr_avg), num(day.hr_min), num(day.hr_max), Math.round(num(day.hr_samples)), now]
+      );
+    }
+    const sleepMinutes = num(day.sleep_minutes);
+    if (sleepMinutes > 0) {
+      await db.run(
+        'INSERT INTO fitness_sleep(user_id,date,duration_minutes,deep_minutes,light_minutes,rem_minutes,awake_minutes,sessions,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ' +
+          'ON CONFLICT(user_id,date) DO UPDATE SET duration_minutes=excluded.duration_minutes, deep_minutes=excluded.deep_minutes, light_minutes=excluded.light_minutes, rem_minutes=excluded.rem_minutes, awake_minutes=excluded.awake_minutes, sessions=excluded.sessions, updated_at=excluded.updated_at',
+        [req.user.uid, date, sleepMinutes, num(day.deep_minutes), num(day.light_minutes), num(day.rem_minutes), num(day.awake_minutes), Math.max(1, Math.round(num(day.sleep_sessions))), now]
+      );
+    }
+    await db.run(
+      'INSERT INTO fitness_daily(user_id,date,steps,hr_rest,sleep_hours,active_calories) VALUES(?,?,?,?,?,?) ' +
+        'ON CONFLICT(user_id,date) DO UPDATE SET steps=MAX(fitness_daily.steps, excluded.steps), hr_rest=COALESCE(excluded.hr_rest, fitness_daily.hr_rest), ' +
+        'sleep_hours=COALESCE(excluded.sleep_hours, fitness_daily.sleep_hours), active_calories=MAX(COALESCE(fitness_daily.active_calories,0), excluded.active_calories)',
+      [req.user.uid, date, steps, num(day.hr_rest) || null, sleepMinutes > 0 ? Number((sleepMinutes / 60).toFixed(2)) : null, calories]
+    );
+    saved += 1;
+  }
+  await db.run('UPDATE users SET fitness_source=?, fitness_synced_at=? WHERE id=?', [String(req.body?.source || 'phone').slice(0, 40), now, req.user.uid]).catch(() => {});
+  res.json({ ok: true, saved });
+});
+
 protectedRouter.get('/activity', async (req, res) => {
   try {
     if (!req.user?.uid) return res.status(401).json({ error: 'no token' });

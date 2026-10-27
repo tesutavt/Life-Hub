@@ -2,7 +2,7 @@
   "name": "life-hub-desktop",
   "productName": "Life Hub",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Life Hub — десктоп-приложение (клиент + встроенный сервер)",
   "author": "Life Hub",
   "main": "main.js",

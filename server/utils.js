@@ -151,6 +151,13 @@ async function runMigrations(database) {
     if (!hasUserColumn('avatar_frame_mini')) {
       await database.exec('ALTER TABLE users ADD COLUMN avatar_frame_mini TEXT;');
     }
+    // Откуда пришли фитнес-данные с телефона (Health Connect) и когда
+    if (!hasUserColumn('fitness_source')) {
+      await database.exec('ALTER TABLE users ADD COLUMN fitness_source TEXT;');
+    }
+    if (!hasUserColumn('fitness_synced_at')) {
+      await database.exec('ALTER TABLE users ADD COLUMN fitness_synced_at TEXT;');
+    }
     if (!hasUserColumn('weather_api_key')) {
       await database.exec('ALTER TABLE users ADD COLUMN weather_api_key TEXT;');
     }
