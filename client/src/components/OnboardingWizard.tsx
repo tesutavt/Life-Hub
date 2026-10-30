@@ -280,7 +280,7 @@ export default function OnboardingWizard() {
                               return next;
                             })
                           }
-                          className={classNames('rounded-full px-3 py-1.5 text-xs transition', habits.has(h) ? 'bg-emerald-400 text-brand-deep' : 'bg-white/5 text-white/70 hover:bg-white/10')}
+                          className={classNames('rounded-full px-3 py-1.5 text-xs transition', habits.has(h) ? 'bg-brand-mint text-brand-deep' : 'bg-white/5 text-white/70 hover:bg-white/10')}
                         >
                           {h}
                         </button>
@@ -322,7 +322,7 @@ export default function OnboardingWizard() {
               {created.length > 0 && (
                 <div className="mx-auto mt-4 max-w-sm space-y-1 text-left">
                   {created.map((line) => (
-                    <div key={line} className="flex items-center gap-2 rounded-xl bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
+                    <div key={line} className="flex items-center gap-2 rounded-xl bg-brand-mint/10 px-3 py-2 text-sm text-brand-mint/90">
                       <Check size={14} /> {line}
                     </div>
                   ))}

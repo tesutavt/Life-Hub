@@ -34,7 +34,7 @@ export function DesktopSetupFields({ value, onChange }: { value: DesktopChoice; 
               <span className="block text-sm font-semibold text-white">{option.title}</span>
               <span className="block text-xs text-white/55">{option.text}</span>
             </span>
-            <span className={classNames('relative h-6 w-11 shrink-0 rounded-full transition', active ? 'bg-emerald-400/80' : 'bg-white/15')}>
+            <span className={classNames('relative h-6 w-11 shrink-0 rounded-full transition', active ? 'bg-brand-mint/80' : 'bg-white/15')}>
               <span className={classNames('absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all', active ? 'left-[22px]' : 'left-0.5')} />
             </span>
           </button>

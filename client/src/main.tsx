@@ -39,14 +39,14 @@ import { loadStoredFavicon, updateDocumentFavicon } from './utils/customAssets'
 
 function PrivateRoute({ children }: { children: JSX.Element }){
   const { token, loading } = useAuth();
-  if (loading) return <div className="min-h-screen bg-[#081018]" />
+  if (loading) return <div className="min-h-screen bg-brand-deep" />
   if (!token) return <Navigate to="/login" replace />
   return children
 }
 
 function RoleRoute({ children, roles }: { children: JSX.Element; roles: string[] }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen bg-[#081018]" />
+  if (loading) return <div className="min-h-screen bg-brand-deep" />
   if (!user || !roles.includes(user.role)) return <Navigate to="/dashboard" replace />
   return children;
 }

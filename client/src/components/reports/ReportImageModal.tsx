@@ -102,7 +102,7 @@ export default function ReportImageModal({ open, onClose, report: saved = null }
         {loading ? (
           <div className="py-10 text-center text-sm text-white/60">Собираем итоги…</div>
         ) : report ? (
-          <div ref={reportRef} className="rounded-3xl border border-white/10 bg-gradient-to-br from-[#0b1220] via-[#141b2c] to-[#251c3f] p-6">
+          <div ref={reportRef} className="rounded-3xl border border-white/10 bg-gradient-to-br from-brand-deep via-brand-night to-[#251c3f] p-6">
             <ReportView report={report} />
             <div className="mt-4 text-right text-[11px] text-white/35">Life Hub</div>
           </div>

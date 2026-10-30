@@ -171,7 +171,7 @@ export function AchievementsImportModal({ open, onClose, onImported }: { open: b
       {check && (
         <div className="mt-3 space-y-2">
           <div className="text-sm text-white/80">
-            Будет добавлено: <b className="text-emerald-300">{check.valid}</b>
+            Будет добавлено: <b className="text-brand-mint">{check.valid}</b>
             {check.skipped > 0 && <> · уже есть: {check.skipped}</>}
             {check.errors.length > 0 && <> · с ошибками: <span className="text-rose-300">{check.errors.length}</span></>}
           </div>

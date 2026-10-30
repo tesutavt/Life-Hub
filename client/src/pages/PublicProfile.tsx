@@ -48,10 +48,10 @@ export default function PublicProfile() {
   const profile = data?.user;
 
   return (
-    <div className="min-h-screen bg-[#081018] px-4 py-10 text-white">
-      <div className="mx-auto max-w-4xl overflow-hidden rounded-[28px] border border-white/10 bg-[#10202c]">
+    <div className="min-h-screen bg-brand-deep px-4 py-10 text-white">
+      <div className="mx-auto max-w-4xl overflow-hidden rounded-[28px] border border-white/10 bg-brand-night">
         <div
-          className="h-48 bg-gradient-to-br from-cyan-500/30 via-sky-500/20 to-emerald-500/20"
+          className="h-48 bg-gradient-to-br from-cyan-500/30 via-sky-500/20 to-brand-mint/20"
           style={profile?.banner_url ? { backgroundImage: `url(${resolveApiUrl(profile.banner_url)})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
         />
         <div className="px-6 pb-8">
@@ -60,7 +60,7 @@ export default function PublicProfile() {
               <img
                 src={profile?.avatar_url ? resolveApiUrl(profile.avatar_url) : FALLBACK_AVATAR}
                 alt={profile?.name || 'avatar'}
-                className="h-28 w-28 rounded-3xl border-4 border-[#10202c] object-cover"
+                className="h-28 w-28 rounded-3xl border-4 border-brand-night object-cover"
               />
               <div className="pb-2">
                 <div className="flex items-center gap-2 text-2xl font-semibold">

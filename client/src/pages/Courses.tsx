@@ -76,10 +76,10 @@ const StatusPill = ({ status }: { status?: string }) => {
 
 const COURSE_BANNER_GRADIENTS = [
   'from-violet-500/50 via-fuchsia-500/30 to-rose-400/50',
-  'from-sky-500/50 via-cyan-400/30 to-emerald-400/50',
+  'from-sky-500/50 via-cyan-400/30 to-brand-mint/50',
   'from-amber-500/50 via-orange-500/30 to-red-400/50',
   'from-indigo-500/50 via-purple-500/30 to-blue-500/50',
-  'from-teal-500/50 via-emerald-500/30 to-lime-400/50',
+  'from-brand-mint/50 via-brand-mint/30 to-lime-400/50',
   'from-pink-500/50 via-rose-500/30 to-purple-500/50',
 ];
 
@@ -631,7 +631,7 @@ export default function Courses() {
                             aria-label={link.done ? 'Снять отметку' : 'Отметить пройденным'}
                           >
                             {link.done ? (
-                              <CircleCheck className="h-4 w-4 text-emerald-300" />
+                              <CircleCheck className="h-4 w-4 text-brand-mint" />
                             ) : (
                               <Circle className="h-4 w-4" />
                             )}
@@ -875,7 +875,7 @@ export default function Courses() {
                           aria-label={link.done ? 'Снять отметку' : 'Отметить пройденным'}
                         >
                           {link.done ? (
-                            <CircleCheck className="h-4 w-4 text-emerald-300" />
+                            <CircleCheck className="h-4 w-4 text-brand-mint" />
                           ) : (
                             <Circle className="h-4 w-4" />
                           )}

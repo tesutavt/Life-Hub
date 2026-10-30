@@ -345,7 +345,7 @@ export default function PdfReader({
             </div>
             <button
               type="button"
-              className="pointer-events-auto flex h-8 items-center gap-1 rounded-full bg-emerald-500/20 px-3 text-xs hover:bg-emerald-500/30"
+              className="pointer-events-auto flex h-8 items-center gap-1 rounded-full bg-brand-mint/20 px-3 text-xs hover:bg-brand-mint/30"
               onClick={() => {
                 setShowMarkerForm((prev) => !prev);
                 setMarkerTitle(`Страница ${currentPage}`);
@@ -363,7 +363,7 @@ export default function PdfReader({
           >
             <div className="text-xs uppercase tracking-wide text-white/60">Закладки</div>
             {showMarkerForm && (
-              <div className="space-y-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+              <div className="space-y-2 rounded-lg border border-brand-mint/40 bg-brand-mint/10 p-3 text-sm">
                 <input
                   value={markerTitle}
                   onChange={(event) => setMarkerTitle(event.target.value)}
@@ -379,7 +379,7 @@ export default function PdfReader({
                 <div className="flex items-center gap-2 text-xs">
                   <button
                     type="button"
-                    className="flex-1 rounded bg-emerald-500/20 px-3 py-2 hover:bg-emerald-500/30"
+                    className="flex-1 rounded bg-brand-mint/20 px-3 py-2 hover:bg-brand-mint/30"
                     onClick={handleAddMarker}
                   >
                     Добавить
@@ -407,7 +407,7 @@ export default function PdfReader({
                     key={marker.id}
                     className={`group flex flex-col gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
                       marker.done
-                        ? 'border-emerald-500/40 bg-emerald-500/10'
+                        ? 'border-brand-mint/40 bg-brand-mint/10'
                         : 'border-white/10 bg-white/5 hover:border-white/20'
                     }`}
                   >
@@ -416,7 +416,7 @@ export default function PdfReader({
                         type="button"
                         className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border ${
                           marker.done
-                            ? 'border-emerald-400/80 bg-emerald-500/30 text-emerald-100'
+                            ? 'border-brand-mint/80 bg-brand-mint/30 text-brand-mint/90'
                             : 'border-white/30 bg-white/10 text-white/80'
                         }`}
                         onClick={() => onToggleMarker?.(marker.id)}

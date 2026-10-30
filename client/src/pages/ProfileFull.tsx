@@ -323,7 +323,7 @@ const LifeRadarTooltip: React.FC<TooltipProps<number, string>> = ({ active, payl
 const getFeedVisuals = (type: string | null | undefined) => {
   switch (type) {
     case 'goal_completed':
-      return { icon: '🎯', tone: 'bg-emerald-500/15 text-emerald-200' };
+      return { icon: '🎯', tone: 'bg-brand-mint/15 text-brand-mint/90' };
     case 'xp_gain':
       return { icon: '✨', tone: 'bg-amber-500/15 text-amber-200' };
     case 'habit_check':
@@ -414,7 +414,7 @@ const getLanguageInitials = (name: string) => {
   if (!name) return '?';
   return name
     .split(' ')
-    .filter(Boolean)
+    .filter((part) => /^\p{L}/u.test(part))
     .map((part) => part.charAt(0).toUpperCase())
     .slice(0, 2)
     .join('');

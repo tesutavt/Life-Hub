@@ -10,7 +10,7 @@ const formatNumber = (value: number) => numberFormatter.format(Math.round(value)
 const SECTION_STYLE: Record<string, { emoji: string; accent: string; chart: string }> = {
   fitness: { emoji: "💪", accent: "from-sky-400/20 to-cyan-400/5", chart: "#38bdf8" },
   languages: { emoji: "🗣️", accent: "from-violet-400/20 to-fuchsia-400/5", chart: "#a78bfa" },
-  courses: { emoji: "🎓", accent: "from-emerald-400/20 to-lime-400/5", chart: "#34d399" },
+  courses: { emoji: "🎓", accent: "from-brand-mint/20 to-lime-400/5", chart: "#34d399" },
   goals: { emoji: "🎯", accent: "from-pink-400/20 to-rose-400/5", chart: "#f472b6" },
 };
 
@@ -43,7 +43,7 @@ const ItemRow = ({ item, unit }: { item: ReportItem; unit: string }) => {
           {suffix}
         </div>
         {item.previous > 0 && (
-          <div className={`text-[11px] ${grew ? "text-emerald-300" : "text-white/45"}`}>
+          <div className={`text-[11px] ${grew ? "text-brand-mint" : "text-white/45"}`}>
             {grew ? "▲" : "было"} {formatNumber(item.previous)}
             {suffix}
           </div>
@@ -101,13 +101,13 @@ const ReportSectionView = ({ section }: { section: ReportSection }) => {
             <span className="text-sm font-normal text-white/60">{unit}</span>
           </div>
           {previous > 0 && current !== previous && (
-            <div className={`inline-flex items-center gap-1 text-xs ${current > previous ? "text-emerald-300" : "text-white/50"}`}>
+            <div className={`inline-flex items-center gap-1 text-xs ${current > previous ? "text-brand-mint" : "text-white/50"}`}>
               {current > previous ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
               {current > previous ? "+" : ""}
               {formatNumber(current - previous)} к прошлому периоду
             </div>
           )}
-          {previous === 0 && current > 0 && <div className="text-xs text-emerald-300">новое в этом периоде ✨</div>}
+          {previous === 0 && current > 0 && <div className="text-xs text-brand-mint">новое в этом периоде ✨</div>}
         </div>
       </div>
 

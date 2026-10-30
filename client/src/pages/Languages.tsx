@@ -70,9 +70,10 @@ const sanitizeUrl = (value: string | null | undefined) => {
 
 const getInitials = (value: string) => {
   if (!value) return "";
+  // Только слова, начинающиеся с буквы: эмодзи-флаг в названии не должен ломать инициалы
   const parts = value
     .split(/\s+/)
-    .filter(Boolean)
+    .filter((part) => /^\p{L}/u.test(part))
     .slice(0, 2);
   if (parts.length === 0) return value.slice(0, 1).toUpperCase();
   return parts
@@ -345,7 +346,7 @@ export default function Languages() {
         <div className="flex items-center gap-2 text-xs text-white/70">
           <span>{progress}%</span>
           {isDone ? (
-            <CircleCheck className="h-4 w-4 text-emerald-300" />
+            <CircleCheck className="h-4 w-4 text-brand-mint" />
           ) : (
             <Circle className="h-4 w-4 opacity-70" />
           )}
@@ -720,7 +721,7 @@ export default function Languages() {
                 type="button"
                 onClick={submitBulkVocab}
                 disabled={!bulkVocabText.trim()}
-                className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full bg-brand-mint px-4 py-2 text-sm font-semibold text-black hover:bg-brand-mint disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Добавить слова
               </button>

@@ -41,7 +41,7 @@ const NotificationContext = createContext<NotificationContextValue | undefined>(
 
 const variantStyles: Record<NotificationVariant, string> = {
   info: 'border-sky-400/40 bg-sky-500/15 text-sky-50',
-  success: 'border-emerald-400/40 bg-emerald-500/15 text-emerald-50',
+  success: 'border-brand-mint/40 bg-brand-mint/15 text-brand-mint/90',
   warning: 'border-amber-400/40 bg-amber-500/15 text-amber-50',
   error: 'border-rose-400/40 bg-rose-500/15 text-rose-50',
 };

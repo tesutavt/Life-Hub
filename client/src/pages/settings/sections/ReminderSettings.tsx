@@ -31,7 +31,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={classNames('relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-40', checked ? 'bg-emerald-400/80' : 'bg-white/15')}
+      className={classNames('relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-40', checked ? 'bg-brand-mint/80' : 'bg-white/15')}
     >
       <span className={classNames('absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all', checked ? 'left-[22px]' : 'left-0.5')} />
     </button>

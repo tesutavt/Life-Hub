@@ -222,10 +222,10 @@ export default function YearGoals() {
 }
 
 const GOAL_GRADIENTS = [
-  'from-emerald-500/60 via-teal-500/40 to-cyan-500/60',
+  'from-brand-mint/60 via-brand-mint/40 to-cyan-500/60',
   'from-violet-500/60 via-indigo-500/40 to-sky-500/60',
   'from-amber-500/60 via-orange-500/40 to-rose-500/60',
-  'from-blue-500/60 via-sky-500/40 to-emerald-500/60',
+  'from-blue-500/60 via-sky-500/40 to-brand-mint/60',
   'from-pink-500/60 via-rose-500/40 to-purple-500/60',
 ];
 
@@ -296,7 +296,7 @@ function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete, onAuto,
       <div className="flex flex-1 flex-col gap-4 p-4">
         <div className="space-y-2">
           <div className="h-2 w-full overflow-hidden rounded bg-white/10">
-            <div className="h-full rounded bg-emerald-400 transition-all duration-500" style={{ width: `${completion}%` }} />
+            <div className="h-full rounded bg-brand-mint transition-all duration-500" style={{ width: `${completion}%` }} />
           </div>
           <div className="flex flex-wrap items-center justify-between text-xs text-white/70">
             <span>
@@ -338,7 +338,7 @@ function GoalCard({ goal, busy, onToggleToday, onUpdateTarget, onDelete, onAuto,
             disabled={busy}
             className={`rounded-lg px-3 py-1 font-medium transition ${
               goal.today_done
-                ? 'bg-emerald-500/30 text-emerald-100 hover:bg-emerald-500/40'
+                ? 'bg-brand-mint/30 text-brand-mint/90 hover:bg-brand-mint/40'
                 : 'bg-white/10 text-white hover:bg-white/20'
             } ${busy ? 'cursor-wait opacity-70' : ''}`}
           >

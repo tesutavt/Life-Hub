@@ -274,7 +274,7 @@ export default function LessonPlayer() {
             </div>
           </div>
           <div className="grid w-full max-w-md grid-cols-2 gap-3">
-            <StatTile label="Результат" value={`${r.score}%`} color={r.passed ? 'border-emerald-400 text-emerald-200' : 'border-sky-400 text-sky-200'} />
+            <StatTile label="Результат" value={`${r.score}%`} color={r.passed ? 'border-brand-mint text-brand-mint/90' : 'border-sky-400 text-sky-200'} />
             <StatTile label="Опыт" value={`+${r.xp_earned} XP`} color="border-amber-300 text-amber-200" />
           </div>
           {r.weak_lessons.length > 0 && (
@@ -327,7 +327,7 @@ export default function LessonPlayer() {
           </div>
           <div className="grid w-full max-w-md grid-cols-3 gap-3">
             <StatTile label="Опыт" value={`+${result.xp_earned} XP`} color="border-amber-300 text-amber-200" />
-            <StatTile label="Точность" value={`${result.score}%`} color="border-emerald-400 text-emerald-200" />
+            <StatTile label="Точность" value={`${result.score}%`} color="border-brand-mint text-brand-mint/90" />
             <StatTile label="Время" value={`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`} color="border-sky-400 text-sky-200" />
           </div>
           {result.streak ? <div className="text-sm text-orange-300">🔥 Серия занятий: {result.streak} дн.</div> : null}
@@ -416,17 +416,17 @@ export default function LessonPlayer() {
       <div
         className={classNames(
           'border-t-2 transition-colors',
-          feedback?.status === 'wrong' ? 'border-rose-500/30 bg-rose-500/15' : feedback ? 'border-emerald-500/30 bg-emerald-500/15' : 'border-white/10'
+          feedback?.status === 'wrong' ? 'border-rose-500/30 bg-rose-500/15' : feedback ? 'border-brand-mint/30 bg-brand-mint/15' : 'border-white/10'
         )}
       >
         <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 px-5 py-5">
           {feedback ? (
             <div className="flex min-w-0 items-center gap-3">
-              <div className={classNames('flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl', feedback.status === 'wrong' ? 'bg-rose-500/25' : 'bg-emerald-500/25')}>
+              <div className={classNames('flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl', feedback.status === 'wrong' ? 'bg-rose-500/25' : 'bg-brand-mint/25')}>
                 {feedback.status === 'wrong' ? '✖' : '✔'}
               </div>
               <div className="min-w-0">
-                <div className={classNames('text-lg font-bold', feedback.status === 'wrong' ? 'text-rose-300' : 'text-emerald-300')}>
+                <div className={classNames('text-lg font-bold', feedback.status === 'wrong' ? 'text-rose-300' : 'text-brand-mint')}>
                   {feedback.status === 'wrong' ? 'Неправильно' : PRAISE[pos % PRAISE.length]}
                 </div>
                 {feedback.status === 'wrong' && feedback.answer ? (
@@ -582,7 +582,7 @@ function ExerciseView({ exercise, speechLang, answer, setAnswer, locked, onMatch
               <SpeakButton text={w.term} lang={speechLang} word={w} />
             </div>
             {w.reading ? <div className="mt-1 text-lg text-white/50">{w.reading}</div> : null}
-            <div className="mt-4 text-2xl font-semibold text-emerald-300">{w.translation}</div>
+            <div className="mt-4 text-2xl font-semibold text-brand-mint">{w.translation}</div>
             {w.note ? <div className="mt-3 text-sm text-white/60">💡 {w.note}</div> : null}
             {w.example ? (
               <div className="mt-4 rounded-2xl bg-black/25 p-3 text-left text-sm">

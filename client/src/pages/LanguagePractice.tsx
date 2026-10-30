@@ -408,7 +408,7 @@ export default function LanguagePractice() {
                         'flex items-center gap-3 rounded-2xl border px-4 py-3 text-left text-sm font-medium transition',
                         showState
                           ? isAnswer
-                            ? 'border-emerald-300/60 bg-emerald-400/10 text-emerald-200'
+                            ? 'border-brand-mint/60 bg-brand-mint/10 text-brand-mint/90'
                             : 'border-rose-300/60 bg-rose-400/10 text-rose-200'
                           : 'border-white/10 bg-white/5 text-white hover:border-amber-300/50 hover:bg-white/10'
                       )}
@@ -465,7 +465,7 @@ export default function LanguagePractice() {
               <div
                 className={classNames(
                   'flex items-center justify-between gap-3 rounded-2xl border px-5 py-4',
-                  feedback === 'incorrect' ? 'border-rose-300/40 bg-rose-400/10 text-rose-200' : 'border-emerald-300/40 bg-emerald-400/10 text-emerald-200'
+                  feedback === 'incorrect' ? 'border-rose-300/40 bg-rose-400/10 text-rose-200' : 'border-brand-mint/40 bg-brand-mint/10 text-brand-mint/90'
                 )}
               >
                 <div className="min-w-0 text-sm">

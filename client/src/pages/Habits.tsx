@@ -203,7 +203,7 @@ export default function Habits() {
                         <button
                           type="button"
                           onClick={() => toggle(date, habit.id)}
-                          className={`px-2 py-1 rounded transition-colors ${active ? 'bg-emerald-500/30 border border-emerald-400/60' : 'bg-white/10 hover:bg-white/20'}`}
+                          className={`px-2 py-1 rounded transition-colors ${active ? 'bg-brand-mint/30 border border-brand-mint/60' : 'bg-white/10 hover:bg-white/20'}`}
                         >
                           {active ? '✓' : ''}
                         </button>

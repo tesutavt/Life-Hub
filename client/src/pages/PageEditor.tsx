@@ -577,7 +577,7 @@ function BlockCard({
   const stored = getDisplay(block);
   const display = block.type === 'image' ? { ...stored, hideHeader: true } : stored;
   const headerTitle = display.customTitle.trim() || block.text?.trim() || BLOCK_PRESETS[block.type].label;
-  const chromeClass = display.hideChrome ? 'border-transparent bg-transparent shadow-none backdrop-blur-none' : selected ? 'border-cyan-300/80 bg-[#10202c]/95 shadow-[0_12px_40px_rgba(0,0,0,0.35)]' : 'border-white/10 bg-[#10202c]/90 shadow-[0_8px_30px_rgba(0,0,0,0.24)]';
+  const chromeClass = display.hideChrome ? 'border-transparent bg-transparent shadow-none backdrop-blur-none' : selected ? 'border-cyan-300/80 bg-brand-night/95 shadow-[0_12px_40px_rgba(0,0,0,0.35)]' : 'border-white/10 bg-brand-night/90 shadow-[0_8px_30px_rgba(0,0,0,0.24)]';
   const bodyHeight = display.hideHeader ? '100%' : 'calc(100% - 45px)';
 
   return (
@@ -901,7 +901,7 @@ export default function PageEditor() {
   return (
     <Shell>
       <div className="space-y-4">
-        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#10202c]">
+        <div className="overflow-hidden rounded-[28px] border border-white/10 bg-brand-night">
           <div
             className="relative border-b border-white/10 px-6 py-6"
             style={{
@@ -1006,7 +1006,7 @@ export default function PageEditor() {
               }
             }}
           />
-          <div className="overflow-auto bg-[#0b1720] p-6">
+          <div className="overflow-auto bg-brand-deep p-6">
             <div
               ref={pageRef}
               className="relative mx-auto rounded-[30px] border border-white/10"
@@ -1072,7 +1072,7 @@ export default function PageEditor() {
               {contextMenu ? (
                 <div
                   ref={menuRef}
-                  className="absolute z-50 min-w-[240px] rounded-2xl border border-white/10 bg-[#122330] p-2 shadow-[0_20px_50px_rgba(0,0,0,0.35)]"
+                  className="absolute z-50 min-w-[240px] rounded-2xl border border-white/10 bg-brand-night p-2 shadow-[0_20px_50px_rgba(0,0,0,0.35)]"
                   style={{ left: contextMenu.x, top: contextMenu.y }}
                   onMouseDown={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}

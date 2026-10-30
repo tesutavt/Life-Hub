@@ -217,18 +217,18 @@ export function WeeklyMissionsOverlay({ open, onClose, onSummaryLoaded }: Weekly
 
           <div className="space-y-6 px-8 py-6">
             <div className="grid gap-4 lg:grid-cols-3">
-              <div className="relative overflow-hidden rounded-2xl border border-emerald-300/20 bg-emerald-400/10 p-5 text-emerald-100">
+              <div className="relative overflow-hidden rounded-2xl border border-brand-mint/20 bg-brand-mint/10 p-5 text-brand-mint/90">
                 <div className="flex items-center gap-3 text-sm font-semibold">
-                  <CheckCircle2 size={20} className="text-emerald-200" />
+                  <CheckCircle2 size={20} className="text-brand-mint/90" />
                   {completedCount} из {totalCount} задач недели
                 </div>
-                <div className="mt-4 h-2 w-full rounded-full bg-emerald-300/20">
+                <div className="mt-4 h-2 w-full rounded-full bg-brand-mint/20">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-emerald-300 via-teal-300 to-sky-300"
+                    className="h-full rounded-full bg-gradient-to-r from-brand-mint via-brand-mint to-sky-300"
                     style={{ width: `${completionPct}%` }}
                   />
                 </div>
-                <p className="mt-3 text-xs text-emerald-100/80">
+                <p className="mt-3 text-xs text-brand-mint/80">
                   Еженедельные задачи автоматически отмечаются, когда достигается цель.
                 </p>
               </div>
@@ -278,10 +278,10 @@ export function WeeklyMissionsOverlay({ open, onClose, onSummaryLoaded }: Weekly
                 {missions.map((mission) => {
                   const progressLabel = formatProgressLabel(mission);
                   const statusClass = mission.completed
-                    ? 'border-emerald-300/50 bg-emerald-500/10'
+                    ? 'border-brand-mint/50 bg-brand-mint/10'
                     : 'border-white/10 bg-white/5';
                   const barClass = mission.completed
-                    ? 'from-emerald-300 via-teal-300 to-sky-300'
+                    ? 'from-brand-mint via-brand-mint to-sky-300'
                     : 'from-amber-300 via-orange-400 to-rose-500';
                   const completedAt = mission.completed_at ? formatUpdatedAt(mission.completed_at) : '';
 

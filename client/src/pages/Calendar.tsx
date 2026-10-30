@@ -236,7 +236,7 @@ export default function CalendarPage() {
               <div className="relative z-10 space-y-1 text-[11px] leading-tight">
                 {dayEvents.slice(0, 4).map((event: CalendarEvent) => {
                   const key = event.id || `${event.title}-${event.date}`;
-                  const highlight = event.type === 'work' ? 'text-amber-300' : event.type === 'off' ? 'text-emerald-300' : event.type === 'study' ? 'text-sky-300' : 'text-white/80';
+                  const highlight = event.type === 'work' ? 'text-amber-300' : event.type === 'off' ? 'text-brand-mint' : event.type === 'study' ? 'text-sky-300' : 'text-white/80';
                   const isPage = event.type === 'page' && !!event.page_id;
                   const hasLink = isPage || !!event.url;
                   const baseClass = ['truncate', highlight, hasLink ? 'cursor-pointer hover:underline' : '']

@@ -80,7 +80,7 @@ export default function CountdownTimerBlock({ value, onChange }: CountdownTimerB
             })}
           </div>
           {countdown.finished ? (
-            <div className="mt-2 text-lg font-semibold text-emerald-300">Событие наступило</div>
+            <div className="mt-2 text-lg font-semibold text-brand-mint">Событие наступило</div>
           ) : (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-white">
               <span className="rounded-lg bg-white/10 px-2 py-1 text-lg font-semibold">{countdown.days}д</span>

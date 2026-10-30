@@ -188,8 +188,8 @@ export default function StudyPlanner({ open, onClose, onApplied }: { open: boole
                 <MinutesInput value={form.workday_minutes} onChange={(v) => set({ workday_minutes: v })} />
                 <input type="time" className={input} value={form.work_time} onChange={(e) => set({ work_time: e.target.value })} />
               </div>
-              <div className="space-y-2 rounded-2xl bg-emerald-400/5 p-3">
-                <div className="text-xs font-semibold text-emerald-200">🌴 В выходной</div>
+              <div className="space-y-2 rounded-2xl bg-brand-mint/5 p-3">
+                <div className="text-xs font-semibold text-brand-mint/90">🌴 В выходной</div>
                 <MinutesInput value={form.dayoff_minutes} onChange={(v) => set({ dayoff_minutes: v })} />
                 <input type="time" className={input} value={form.off_time} onChange={(e) => set({ off_time: e.target.value })} />
               </div>
@@ -254,7 +254,7 @@ export default function StudyPlanner({ open, onClose, onApplied }: { open: boole
                   <Stat label="Есть времени" value={fmtMinutes(summary!.capacity_minutes)} />
                   <Stat label="Финиш" value={summary!.finish_date ? new Date(`${summary!.finish_date}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : '—'} />
                 </div>
-                <div className={classNames('mb-3 rounded-xl px-3 py-2 text-sm', summary!.fits ? 'bg-emerald-400/10 text-emerald-100' : 'bg-amber-400/10 text-amber-100')}>
+                <div className={classNames('mb-3 rounded-xl px-3 py-2 text-sm', summary!.fits ? 'bg-brand-mint/10 text-brand-mint/90' : 'bg-amber-400/10 text-amber-100')}>
                   {summary!.fits
                     ? `Успеваете! ${summary!.tasks} ${plural(summary!.tasks, ['занятие', 'занятия', 'занятий'])} равномерно до срока — в среднем около ${fmtMinutes(Math.max(1, summary!.recommended_daily_minutes))} в день.`
                     : `Не хватает времени: ${summary!.unscheduled} ${plural(summary!.unscheduled, ['занятие не влезает', 'занятия не влезают', 'занятий не влезают'])} до срока. Увеличьте время в день или сдвиньте срок.`}

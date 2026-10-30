@@ -220,7 +220,7 @@ export default function ProfileActivity({ showcase = [], hideSide = false }: { s
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           <QuickLink to={continueCourse ? `/learn/${continueCourse.id}` : '/courses'} icon={GraduationCap} color="text-[#89e219]" title={continueCourse ? 'Продолжить урок' : 'Начать курс'} sub={continueCourse ? `${continueCourse.title} · ${continueCourse.progress_pct}%` : 'Импортируйте курс'} />
           <QuickLink to="/daily-missions" onClick={openMissionsDiary} icon={Sparkles} color="text-amber-300" title="Задания дня" sub={claimable ? `Можно забрать: ${claimable} 🎁` : 'Посмотреть прогресс'} highlight={claimable > 0} />
-          <QuickLink to="/habits" icon={CheckSquare} color="text-emerald-300" title="Привычки" sub="Отметить за сегодня" />
+          <QuickLink to="/habits" icon={CheckSquare} color="text-brand-mint" title="Привычки" sub="Отметить за сегодня" />
           <QuickLink to="/languages" icon={BookOpen} color="text-violet-300" title="Словарь" sub="Повторить слова" />
         </div>
       </div>
@@ -243,7 +243,7 @@ export default function ProfileActivity({ showcase = [], hideSide = false }: { s
                 <span className="inline-flex items-center gap-1 rounded-full bg-orange-400/15 px-2 py-0.5 text-orange-200">
                   <Flame size={12} /> {data?.streak ?? 0} дн.
                 </span>
-                <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-emerald-200">+{level?.xp_today ?? 0} XP сегодня</span>
+                <span className="rounded-full bg-brand-mint/15 px-2 py-0.5 text-brand-mint/90">+{level?.xp_today ?? 0} XP сегодня</span>
               </div>
             </div>
           </div>

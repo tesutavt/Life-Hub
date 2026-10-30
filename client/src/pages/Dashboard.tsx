@@ -238,7 +238,7 @@ function LoanFormModal({
         <button onClick={onClose} className="rounded-full bg-white/10 px-4 py-2 hover:bg-white/20">
           Отмена
         </button>
-        <button onClick={onSubmit} className="rounded-full bg-emerald-500 px-4 py-2 font-semibold text-black hover:bg-emerald-400">
+        <button onClick={onSubmit} className="rounded-full bg-brand-mint px-4 py-2 font-semibold text-black hover:bg-brand-mint">
           {mode === 'edit' ? 'Сохранить' : 'Добавить'}
         </button>
       </div>
@@ -717,7 +717,7 @@ const WeatherCard = ({
       <div className="absolute inset-0" style={{ background: visuals.overlay }} />
       <div className="absolute left-[-18%] top-[-10%] h-36 w-36 rounded-full bg-white/10" />
       <div className="absolute left-[55%] top-[-40%] h-48 w-48 rounded-full bg-cyan-300/15" />
-      <div className="absolute left-[65%] top-[-20%] h-40 w-40 rounded-full bg-teal-200/15" />
+      <div className="absolute left-[65%] top-[-20%] h-40 w-40 rounded-full bg-brand-mint/15" />
       {visuals.effectImage ? (
         <div
           className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-35 mix-blend-screen weather-effect-layer"
@@ -1552,7 +1552,7 @@ export default function Dashboard() {
         const pct = habits.length ? Math.round((done * 100) / habits.length) : 0;
         return (
           <div className="card space-y-2 !p-3">
-            {widgetHead('habits', habits.length ? `Сегодня ${done} из ${habits.length}` : 'привычек пока нет', 'bg-emerald-400/15')}
+            {widgetHead('habits', habits.length ? `Сегодня ${done} из ${habits.length}` : 'привычек пока нет', 'bg-brand-mint/15')}
             {!habits.length ? (
               emptyHint('Добавьте первую привычку —', '/habits', 'перейти к привычкам')
             ) : view === 'ring' ? (
@@ -1613,7 +1613,7 @@ export default function Dashboard() {
       case 'courses':
         return (
           <div className="card space-y-2 !p-3">
-            {widgetHead('courses', activeCourses.length ? `В работе: ${activeCourses.length} · ${courseAverageProgress}%` : 'Нет активных курсов', 'bg-emerald-400/15')}
+            {widgetHead('courses', activeCourses.length ? `В работе: ${activeCourses.length} · ${courseAverageProgress}%` : 'Нет активных курсов', 'bg-brand-mint/15')}
             {!activeCourses.length
               ? emptyHint('Самое время выбрать курс —', '/courses', 'к курсам')
               : view === 'ring'
@@ -1627,7 +1627,7 @@ export default function Dashboard() {
                         <div className="text-[11px] text-white/60">{course.progress}%</div>
                       </div>
                       <div className="mt-1.5">
-                        <ProgressBar value={course.progress} color="from-emerald-400 to-lime-300" />
+                        <ProgressBar value={course.progress} color="from-brand-mint to-lime-300" />
                       </div>
                     </div>
                   ))}
@@ -1854,13 +1854,13 @@ export default function Dashboard() {
             {widgetHead(
               'loans',
               `${formatCurrency(monthly)} / мес · остаток ${formatCurrency(loanRemainingTotal)}`,
-              'bg-emerald-400/15',
-              <button onClick={startAdd} className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/80 text-black hover:bg-emerald-400" title="Добавить кредит">
+              'bg-brand-mint/15',
+              <button onClick={startAdd} className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-mint/80 text-black hover:bg-brand-mint" title="Добавить кредит">
                 <Plus className="h-4 w-4" />
               </button>
             )}
             <div>
-              <ProgressBar value={loanOverviewProgress} color="from-emerald-400 to-lime-300" />
+              <ProgressBar value={loanOverviewProgress} color="from-brand-mint to-lime-300" />
               <div className="mt-1 flex justify-between text-[11px] text-white/55">
                 <span>Прогресс выплат</span>
                 <span>{loanOverviewProgress}%</span>
@@ -1890,7 +1890,7 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div className="mt-1.5">
-                        <ProgressBar value={loanProgress} color="from-emerald-400 to-lime-300" />
+                        <ProgressBar value={loanProgress} color="from-brand-mint to-lime-300" />
                       </div>
                     </div>
                   );

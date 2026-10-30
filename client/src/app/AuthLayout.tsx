@@ -20,7 +20,7 @@ export function AuthLayout({ children, aside }: { children: React.ReactNode; asi
         <span className="text-lg font-extrabold tracking-tight">Life Hub</span>
       </div>
 
-      <div className="relative z-10 flex w-full max-w-[784px] animate-[auth-in_500ms_cubic-bezier(0.22,1,0.36,1)] overflow-hidden rounded-[10px] bg-[#1e2a33]/95 shadow-[0_8px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+      <div className="relative z-10 flex w-full max-w-[784px] animate-[auth-in_500ms_cubic-bezier(0.22,1,0.36,1)] overflow-hidden rounded-[10px] bg-brand-night/95 shadow-[0_8px_40px_rgba(0,0,0,0.45)] backdrop-blur-xl">
         <div className="w-full p-8 md:w-[480px]">{children}</div>
         {aside !== undefined ? (
           <div className="hidden flex-1 flex-col items-center justify-center border-l border-white/5 p-8 text-center md:flex">{aside}</div>
@@ -60,7 +60,7 @@ export function AuthField({
       <input
         {...input}
         required={required}
-        className="h-10 w-full rounded-[4px] border-none bg-[#0f1a21] px-3 text-[15px] text-white outline-none ring-0 transition placeholder:text-white/25 focus:ring-2 focus:ring-brand-mint/60"
+        className="h-10 w-full rounded-[4px] border-none bg-brand-deep px-3 text-[15px] text-white outline-none ring-0 transition placeholder:text-white/25 focus:ring-2 focus:ring-brand-mint/60"
       />
       {hint ? <span className="mt-1.5 block text-xs">{hint}</span> : null}
     </label>
@@ -88,7 +88,7 @@ export function AuthButton({ children, loading, ...rest }: React.ButtonHTMLAttri
 }
 
 const FEATURES = [
-  { icon: Wallet, text: 'Финансы и кредиты', color: 'text-emerald-300' },
+  { icon: Wallet, text: 'Финансы и кредиты', color: 'text-brand-mint' },
   { icon: Dumbbell, text: 'Фитнес и сон', color: 'text-sky-300' },
   { icon: BookOpen, text: 'Языки и уроки', color: 'text-violet-300' },
   { icon: Target, text: 'Цели и привычки', color: 'text-pink-300' },
@@ -150,7 +150,7 @@ function ServerSwitch() {
   return (
     <div className="absolute bottom-4 left-1/2 z-20 w-[min(560px,92vw)] -translate-x-1/2">
       {open ? (
-        <div className="rounded-2xl bg-[#1e2a33]/95 p-4 shadow-2xl backdrop-blur">
+        <div className="rounded-2xl bg-brand-night/95 p-4 shadow-2xl backdrop-blur">
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm font-semibold text-white">
               <Server size={15} className="text-brand-mint" /> Сервер
@@ -173,7 +173,7 @@ function ServerSwitch() {
                 setStatus({ kind: 'idle' });
               }}
               placeholder="IP или домен: 95.105.76.39 или lifehub.example.com"
-              className="h-10 min-w-0 flex-1 rounded-[4px] bg-[#0f1a21] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:ring-2 focus:ring-brand-mint/60"
+              className="h-10 min-w-0 flex-1 rounded-[4px] bg-brand-deep px-3 text-sm text-white outline-none placeholder:text-white/25 focus:ring-2 focus:ring-brand-mint/60"
             />
             <button type="button" onClick={check} disabled={!url.trim()} className="rounded-[4px] bg-white/10 px-3 text-xs text-white/80 hover:bg-white/15 disabled:opacity-40">
               Проверить
@@ -184,7 +184,7 @@ function ServerSwitch() {
           </form>
           <div className="mt-1.5 text-[11px] text-white/40">Порт по умолчанию — 4000. Для HTTPS укажите адрес с https://</div>
           {status.kind !== 'idle' && (
-            <div className={classNames('mt-2 rounded-md px-3 py-2 text-xs', status.kind === 'error' ? 'bg-rose-500/15 text-rose-200' : status.kind === 'ok' ? 'bg-emerald-500/15 text-emerald-200' : 'bg-white/5 text-white/60')}>
+            <div className={classNames('mt-2 rounded-md px-3 py-2 text-xs', status.kind === 'error' ? 'bg-rose-500/15 text-rose-200' : status.kind === 'ok' ? 'bg-brand-mint/15 text-brand-mint/90' : 'bg-white/5 text-white/60')}>
               {status.text}
             </div>
           )}
@@ -192,7 +192,7 @@ function ServerSwitch() {
             <button
               type="button"
               onClick={() => connect(null)}
-              className={classNames('rounded-full px-3 py-1 text-xs', info.mode === 'local' ? 'bg-emerald-400/20 text-emerald-100' : 'bg-white/5 text-white/70 hover:bg-white/10')}
+              className={classNames('rounded-full px-3 py-1 text-xs', info.mode === 'local' ? 'bg-brand-mint/20 text-brand-mint/90' : 'bg-white/5 text-white/70 hover:bg-white/10')}
             >
               💻 Встроенный (на этом компьютере)
             </button>
@@ -211,7 +211,7 @@ function ServerSwitch() {
       ) : (
         <div className="flex justify-center">
           <button type="button" onClick={() => setOpen(true)} className="flex items-center gap-2 rounded-full bg-black/30 px-3 py-1.5 text-xs text-white/60 backdrop-blur hover:text-white">
-            <span className={classNames('h-2 w-2 rounded-full', info.mode === 'local' ? 'bg-emerald-400' : 'bg-sky-400')} />
+            <span className={classNames('h-2 w-2 rounded-full', info.mode === 'local' ? 'bg-brand-mint' : 'bg-sky-400')} />
             Сервер: {info.mode === 'local' ? 'встроенный' : info.url?.replace(/^https?:\/\//, '')} · сменить
           </button>
         </div>

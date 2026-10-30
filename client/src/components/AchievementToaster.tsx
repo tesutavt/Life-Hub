@@ -97,7 +97,7 @@ export default function AchievementToaster() {
           </div>
           <div className="truncate text-sm font-semibold text-white">{current.title}</div>
           {current.description ? <div className="line-clamp-2 text-xs text-white/60">{current.description}</div> : null}
-          {current.xp_reward ? <div className="mt-0.5 text-xs font-semibold text-emerald-300">+{current.xp_reward} XP</div> : null}
+          {current.xp_reward ? <div className="mt-0.5 text-xs font-semibold text-brand-mint">+{current.xp_reward} XP</div> : null}
         </button>
         <button
           type="button"

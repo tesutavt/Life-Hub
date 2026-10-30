@@ -1,7 +1,7 @@
 {
   "name": "life-hub",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Life Hub — личный трекер финансов, фитнеса, целей и языков (сервер + клиент)",
   "scripts": {
     "install:all": "cd server && npm install && cd ../client && npm install",

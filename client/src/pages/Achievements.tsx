@@ -102,7 +102,7 @@ export default function Achievements() {
         {/* Шапка с размытым фоном профиля */}
         <div className="relative overflow-hidden rounded-t-2xl">
           <div className="absolute inset-0 scale-110 blur-xl" style={{ background }} />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#1b2838]/40 via-[#1b2838]/70 to-[#1b2838]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-brand-night/40 via-brand-night/70 to-brand-night" />
           <div className="relative px-4 pb-6 pt-4 sm:px-8">
             <div className="flex items-center gap-3 rounded-lg bg-black/40 px-4 py-3 shadow-lg">
               {user?.avatar_url ? (
@@ -111,7 +111,7 @@ export default function Achievements() {
                 <div className="flex h-12 w-12 items-center justify-center rounded bg-white/10 text-lg">👤</div>
               )}
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-sm text-[#c6d4df]">
-                <Link to="/profile-full" className="text-xl font-semibold text-white hover:text-[#66c0f4]">
+                <Link to="/profile-full" className="text-xl font-semibold text-white hover:text-brand-mint">
                   {user?.name || 'Профиль'}
                 </Link>
                 <span className="text-white/40">»</span>
@@ -122,7 +122,7 @@ export default function Achievements() {
             <div className="mt-6 flex flex-col gap-5 sm:flex-row sm:items-end">
               <div
                 className="flex h-44 w-32 shrink-0 flex-col items-center justify-center gap-2 rounded border-2 border-white/80 shadow-2xl"
-                style={{ background: 'linear-gradient(160deg, #2a475e 0%, #1b2838 55%, #66c0f4 160%)' }}
+                style={{ background: 'linear-gradient(160deg, rgb(var(--brand-slate-rgb)) 0%, rgb(var(--brand-night-rgb)) 55%, rgb(var(--brand-mint-rgb)) 160%)' }}
               >
                 <Trophy size={48} className="text-amber-300 drop-shadow" />
                 <span className="text-xs font-bold uppercase tracking-widest text-white/80">Life Hub</span>
@@ -141,7 +141,7 @@ export default function Achievements() {
                     Разблокировано достижений: <b>{earned.length}/{items.length}</b> <span className="text-[#8f98a0]">({fmt.format(pct)} %)</span>
                   </div>
                   <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-black/60">
-                    <div className="h-full rounded-full bg-gradient-to-r from-[#47bfff] to-[#1a44c2]" style={{ width: `${pct}%` }} />
+                    <div className="h-full rounded-full bg-gradient-to-r from-brand-mint to-brand-slate" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               </div>
@@ -149,7 +149,7 @@ export default function Achievements() {
           </div>
         </div>
 
-        <div className="space-y-4 rounded-b-2xl bg-[#1b2838] px-3 pb-6 pt-2 sm:px-8">
+        <div className="space-y-4 rounded-b-2xl bg-brand-night px-3 pb-6 pt-2 sm:px-8">
           {/* Панель фильтров */}
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex cursor-pointer items-center gap-2 text-sm text-white">
@@ -159,7 +159,7 @@ export default function Achievements() {
                 role="switch"
                 aria-checked={globalStats}
                 onClick={() => setGlobalStats((v) => !v)}
-                className={classNames('relative h-5 w-9 rounded-full transition', globalStats ? 'bg-[#1a9fff]' : 'bg-white/20')}
+                className={classNames('relative h-5 w-9 rounded-full transition', globalStats ? 'bg-brand-mint' : 'bg-white/20')}
               >
                 <span className={classNames('absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all', globalStats ? 'left-[18px]' : 'left-0.5')} />
               </button>
@@ -168,7 +168,7 @@ export default function Achievements() {
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="rounded border-none bg-[#0e1a26] px-3 py-2 text-sm text-white outline-none"
+                className="rounded border-none bg-brand-deep px-3 py-2 text-sm text-white outline-none"
               >
                 <option value="all">Все категории</option>
                 {categories.map((c) => (
@@ -178,11 +178,11 @@ export default function Achievements() {
                 ))}
               </select>
               <div className="relative">
-                <button type="button" onClick={() => setFilterOpen((v) => !v)} className="inline-flex items-center gap-1 px-2 py-2 text-sm text-white hover:text-[#66c0f4]">
+                <button type="button" onClick={() => setFilterOpen((v) => !v)} className="inline-flex items-center gap-1 px-2 py-2 text-sm text-white hover:text-brand-mint">
                   {FILTERS.find((f) => f.id === filter)!.label} <ChevronDown size={14} />
                 </button>
                 {filterOpen && (
-                  <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded bg-[#3d4450] shadow-xl">
+                  <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded bg-brand-slate shadow-xl">
                     {FILTERS.map((f) => (
                       <button
                         key={f.id}
@@ -191,7 +191,7 @@ export default function Achievements() {
                           setFilter(f.id);
                           setFilterOpen(false);
                         }}
-                        className={classNames('block w-full px-3 py-2 text-left text-sm hover:bg-[#dcdedf] hover:text-[#171a21]', filter === f.id ? 'text-white' : 'text-[#c6d4df]')}
+                        className={classNames('block w-full px-3 py-2 text-left text-sm hover:bg-[#dcdedf] hover:text-brand-deep', filter === f.id ? 'text-white' : 'text-[#c6d4df]')}
                       >
                         {f.label}
                       </button>
@@ -204,7 +204,7 @@ export default function Achievements() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Поиск…"
-                  className="w-48 rounded bg-[#0e1a26] py-2 pl-3 pr-8 text-sm text-white outline-none placeholder:text-[#8f98a0] focus:ring-1 focus:ring-[#66c0f4]"
+                  className="w-48 rounded bg-brand-deep py-2 pl-3 pr-8 text-sm text-white outline-none placeholder:text-[#8f98a0] focus:ring-1 focus:ring-brand-mint"
                 />
                 <Search size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/70" />
               </div>
@@ -243,7 +243,7 @@ export default function Achievements() {
                                 {fmt.format(Math.min(item.progress, item.threshold))} / {fmt.format(item.threshold)} {item.unit || ''}
                               </div>
                               <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-black/50">
-                                <div className="h-full bg-gradient-to-r from-[#47bfff] to-[#1a44c2]" style={{ width: `${progressPct}%` }} />
+                                <div className="h-full bg-gradient-to-r from-brand-mint to-brand-slate" style={{ width: `${progressPct}%` }} />
                               </div>
                             </div>
                           ) : null
@@ -272,7 +272,7 @@ export default function Achievements() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded bg-[#16202d]/80 px-2 pb-2 pt-3 sm:px-4">
+    <section className="rounded bg-brand-night/80 px-2 pb-2 pt-3 sm:px-4">
       <div className="mb-2 px-1 text-sm font-medium uppercase tracking-wide text-[#c6d4df]">{title}</div>
       <div className="divide-y divide-white/5">{children}</div>
     </section>
@@ -302,7 +302,7 @@ function Row({ item, right, globalStats, usersTotal }: { item: Achievement; righ
         {globalStats && (
           <div className="mt-1 flex items-center gap-2 text-[11px] text-[#8f98a0]">
             <div className="h-1 w-24 overflow-hidden rounded-full bg-black/50">
-              <div className="h-full bg-[#66c0f4]" style={{ width: `${Math.min(100, item.global_pct || 0)}%` }} />
+              <div className="h-full bg-brand-mint" style={{ width: `${Math.min(100, item.global_pct || 0)}%` }} />
             </div>
             {fmt.format(item.global_pct || 0)} % пользователей{usersTotal > 1 ? '' : ' (вы единственный)'} · +{item.xp_reward} XP
           </div>

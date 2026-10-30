@@ -50,7 +50,7 @@ const EMPTY_DRAFT: Draft = {
 const KIND_LABEL: Record<CatalogAction['kind'], { label: string; cls: string; hint: string }> = {
   event: { label: 'событие', cls: 'bg-sky-400/15 text-sky-200', hint: 'засчитывается автоматически при действии на сайте' },
   client: { label: 'интерфейс', cls: 'bg-violet-400/15 text-violet-200', hint: 'визит страницы или использование функции' },
-  stat: { label: 'показатель', cls: 'bg-emerald-400/15 text-emerald-200', hint: 'значение считается из данных пользователя, учитывает историю' },
+  stat: { label: 'показатель', cls: 'bg-brand-mint/15 text-brand-mint/90', hint: 'значение считается из данных пользователя, учитывает историю' },
   manual: { label: 'вручную', cls: 'bg-amber-400/15 text-amber-200', hint: 'выдаёт только администратор' },
 };
 
@@ -244,7 +244,7 @@ export default function AdminAchievements() {
                       <div className="flex items-center gap-1">
                         <label className="relative inline-flex cursor-pointer items-center" title={item.is_active ? 'Включена' : 'Выключена'}>
                           <input type="checkbox" className="peer sr-only" checked={item.is_active} onChange={() => toggle(item, { is_active: !item.is_active })} />
-                          <span className="h-5 w-9 rounded-full bg-white/15 transition peer-checked:bg-emerald-400/70" />
+                          <span className="h-5 w-9 rounded-full bg-white/15 transition peer-checked:bg-brand-mint/70" />
                           <span className="absolute left-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
                         </label>
                         <IconButton title={item.is_hidden ? 'Сделать видимой' : 'Сделать секретной'} onClick={() => toggle(item, { is_hidden: !item.is_hidden })}>

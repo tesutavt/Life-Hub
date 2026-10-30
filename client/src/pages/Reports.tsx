@@ -48,7 +48,7 @@ const ReportHistoryCard = ({ report, onOpen }: { report: ReportData; onOpen: (re
           return (
             <span key={section.key} className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1 text-sm text-white/85">
               {SECTION_EMOJI[section.key] || "✨"} {formatNumber(section.summary.current)} {section.unit}
-              {grew && <span className="text-xs text-emerald-300">▲ {formatSigned(section.summary.difference)}</span>}
+              {grew && <span className="text-xs text-brand-mint">▲ {formatSigned(section.summary.difference)}</span>}
             </span>
           );
         })}

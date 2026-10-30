@@ -34,7 +34,7 @@ export default function AdminUsers() {
   return (
     <Shell>
       <div className="space-y-4">
-        <div className="rounded-[28px] border border-white/10 bg-[#10202c] p-6">
+        <div className="rounded-[28px] border border-white/10 bg-brand-night p-6">
           <div className="text-2xl font-semibold text-white">Пользователи</div>
           <div className="mt-2 text-sm text-white/60">
             Модератор может выдавать верификацию. Администратор может выдавать верификацию и менять роли.
@@ -43,7 +43,7 @@ export default function AdminUsers() {
 
         <div className="grid gap-3">
           {items.map((entry) => (
-            <div key={entry.id} className="rounded-3xl border border-white/10 bg-[#10202c] p-4 text-white">
+            <div key={entry.id} className="rounded-3xl border border-white/10 bg-brand-night p-4 text-white">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <img
