@@ -324,14 +324,14 @@ fun PracticeScreen(languageId: Int, onBack: () -> Unit, onKana: () -> Unit = {})
                             },
                             fontSize = 20.sp, fontWeight = FontWeight.Bold,
                         )
-                        Text(ex.term, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
+                        Text(ex.term, fontSize = 34.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Brand.Ink.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 8.dp))
                         if (ex.type == "choice") {
                             ex.options.forEach { option ->
                                 val color = when {
                                     checked != null && option == ex.answer -> Brand.Green
                                     checked == Grade.Wrong && option == answer -> Brand.Rose
                                     option == answer -> Brand.Sky
-                                    else -> Color.White.copy(alpha = 0.15f)
+                                    else -> Brand.Ink.copy(alpha = 0.15f)
                                 }
                                 Text(
                                     option, fontSize = 17.sp,

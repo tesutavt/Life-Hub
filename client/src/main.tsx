@@ -3,9 +3,13 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import '@fontsource-variable/nunito'
 import './index.css'
+import { applyTheme, loadLocalTheme } from './theme'
 import { AuthProvider, useAuth } from './AuthContext'
 import { NotificationProvider } from './notifications/NotificationProvider'
 import App from './app/App'
+
+// Тема из прошлого запуска — сразу, до загрузки настроек с сервера
+applyTheme(loadLocalTheme())
 import Login from './app/Login'
 import Register from './app/Register'
 import Dashboard from './pages/Dashboard'

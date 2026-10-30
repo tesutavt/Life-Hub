@@ -159,6 +159,7 @@ data class CalendarEvent(
     val title: String = "",
     val type: String = "note",
     val mood: Int? = null,
+    val tags: List<PageTagRef> = emptyList(),
 )
 
 // ───── Языки и курсы ─────
@@ -453,7 +454,8 @@ data class PageSummary(
 @Serializable data class PageTag(val id: Int = 0, val label: String = "", val color: String? = null, @SerialName("page_count") val pageCount: Int = 0)
 
 @Serializable data class BlockLayout(val x: Double = 0.0, val y: Double = 0.0, val w: Double = 360.0, val h: Double = 190.0)
-@Serializable data class BlockDisplay(val customTitle: String = "", val hideChrome: Boolean = false, val hideHeader: Boolean = false)
+@Serializable data class BlockDisplay(val customTitle: String = "", val hideChrome: Boolean = false, val hideHeader: Boolean = false, val locked: Boolean = false)
+@Serializable data class PdfMarker(val id: String = "", val title: String = "", val page: Int = 1, val done: Boolean = false)
 @Serializable data class PageTab(val id: String = "", val title: String = "")
 @Serializable data class CountdownTimer(val title: String = "", val target: String = "")
 
@@ -469,6 +471,9 @@ data class BlockMeta(
     val countdownTimer: CountdownTimer? = null,
     val originalName: String? = null,
     val selectedTagIds: List<Int> = emptyList(),
+    val links: List<String> = emptyList(),
+    val markers: List<PdfMarker> = emptyList(),
+    val kanaTrainer: JsonElement? = null,
 )
 
 /** Блок страницы: свободный холст (meta.layout в пикселях, как в веб-редакторе). */
@@ -489,8 +494,12 @@ data class PageFull(
     @SerialName("banner_url") val bannerUrl: String? = null,
     @SerialName("banner_gradient") val bannerGradient: String? = null,
     @SerialName("page_date") val pageDate: String? = null,
+    @SerialName("page_background") val pageBackground: PageBackground? = null,
+    val pinned: Boolean = false,
     val blocks: List<PageBlock> = emptyList(),
 )
+/** Фон всей страницы: картинка, цвет или CSS-градиент + затемнение картинки. */
+@Serializable data class PageBackground(val url: String? = null, val color: String? = null, val gradient: String? = null, val dim: Double = 0.35, val blur: Double = 0.0)
 @Serializable data class PageResponse(val page: PageFull)
 
 @Serializable

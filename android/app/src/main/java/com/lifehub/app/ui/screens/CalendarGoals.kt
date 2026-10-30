@@ -134,7 +134,7 @@ fun CalendarScreen(onBack: () -> Unit) {
                                                 isSelected -> Brand.Mint.copy(alpha = 0.3f)
                                                 isToday -> Brand.Sky.copy(alpha = 0.25f)
                                                 shift != null -> eventColor(shift.type).copy(alpha = 0.1f)
-                                                else -> Color.White.copy(alpha = 0.03f)
+                                                else -> Brand.Ink.copy(alpha = 0.03f)
                                             }
                                         )
                                         .clickable { selected = date },
@@ -202,7 +202,7 @@ fun CalendarScreen(onBack: () -> Unit) {
                     Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("2/2", "5/2", "1/3", "3/3", "4/4").forEach { p ->
                             Text(p, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (pattern == p) Brand.Deep else Brand.Text,
-                                modifier = Modifier.clip(CircleShape).background(if (pattern == p) Brand.Mint else Color.White.copy(alpha = 0.06f)).clickable { pattern = p }.padding(horizontal = 10.dp, vertical = 6.dp))
+                                modifier = Modifier.clip(CircleShape).background(if (pattern == p) Brand.Mint else Brand.Ink.copy(alpha = 0.06f)).clickable { pattern = p }.padding(horizontal = 10.dp, vertical = 6.dp))
                         }
                     }
                     OutlinedTextField(pattern, { pattern = it }, label = { Text("Паттерн (работа/выходные)") }, singleLine = true, colors = authFieldColors(), modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
@@ -237,7 +237,7 @@ fun CalendarScreen(onBack: () -> Unit) {
                         listOf("note" to "• Заметка", "study" to "📚 Учёба", "work" to "💼 Работа", "off" to "🌴 Выходной").forEach { (id, label) ->
                             Text(
                                 label, fontSize = 12.sp,
-                                modifier = Modifier.clip(CircleShape).background(if (type == id) Brand.Mint.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.06f))
+                                modifier = Modifier.clip(CircleShape).background(if (type == id) Brand.Mint.copy(alpha = 0.3f) else Brand.Ink.copy(alpha = 0.06f))
                                     .clickable { type = id }.padding(horizontal = 8.dp, vertical = 6.dp),
                             )
                         }
@@ -469,5 +469,5 @@ private fun ruDate(iso: String): String = runCatching {
 @Composable
 private fun GoalChip(text: String) {
     Text(text, fontSize = 11.sp, color = Brand.Text.copy(alpha = 0.85f),
-        modifier = Modifier.clip(CircleShape).border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape).padding(horizontal = 9.dp, vertical = 3.dp))
+        modifier = Modifier.clip(CircleShape).border(1.dp, Brand.Ink.copy(alpha = 0.18f), CircleShape).padding(horizontal = 9.dp, vertical = 3.dp))
 }

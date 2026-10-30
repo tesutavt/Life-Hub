@@ -10,6 +10,7 @@ class LifeHubApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Session.init(this)
+        com.lifehub.app.ui.theme.ThemeManager.init(this)
         Notifications.createChannels(this)
         ReminderWorker.schedule(this)
         ReminderAlarm.schedule(this)

@@ -2122,10 +2122,17 @@ router.get('/menu-counters', async (req, res) => {
   });
 });
 
+// Тема: {mode, preset, accent, density, font, radius, animations, boldFocus, customThemes[]} — JSON до 32 КБ
+const sanitizeTheme = (input) => {
+  if (!input || typeof input !== 'object') return null;
+  const json = JSON.stringify(input);
+  return json.length <= 32 * 1024 ? json : null;
+};
+
 router.get('/ui-settings', async (req, res) => {
   const db = await getDB();
   const row = await db.get(
-    'SELECT show_menu_counters, hidden_menu_items, notification_preferences FROM ui_settings WHERE user_id=?',
+    'SELECT show_menu_counters, hidden_menu_items, notification_preferences, theme FROM ui_settings WHERE user_id=?',
     [req.user.uid],
   );
   const hiddenMenuItems = normalizeHiddenMenuItems(row?.hidden_menu_items);
@@ -2134,6 +2141,7 @@ router.get('/ui-settings', async (req, res) => {
     show_menu_counters: row ? !!row.show_menu_counters : true,
     hidden_menu_items: hiddenMenuItems,
     notification_preferences: notificationPreferences,
+    theme: parseJsonSafe(row?.theme, null),
   });
 });
 
@@ -2163,6 +2171,13 @@ router.put('/dashboard-layout', async (req, res) => {
 
 router.put('/ui-settings', async (req, res) => {
   const db = await getDB();
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, 'theme')) {
+    await db.run(
+      `INSERT INTO ui_settings(user_id, theme) VALUES(?, ?) ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme`,
+      [req.user.uid, sanitizeTheme(req.body.theme)]
+    );
+    if (Object.keys(req.body).length === 1) return res.json({ theme: parseJsonSafe(sanitizeTheme(req.body.theme), null) });
+  }
   const existing = await db.get(
     'SELECT show_menu_counters, hidden_menu_items, notification_preferences FROM ui_settings WHERE user_id=?',
     [req.user.uid],

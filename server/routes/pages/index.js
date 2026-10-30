@@ -72,6 +72,31 @@ const formatTag = (row) => ({
   color: row.color
 });
 
+// Фон страницы хранится JSON-строкой; клиенту отдаём объект или null
+const parseBackground = (raw) => {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+const sanitizeBackground = (input) => {
+  if (!input || typeof input !== 'object') return null;
+  const text = (v, max = 2048) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+  const num = (v, min, max, fallback) => (Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : fallback);
+  const value = {
+    url: text(input.url),
+    color: text(input.color, 64),
+    gradient: text(input.gradient, 4096),
+    dim: num(input.dim, 0, 0.9, 0.35),
+    blur: num(input.blur, 0, 30, 0),
+  };
+  return value.url || value.color || value.gradient ? JSON.stringify(value) : null;
+};
+
 const mapPageRow = (row) => ({
   id: row.id,
   title: row.title,
@@ -81,6 +106,7 @@ const mapPageRow = (row) => ({
   page_date: row.page_date,
   banner_url: row.banner_url ?? null,
   banner_gradient: row.banner_gradient ?? null,
+  page_background: parseBackground(row.page_background),
   pinned: !!row.pinned
 });
 
@@ -225,7 +251,7 @@ router.delete("/tags/:id", async (req, res) => {
 router.get("/", async (req, res) => {
   const db = await getDB();
   const rows = await db.all(
-    "SELECT id, title, blocks_json, updated_at, created_at, page_date, banner_url, banner_gradient, pinned FROM journal_pages WHERE user_id=? ORDER BY pinned DESC, updated_at DESC",
+    "SELECT id, title, blocks_json, updated_at, created_at, page_date, banner_url, banner_gradient, page_background, pinned FROM journal_pages WHERE user_id=? ORDER BY pinned DESC, updated_at DESC",
     [req.user.uid]
   );
   const ids = rows.map((row) => row.id);
@@ -317,6 +343,11 @@ router.put("/:id", async (req, res) => {
     values.push(sanitizeOptionalText(req.body?.banner_gradient ?? req.body?.bannerGradient, 4096));
   }
 
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "page_background")) {
+    updates.push("page_background=?");
+    values.push(sanitizeBackground(req.body.page_background));
+  }
+
   updates.push("updated_at=?");
   values.push(now, req.params.id, req.user.uid);
 
@@ -351,7 +382,7 @@ router.put("/:id/tags", async (req, res) => {
 router.get("/:id", async (req, res) => {
   const db = await getDB();
   const row = await db.get(
-    "SELECT id, title, blocks_json, created_at, updated_at, page_date, banner_url, banner_gradient, pinned FROM journal_pages WHERE id=? AND user_id=?",
+    "SELECT id, title, blocks_json, created_at, updated_at, page_date, banner_url, banner_gradient, page_background, pinned FROM journal_pages WHERE id=? AND user_id=?",
     [req.params.id, req.user.uid]
   );
   if (!row) return res.status(404).json({ error: "not_found" });
@@ -371,6 +402,7 @@ router.get("/:id", async (req, res) => {
       page_date: row.page_date,
       banner_url: row.banner_url || null,
       banner_gradient: row.banner_gradient || null,
+      page_background: parseBackground(row.page_background),
       pinned: !!row.pinned,
       blocks,
       tags: tagMap.get(row.id) || []

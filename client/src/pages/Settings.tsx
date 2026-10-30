@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bell, Cog, LayoutGrid, Palette, Plug } from "lucide-react";
+import AppearanceSettings from "./settings/sections/AppearanceSettings";
 import Shell from "../components/Shell";
 import { api } from "../api";
 import { useAuth } from "../AuthContext";
@@ -31,9 +33,13 @@ import {
   WeatherBackgroundKey,
   WeatherEffectKey,
 } from "../utils/customAssets";
+// Разделы настроек — как в боковом меню: оформление, уведомления, меню, система, интеграции
 const SETTINGS_TABS = [
-  { id: "system", label: "Системные" },
-  { id: "other", label: "Прочее" },
+  { id: "appearance", label: "Оформление", hint: "темы, цвета, шрифт", icon: Palette },
+  { id: "notifications", label: "Уведомления", hint: "напоминания и «не беспокоить»", icon: Bell },
+  { id: "interface", label: "Меню и интерфейс", hint: "пункты меню, счётчики", icon: LayoutGrid },
+  { id: "system", label: "Система", hint: "иконка вкладки", icon: Cog },
+  { id: "integrations", label: "Интеграции", hint: "Google Fit, погода", icon: Plug },
 ] as const;
 
 type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
@@ -93,7 +99,7 @@ export default function Settings() {
     updateDocumentFavicon(favicon);
   }, [favicon]);
 
-  const [activeTab, setActiveTab] = useState<SettingsTabId>("system");
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("appearance");
   const handleWeatherBackgroundChange = useCallback(
     (key: WeatherBackgroundKey, value: string) => {
       setWeatherBackgrounds((prev) => ({ ...prev, [key]: value }));
@@ -344,24 +350,10 @@ export default function Settings() {
 
   return (
     <Shell>
-      <div className="text-2xl font-semibold mb-4">Настройки</div>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-        <div className="flex flex-wrap items-center gap-2">
-          {SETTINGS_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 rounded-full border text-sm transition ${
-                activeTab === tab.id
-                  ? 'bg-white text-black border-white'
-                  : 'bg-white/10 text-white/70 border-white/20 hover:bg-white/20'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-2xl font-semibold">Настройки</div>
+          <div className="text-sm text-white/55">Внешний вид, уведомления и подключения — общие для компьютера и телефона.</div>
         </div>
         <QuickSetupMaster
           googleRefreshToken={google.refresh_token || ""}
@@ -373,16 +365,34 @@ export default function Settings() {
         />
       </div>
 
-      <div className="grid gap-6">
-        {activeTab === "system" && (
-          <>
-            <SystemSettings
-              favicon={favicon}
-              onChange={setFavicon}
-              onSubmit={saveSystemSettings}
-              saving={savingSystem}
-            />
-            <ReminderSettings />
+      <div className="grid gap-6 lg:grid-cols-[250px_minmax(0,1fr)]">
+        <nav className="flex gap-2 overflow-x-auto rounded-3xl border border-white/10 bg-white/[0.03] p-2 lg:flex-col lg:self-start">
+          {SETTINGS_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex min-w-max items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition lg:min-w-0 ${
+                  active ? "border-brand-mint/50 bg-brand-mint/15 text-white shadow-brand-glow" : "border-transparent text-white/70 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <Icon className={`h-5 w-5 shrink-0 ${active ? "text-brand-mint" : "text-white/50"}`} />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">{tab.label}</span>
+                  <span className="hidden truncate text-[11px] text-white/45 lg:block">{tab.hint}</span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="grid min-w-0 content-start gap-6">
+          {activeTab === "appearance" && <AppearanceSettings />}
+          {activeTab === "notifications" && <ReminderSettings />}
+          {activeTab === "interface" && (
             <InterfacePreferences
               showMenuCounters={showMenuCounters}
               savingUi={savingUi}
@@ -395,32 +405,26 @@ export default function Settings() {
               hiddenMenuSummary={hiddenMenuSummary}
               notificationSummary={notificationSummary}
             />
-          </>
-        )}
-
-        {activeTab === "other" && (
-          <>
-            <GoogleIntegration
-              value={google}
-              onChange={(value) => setGoogle(value)}
-              onSubmit={saveGoogle}
-              saving={savingGoogle}
-              authUrl={googleAuthUrl}
-            />
-
-            <WeatherIntegration
-              apiKey={weatherApiKey}
-              backgrounds={weatherBackgrounds}
-              effects={weatherEffects}
-              onApiKeyChange={setWeatherApiKey}
-              onBackgroundChange={handleWeatherBackgroundChange}
-              onEffectChange={handleWeatherEffectChange}
-              onSubmit={saveWeather}
-              saving={savingWeather}
-            />
-
-          </>
-        )}
+          )}
+          {activeTab === "system" && (
+            <SystemSettings favicon={favicon} onChange={setFavicon} onSubmit={saveSystemSettings} saving={savingSystem} />
+          )}
+          {activeTab === "integrations" && (
+            <>
+              <GoogleIntegration value={google} onChange={(value) => setGoogle(value)} onSubmit={saveGoogle} saving={savingGoogle} authUrl={googleAuthUrl} />
+              <WeatherIntegration
+                apiKey={weatherApiKey}
+                backgrounds={weatherBackgrounds}
+                effects={weatherEffects}
+                onApiKeyChange={setWeatherApiKey}
+                onBackgroundChange={handleWeatherBackgroundChange}
+                onEffectChange={handleWeatherEffectChange}
+                onSubmit={saveWeather}
+                saving={savingWeather}
+              />
+            </>
+          )}
+        </div>
       </div>
 
     </Shell>

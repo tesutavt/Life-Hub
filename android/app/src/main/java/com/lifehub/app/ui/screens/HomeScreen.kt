@@ -428,7 +428,7 @@ private fun HeroCard(data: HomeData, go: (String) -> Unit) {
     val shape = RoundedCornerShape(22.dp)
     Column(
         Modifier.fillMaxWidth().clip(shape)
-            .background(Brush.linearGradient(listOf(Color(0xFF123A3A), Color(0xFF12222E), Color(0xFF1A2440))))
+            .background(Brush.linearGradient(listOf(Brand.Mint.copy(alpha = 0.16f), Brand.Card, Brand.CardHigh)))
             .border(1.dp, Brand.Mint.copy(alpha = 0.18f), shape),
     ) {
         Row(Modifier.fillMaxWidth().clickable { go("profile") }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

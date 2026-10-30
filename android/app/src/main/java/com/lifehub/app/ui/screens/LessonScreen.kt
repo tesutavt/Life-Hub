@@ -394,7 +394,7 @@ private fun ExerciseView(
                 Pill("✨ НОВОЕ СЛОВО", Color(0xFFA78BFA))
                 val w = ex.word
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).border(2.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).padding(22.dp),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).border(2.dp, Brand.Ink.copy(alpha = 0.1f), RoundedCornerShape(24.dp)).padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     w.emoji?.let { Text(it, fontSize = 56.sp) }
@@ -429,7 +429,7 @@ private fun ExerciseView(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         SpeakButton { Sound.speak(q, speechLang) }
                         Spacer(Modifier.width(10.dp))
-                        Text(q, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
+                        Text(q, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Brand.Ink.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
                     }
                 }
                 ex.options.forEachIndexed { i, option -> OptionTile(option, i, answer == option, !locked) { setAnswer(option) } }
@@ -441,7 +441,7 @@ private fun ExerciseView(
                         SpeakButton { Sound.speak(ex.prompt, speechLang) }
                         Spacer(Modifier.width(10.dp))
                     }
-                    Text(ex.prompt, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
+                    Text(ex.prompt, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Brand.Ink.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
                 }
                 var hint by remember(ex) { mutableStateOf(false) }
                 ex.hint?.let { h -> Text(if (hint) h else "показать подсказку", color = Brand.Amber, modifier = Modifier.clickable { hint = !hint }) }
@@ -480,7 +480,7 @@ private fun ExerciseView(
             }
             is Exercise.Assemble -> {
                 Title("Соберите перевод")
-                Text(ex.prompt, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
+                Text(ex.prompt, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.border(2.dp, Brand.Ink.copy(alpha = 0.15f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp))
                 @Suppress("UNCHECKED_CAST")
                 val chosen = answer as? List<Int> ?: emptyList()
                 FlowRow(
@@ -495,7 +495,7 @@ private fun ExerciseView(
                         }
                     }
                 }
-                Box(Modifier.fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = 0.1f)))
+                Box(Modifier.fillMaxWidth().height(2.dp).background(Brand.Ink.copy(alpha = 0.1f)))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ex.tokens.forEachIndexed { index, token ->
                         val used = index in chosen
@@ -526,13 +526,13 @@ private fun SpeakButton(big: Boolean = false, onClick: () -> Unit) {
 
 @Composable
 private fun OptionTile(text: String, index: Int, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val border = if (selected) Brand.Sky else Color.White.copy(alpha = 0.15f)
+    val border = if (selected) Brand.Sky else Brand.Ink.copy(alpha = 0.15f)
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (selected) Brand.Sky.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (selected) Brand.Sky.copy(alpha = 0.15f) else Brand.Ink.copy(alpha = 0.03f))
             .border(2.dp, border, RoundedCornerShape(16.dp)).clickable(enabled = enabled, onClick = onClick).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(28.dp).border(2.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(28.dp).border(2.dp, Brand.Ink.copy(alpha = 0.15f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
             Text("${index + 1}", fontSize = 12.sp, color = Brand.TextMuted)
         }
         Spacer(Modifier.width(12.dp))
@@ -547,8 +547,8 @@ private fun TokenTile(text: String, used: Boolean, enabled: Boolean, onClick: ()
         fontSize = 19.sp,
         color = if (used) Color.Transparent else Brand.Text,
         modifier = Modifier.clip(RoundedCornerShape(12.dp))
-            .background(if (used) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.07f))
-            .border(2.dp, Color.White.copy(alpha = if (used) 0.05f else 0.2f), RoundedCornerShape(12.dp))
+            .background(if (used) Brand.Ink.copy(alpha = 0.05f) else Brand.Ink.copy(alpha = 0.07f))
+            .border(2.dp, Brand.Ink.copy(alpha = if (used) 0.05f else 0.2f), RoundedCornerShape(12.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp),
     )
@@ -626,11 +626,11 @@ private fun MatchTile(text: String, matched: Boolean, selected: Boolean, wrong: 
     val border = when {
         wrong -> Brand.Rose
         selected -> Brand.Sky
-        else -> Color.White.copy(alpha = 0.15f)
+        else -> Brand.Ink.copy(alpha = 0.15f)
     }
     Box(
         Modifier.fillMaxWidth().height(58.dp).clip(RoundedCornerShape(14.dp))
-            .background(if (wrong) Brand.Rose.copy(alpha = 0.15f) else if (selected) Brand.Sky.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.03f))
+            .background(if (wrong) Brand.Rose.copy(alpha = 0.15f) else if (selected) Brand.Sky.copy(alpha = 0.15f) else Brand.Ink.copy(alpha = 0.03f))
             .border(2.dp, border.copy(alpha = border.alpha * alpha), RoundedCornerShape(14.dp))
             .clickable(enabled = !matched, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -711,7 +711,7 @@ private fun CheckpointResultView(r: CheckpointResult, onRetry: () -> Unit, onExi
             Text("СТОИТ ПОВТОРИТЬ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Brand.TextFaint, modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp))
             r.weakLessons.forEach { l ->
                 Row(
-                    Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).border(2.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(14.dp))
+                    Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp)).border(2.dp, Brand.Ink.copy(alpha = 0.1f), RoundedCornerShape(14.dp))
                         .clickable { onOpenLesson(l.id) }.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

@@ -203,14 +203,14 @@ fun KanaScreen(languageId: Int, onBack: () -> Unit) {
             }
             Box(
                 Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(24.dp)).background(Brand.Card)
-                    .border(1.dp, if (wrong) Brand.Rose.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
+                    .border(1.dp, if (wrong) Brand.Rose.copy(alpha = 0.6f) else Brand.Ink.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
                     .clickable { peek = !peek },
                 contentAlignment = Alignment.Center,
             ) {
                 if (stroke && current.first.length == 1) {
                     AsyncImage("$KANA_BASE_URL/stroke/${current.first}.gif", "Порядок черт", modifier = Modifier.size(160.dp))
                 } else {
-                    Text(current.first, fontSize = if (current.first.length > 1) 88.sp else 120.sp, color = Color.White)
+                    Text(current.first, fontSize = if (current.first.length > 1) 88.sp else 120.sp, color = Brand.Text)
                 }
                 if (peek || wrong) Text(current.second, color = if (wrong) Brand.Rose else Brand.TextMuted, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp))
             }
@@ -261,7 +261,7 @@ fun KanaScreen(languageId: Int, onBack: () -> Unit) {
                                 set.entries.take(3).joinToString("") { it.first },
                                 fontSize = 16.sp,
                                 modifier = Modifier.clip(RoundedCornerShape(10.dp))
-                                    .background(if (on) Brand.Mint.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.06f))
+                                    .background(if (on) Brand.Mint.copy(alpha = 0.25f) else Brand.Ink.copy(alpha = 0.06f))
                                     .border(1.dp, if (on) Brand.Mint else Color.Transparent, RoundedCornerShape(10.dp))
                                     .clickable {
                                         val next = if (on) state.sets - set.id else state.sets + set.id

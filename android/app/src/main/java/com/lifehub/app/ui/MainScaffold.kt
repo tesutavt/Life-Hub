@@ -266,7 +266,7 @@ private fun AppNavHost(nav: NavHostController) {
         composable("pages") { com.lifehub.app.ui.screens.PagesScreen(nav) }
         composable("search") { com.lifehub.app.ui.screens.SearchScreen(nav) }
         composable("page/{id}", arguments = listOf(navArgument("id") { type = NavType.IntType })) {
-            com.lifehub.app.ui.screens.PageViewScreen(it.arguments!!.getInt("id"), nav)
+            com.lifehub.app.ui.screens.pages.PageViewScreen(it.arguments!!.getInt("id"), nav)
         }
         composable("travel") { com.lifehub.app.ui.screens.TravelScreen(back) }
         composable("customize") { com.lifehub.app.ui.screens.ProfileCustomizeScreen(back) }

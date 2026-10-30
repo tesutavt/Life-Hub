@@ -8,14 +8,44 @@
   --color-night: #162936;
   --color-slate: #3b5265;
   --color-mint: #27e9b5;
-  --color-mint-soft: rgba(39, 233, 181, 0.25);
+  --color-mint-soft: rgb(var(--brand-mint-rgb, 39 233 181) / 0.25);
   --color-text-primary: #e9fcf6;
   --color-text-secondary: rgba(233, 252, 246, 0.75);
   --color-text-muted: rgba(233, 252, 246, 0.6);
   --color-surface: rgba(22, 41, 54, 0.78);
   --color-surface-strong: rgba(5, 24, 36, 0.92);
   --color-border: rgba(59, 82, 101, 0.45);
-  --color-border-strong: rgba(39, 233, 181, 0.45);
+  --color-border-strong: rgb(var(--brand-mint-rgb, 39 233 181) / 0.45);
+}
+
+/* ── Оформление (src/theme.ts) ── */
+/* Светлая тема: инвертируем интерфейс, а картинки, видео и холсты возвращаем как есть */
+html.theme-light {
+  color-scheme: light;
+  filter: invert(0.92) hue-rotate(180deg);
+}
+html.theme-light img,
+html.theme-light video,
+html.theme-light canvas,
+html.theme-light iframe,
+html.theme-light [data-no-invert],
+html.theme-light [style*="background-image: url"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* Без анимаций */
+html.no-anim *,
+html.no-anim *::before,
+html.no-anim *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+/* Заметные рамки фокуса */
+html.bold-focus :focus-visible {
+  outline: 3px solid rgb(var(--brand-mint-rgb, 39 233 181)) !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgb(var(--brand-mint-rgb, 39 233 181) / 0.25);
 }
 
 body {
@@ -26,27 +56,27 @@ body {
 /* Дружелюбные мелочи: мягкие скроллбары, выделение, фокус и отклик кнопок */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(39, 233, 181, 0.25) transparent;
+  scrollbar-color: rgb(var(--brand-mint-rgb, 39 233 181) / 0.25) transparent;
 }
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(39, 233, 181, 0.22);
+  background: rgb(var(--brand-mint-rgb, 39 233 181) / 0.22);
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(39, 233, 181, 0.4);
+  background-color: rgb(var(--brand-mint-rgb, 39 233 181) / 0.4);
 }
 ::selection {
-  background: rgba(39, 233, 181, 0.35);
+  background: rgb(var(--brand-mint-rgb, 39 233 181) / 0.35);
   color: #fff;
 }
 :focus-visible {
-  outline: 2px solid rgba(39, 233, 181, 0.7);
+  outline: 2px solid rgb(var(--brand-mint-rgb, 39 233 181) / 0.7);
   outline-offset: 2px;
   border-radius: 8px;
 }

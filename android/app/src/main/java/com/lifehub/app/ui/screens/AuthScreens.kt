@@ -88,7 +88,7 @@ private fun AuthBackground(content: @Composable () -> Unit) {
 @Composable
 fun authFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Brand.Mint,
-    unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+    unfocusedBorderColor = Brand.Ink.copy(alpha = 0.12f),
     focusedContainerColor = Color(0xFF0F1A21),
     unfocusedContainerColor = Color(0xFF0F1A21),
     cursorColor = Brand.Mint,
@@ -175,7 +175,7 @@ fun ConnectScreen() {
                             Text(
                                 "🌐 " + url.removePrefix("http://").removePrefix("https://"),
                                 fontSize = 13.sp,
-                                modifier = Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.06f)).clickable { connect(url) }
+                                modifier = Modifier.clip(CircleShape).background(Brand.Ink.copy(alpha = 0.06f)).clickable { connect(url) }
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
                             )
                         }
@@ -365,7 +365,7 @@ fun QrLoginButton() {
             enabled = !busy,
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(6.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f), contentColor = Brand.Text),
+            colors = ButtonDefaults.buttonColors(containerColor = Brand.Ink.copy(alpha = 0.08f), contentColor = Brand.Text),
         ) {
             if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = Brand.Mint, strokeWidth = 2.dp)
             else {

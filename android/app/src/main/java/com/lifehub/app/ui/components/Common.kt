@@ -112,16 +112,16 @@ fun ErrorBox(message: String, onRetry: () -> Unit) {
 fun LhCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    border: Color = Color.White.copy(alpha = 0.08f),
+    border: Color = Brand.Ink.copy(alpha = 0.08f),
     background: Color = Brand.Card,
     padding: PaddingValues = PaddingValues(14.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
         modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape((20 * Brand.RadiusScale).dp))
             .background(background)
-            .border(1.dp, border, RoundedCornerShape(20.dp))
+            .border(1.dp, border, RoundedCornerShape((20 * Brand.RadiusScale).dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(padding),
         content = content,
@@ -131,7 +131,7 @@ fun LhCard(
 @Composable
 fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, height: Dp = 8.dp, colors: List<Color> = listOf(Brand.Mint, Brand.Sky)) {
     val animated by animateFloatAsState(fraction.coerceIn(0f, 1f), tween(600), label = "progress")
-    Box(modifier.fillMaxWidth().height(height).clip(CircleShape).background(Color.White.copy(alpha = 0.08f))) {
+    Box(modifier.fillMaxWidth().height(height).clip(CircleShape).background(Brand.Ink.copy(alpha = 0.08f))) {
         Box(Modifier.fillMaxWidth(animated).height(height).clip(CircleShape).background(Brush.horizontalGradient(colors)))
     }
 }
@@ -167,7 +167,7 @@ fun ChunkyButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val bg = if (enabled) color else Color.White.copy(alpha = 0.1f)
+    val bg = if (enabled) color else Brand.Ink.copy(alpha = 0.1f)
     val sh = if (enabled) shadow else Color.Transparent
     Box(modifier.height(54.dp)) {
         Box(Modifier.fillMaxSize().offset(y = 4.dp).clip(RoundedCornerShape(16.dp)).background(sh))
@@ -176,7 +176,7 @@ fun ChunkyButton(
                 .clickable(enabled = enabled, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text.uppercase(), color = if (enabled) textColor else Color.White.copy(alpha = 0.3f), fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp)
+            Text(text.uppercase(), color = if (enabled) textColor else Brand.Ink.copy(alpha = 0.3f), fontWeight = FontWeight.ExtraBold, letterSpacing = 0.8.sp)
         }
     }
 }

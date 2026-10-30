@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/Web-363a4f?style=for-the-badge&logo=googlechrome&logoColor=b7bdf8" alt="Web"/>
   <img src="https://img.shields.io/badge/Windows-363a4f?style=for-the-badge&logo=windows&logoColor=8aadf4" alt="Windows"/>
   <img src="https://img.shields.io/badge/Android-363a4f?style=for-the-badge&logo=android&logoColor=a6da95" alt="Android"/>
-  <img src="https://img.shields.io/badge/версия-1.1.0-c6a0f6?style=for-the-badge&labelColor=363a4f" alt="Version"/>
+  <img src="https://img.shields.io/badge/версия-1.2.0-c6a0f6?style=for-the-badge&labelColor=363a4f" alt="Version"/>
 </p>
 
 <img src="https://img.shields.io/badge/статус-в%20разработке-f5a97f?style=flat-square&labelColor=363a4f" alt="Status"/>

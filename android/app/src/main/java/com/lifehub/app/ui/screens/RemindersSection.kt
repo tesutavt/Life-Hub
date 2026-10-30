@@ -178,7 +178,7 @@ private fun HourRow(label: String, hour: Int, enabled: Boolean, onChange: (Int) 
             Text(
                 "%02d:00".format(hour),
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.08f))
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Brand.Ink.copy(alpha = 0.08f))
                     .clickable(enabled = enabled) { open = true }.padding(horizontal = 12.dp, vertical = 5.dp),
             )
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {

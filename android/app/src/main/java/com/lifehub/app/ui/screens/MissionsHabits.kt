@@ -180,7 +180,7 @@ fun HabitsScreen() {
                                         Spacer(Modifier.height(4.dp))
                                         Box(
                                             Modifier.size(38.dp).clip(CircleShape)
-                                                .background(if (done) Brand.Mint else Color.White.copy(alpha = if (isToday) 0.12f else if (future) 0.02f else 0.05f))
+                                                .background(if (done) Brand.Mint else Brand.Ink.copy(alpha = if (isToday) 0.12f else if (future) 0.02f else 0.05f))
                                                 .clickable(enabled = !future) { toggle(habit, date) },
                                             contentAlignment = Alignment.Center,
                                         ) {
@@ -231,7 +231,7 @@ fun HabitsScreen() {
 @Composable
 private fun WeekArrow(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
-        Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = if (enabled) 0.06f else 0.02f)).clickable(enabled = enabled, onClick = onClick),
+        Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(Brand.Ink.copy(alpha = if (enabled) 0.06f else 0.02f)).clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = if (enabled) Brand.Text else Brand.TextFaint) }
 }
@@ -260,7 +260,7 @@ private fun HabitDialog(
                     Spacer(Modifier.height(10.dp))
                     presets.chunked(2).forEach { row ->
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                            row.forEach { p -> Text(p, fontSize = 13.sp, modifier = Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.06f)).clickable { title = p }.padding(horizontal = 10.dp, vertical = 6.dp)) }
+                            row.forEach { p -> Text(p, fontSize = 13.sp, modifier = Modifier.clip(CircleShape).background(Brand.Ink.copy(alpha = 0.06f)).clickable { title = p }.padding(horizontal = 10.dp, vertical = 6.dp)) }
                         }
                     }
                 }
@@ -269,7 +269,7 @@ private fun HabitDialog(
                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     (1..7).forEach { n ->
                         Box(
-                            Modifier.size(32.dp).clip(CircleShape).background(if (n == target) Brand.Mint else Color.White.copy(alpha = 0.06f)).clickable { target = n },
+                            Modifier.size(32.dp).clip(CircleShape).background(if (n == target) Brand.Mint else Brand.Ink.copy(alpha = 0.06f)).clickable { target = n },
                             contentAlignment = Alignment.Center,
                         ) { Text("$n", color = if (n == target) Brand.Deep else Brand.Text, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                     }

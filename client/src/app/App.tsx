@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { normalizeTheme, setTheme } from '../theme';
 import classNames from 'classnames';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
@@ -250,6 +251,8 @@ function Sidebar({ collapsed }: SidebarProps) {
             : [];
           setHiddenMenuItems(hidden);
           notifyHiddenMenuItems(hidden);
+          // Тема с сервера — общая для всех устройств
+          if (data?.theme) setTheme(normalizeTheme(data.theme));
         }
       } catch {
         if (!cancelled) {

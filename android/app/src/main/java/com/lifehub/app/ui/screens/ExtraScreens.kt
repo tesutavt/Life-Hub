@@ -243,7 +243,7 @@ private fun TrendChart(sec: ReportSection, color: Color) {
             val coords = points.mapIndexed { i, p -> androidx.compose.ui.geometry.Offset(i * stepX, size.height - (p.value / max).toFloat() * (size.height - 8f) - 4f) }
             for (g in 1..3) {
                 val y = size.height * g / 4f
-                drawLine(Color.White.copy(alpha = 0.06f), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
+                drawLine(Brand.Ink.copy(alpha = 0.06f), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1f)
             }
             val area = androidx.compose.ui.graphics.Path().apply {
                 moveTo(coords.first().x, size.height)
@@ -442,7 +442,7 @@ private fun TripDialog(trip: TravelPlan?, onDismiss: () -> Unit, onDelete: (() -
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TRIP_STATUSES.forEach { (id, label) ->
                         Text(label, fontSize = 12.sp, color = if (status == id) Brand.Deep else Brand.Text,
-                            modifier = Modifier.clip(CircleShape).background(if (status == id) Brand.Mint else Color.White.copy(alpha = 0.06f)).clickable { status = id }.padding(horizontal = 10.dp, vertical = 6.dp))
+                            modifier = Modifier.clip(CircleShape).background(if (status == id) Brand.Mint else Brand.Ink.copy(alpha = 0.06f)).clickable { status = id }.padding(horizontal = 10.dp, vertical = 6.dp))
                     }
                 }
                 OutlinedTextField(notes, { notes = it }, label = { Text("Заметки") }, minLines = 2, modifier = Modifier.fillMaxWidth())
@@ -530,7 +530,7 @@ fun ProfileCustomizeScreen(onBack: () -> Unit) {
                 (showcases.toList() + SHOWCASES.map { it.first }.filter { it !in showcases }).forEach { id ->
                     val on = id in showcases
                     val index = showcases.indexOf(id)
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (on) Brand.Mint.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.03f)).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (on) Brand.Mint.copy(alpha = 0.08f) else Brand.Ink.copy(alpha = 0.03f)).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(on, { if (it) showcases.add(id) else showcases.remove(id) }, colors = CheckboxDefaults.colors(checkedColor = Brand.Mint))
                         Text(SHOWCASES.first { it.first == id }.second, modifier = Modifier.weight(1f))
                         if (on) {

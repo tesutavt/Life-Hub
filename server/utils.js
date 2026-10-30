@@ -214,6 +214,10 @@ async function runMigrations(database) {
       // Раскладка Дэшборда: порядок блоков, скрытые блоки, вид каждого (JSON)
       await database.exec('ALTER TABLE ui_settings ADD COLUMN dashboard_layout TEXT;');
     }
+    // Тема интерфейса и пользовательские темы — общие для ПК и телефона
+    if (!hasUiColumn('theme')) {
+      await database.exec('ALTER TABLE ui_settings ADD COLUMN theme TEXT;');
+    }
   }
 
   const fitnessInfo = await database.all('PRAGMA table_info(fitness_daily)').catch(() => []);
@@ -243,6 +247,10 @@ async function runMigrations(database) {
     }
     if (!pagesInfo.some(col => col.name === 'banner_gradient')) {
       await database.exec('ALTER TABLE journal_pages ADD COLUMN banner_gradient TEXT;');
+    }
+    // Фон всей страницы (холста): JSON {url, color, gradient, dim, blur}
+    if (!pagesInfo.some(col => col.name === 'page_background')) {
+      await database.exec('ALTER TABLE journal_pages ADD COLUMN page_background TEXT;');
     }
   }
 

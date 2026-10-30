@@ -88,7 +88,7 @@ fun LanguageDialog(language: Language?, onDismiss: () -> Unit, onDone: () -> Uni
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     LEVELS.forEach { l ->
                         Text(l, color = if (l == level) Brand.Deep else Brand.Text, fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                            modifier = Modifier.clip(CircleShape).background(if (l == level) Brand.Mint else Color.White.copy(alpha = 0.06f)).clickable { level = l }.padding(horizontal = 12.dp, vertical = 6.dp))
+                            modifier = Modifier.clip(CircleShape).background(if (l == level) Brand.Mint else Brand.Ink.copy(alpha = 0.06f)).clickable { level = l }.padding(horizontal = 12.dp, vertical = 6.dp))
                     }
                 }
                 OutlinedTextField(image, { image = it }, label = { Text("Ссылка на изображение (необязательно)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -162,7 +162,7 @@ fun CourseImportDialog(languages: List<Language>, onDismiss: () -> Unit, onDone:
                 Text(
                     file?.first ?: "📄 Выбрать файл…",
                     color = if (file == null) Brand.Mint else Brand.Text, fontSize = 14.sp,
-                    modifier = Modifier.fillMaxWidth().clip(CircleShape).background(Color.White.copy(alpha = 0.06f)).clickable { picker.launch("*/*") }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().clip(CircleShape).background(Brand.Ink.copy(alpha = 0.06f)).clickable { picker.launch("*/*") }.padding(horizontal = 14.dp, vertical = 10.dp),
                 )
                 if (languages.isNotEmpty()) {
                     Text("Язык курса", color = Brand.TextMuted, fontSize = 12.sp)
@@ -170,7 +170,7 @@ fun CourseImportDialog(languages: List<Language>, onDismiss: () -> Unit, onDone:
                         (listOf<Language?>(null) + languages).forEach { l ->
                             val on = languageId == l?.id
                             Text(l?.name ?: "Без языка", fontSize = 12.sp, color = if (on) Brand.Deep else Brand.Text,
-                                modifier = Modifier.clip(CircleShape).background(if (on) Brand.Mint else Color.White.copy(alpha = 0.06f)).clickable { languageId = l?.id }.padding(horizontal = 10.dp, vertical = 6.dp))
+                                modifier = Modifier.clip(CircleShape).background(if (on) Brand.Mint else Brand.Ink.copy(alpha = 0.06f)).clickable { languageId = l?.id }.padding(horizontal = 10.dp, vertical = 6.dp))
                         }
                     }
                 }

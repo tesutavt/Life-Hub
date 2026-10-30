@@ -66,6 +66,7 @@ type PageBlock = {
   meta?: BlockMeta | null;
 };
 type DragState = { mode: 'move' | 'resize'; blockId: string; startX: number; startY: number; origin: BlockLayout } | null;
+type PageBackground = { url?: string | null; color?: string | null; gradient?: string | null; dim?: number; blur?: number };
 type ContextMenuState =
   | { kind: 'page'; x: number; y: number }
   | { kind: 'block'; x: number; y: number; blockId: string }
@@ -82,7 +83,7 @@ const BLOCK_PRESETS: Record<BlockType, { label: string; icon: React.ComponentTyp
   text: { label: 'Текст', icon: Type, size: { w: 360, h: 190 } },
   heading: { label: 'Заголовок', icon: FileText, size: { w: 520, h: 120 } },
   todo: { label: 'Задача', icon: SquareCheckBig, size: { w: 320, h: 120 } },
-  image: { label: 'Изображение', icon: ImageIcon, size: { w: 420, h: 320 } },
+  image: { label: 'Изображение', icon: ImageIcon, size: { w: 320, h: 320 } },
   pdf: { label: 'PDF', icon: FileText, size: { w: 580, h: 540 } },
   kana: { label: 'Kana', icon: Type, size: { w: 430, h: 440 } },
   timer: { label: 'Таймер', icon: TimerReset, size: { w: 390, h: 260 } },
@@ -185,7 +186,7 @@ const createBlock = (type: BlockType, index: number, x = 120, y = 160): PageBloc
       originalName: null,
       kanaTrainer: null,
       countdownTimer: { title: '', target: '' },
-      display: DEFAULT_DISPLAY,
+      display: type === 'image' ? { ...DEFAULT_DISPLAY, hideHeader: true } : DEFAULT_DISPLAY,
       selectedTagIds: [],
       tabs: type === 'tabs' ? [createTabItem('Tab 1')] : undefined,
       activeTabId: type === 'tabs' ? null : undefined,
@@ -440,6 +441,8 @@ function BlockBody({
   onUnassignSelected,
   onChange,
   onUploadPdf,
+  onPickImage,
+  wasDragged,
 }: {
   block: PageBlock;
   tags: TagOption[];
@@ -451,6 +454,8 @@ function BlockBody({
   onUnassignSelected: () => void;
   onChange: (patch: Partial<PageBlock> | ((prev: PageBlock) => PageBlock)) => void;
   onUploadPdf: (file: File) => void;
+  onPickImage: () => void;
+  wasDragged: () => boolean;
 }) {
   if (block.type === 'text') return <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent p-4 text-sm leading-6 text-white outline-none" placeholder="Текстовый блок" />;
   if (block.type === 'heading') return <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent p-4 text-3xl font-semibold leading-tight text-white outline-none" placeholder="Заголовок" />;
@@ -463,13 +468,22 @@ function BlockBody({
     );
   }
   if (block.type === 'image') {
+    // Просто картинка на весь блок: нажатие — выбор файла (перетаскивание двигает блок, уголок — растягивает)
     return (
-      <div className="flex h-full flex-col gap-3 p-4">
-        <input value={block.url || ''} onChange={(e) => onChange({ url: e.target.value })} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="URL изображения" />
-        <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-sm text-white outline-none" placeholder="Подпись" />
-        <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-white/10 bg-black/20">
-          {block.url ? <img src={block.url} alt={block.text || 'image'} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-sm text-white/40">Нет изображения</div>}
-        </div>
+      <div
+        className="group relative h-full w-full cursor-pointer select-none"
+        onClick={() => {
+          if (!wasDragged()) onPickImage();
+        }}
+      >
+        {block.url ? (
+          <img src={resolveApiUrl(block.url)} alt="" draggable={false} className="pointer-events-none h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-white/15 text-white/40 transition group-hover:border-white/30 group-hover:text-white/60">
+            <ImageIcon className="h-8 w-8" />
+            <span className="text-xs">Нажмите, чтобы выбрать картинку</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -538,6 +552,8 @@ function BlockCard({
   onResizeStart,
   onChange,
   onUploadPdf,
+  onPickImage,
+  wasDragged,
 }: {
   block: PageBlock;
   allBlocks: PageBlock[];
@@ -554,9 +570,12 @@ function BlockCard({
   onResizeStart: (event: React.PointerEvent<HTMLButtonElement>) => void;
   onChange: (patch: Partial<PageBlock> | ((prev: PageBlock) => PageBlock)) => void;
   onUploadPdf: (file: File) => void;
+  onPickImage: () => void;
+  wasDragged: () => boolean;
 }) {
   const layout = getLayout(block);
-  const display = getDisplay(block);
+  const stored = getDisplay(block);
+  const display = block.type === 'image' ? { ...stored, hideHeader: true } : stored;
   const headerTitle = display.customTitle.trim() || block.text?.trim() || BLOCK_PRESETS[block.type].label;
   const chromeClass = display.hideChrome ? 'border-transparent bg-transparent shadow-none backdrop-blur-none' : selected ? 'border-cyan-300/80 bg-[#10202c]/95 shadow-[0_12px_40px_rgba(0,0,0,0.35)]' : 'border-white/10 bg-[#10202c]/90 shadow-[0_8px_30px_rgba(0,0,0,0.24)]';
   const bodyHeight = display.hideHeader ? '100%' : 'calc(100% - 45px)';
@@ -570,7 +589,7 @@ function BlockCard({
         </div>
       ) : null}
       <div className="overflow-auto" style={{ height: bodyHeight }}>
-        <BlockBody block={block} tags={tags} pages={pages} calendarItems={calendarItems} groupedCount={groupedCount} selectedBlock={selectedBlock} onAssignSelected={onAssignSelected} onUnassignSelected={onUnassignSelected} onChange={onChange} onUploadPdf={onUploadPdf} />
+        <BlockBody block={block} tags={tags} pages={pages} calendarItems={calendarItems} groupedCount={groupedCount} selectedBlock={selectedBlock} onAssignSelected={onAssignSelected} onUnassignSelected={onUnassignSelected} onChange={onChange} onUploadPdf={onUploadPdf} onPickImage={onPickImage} wasDragged={wasDragged} />
       </div>
       {!display.locked ? <button type="button" onPointerDown={onResizeStart} className="absolute bottom-2 right-2 h-5 w-5 rounded border border-white/10 bg-white/10" aria-label="Resize" /> : null}
     </div>
@@ -588,6 +607,11 @@ export default function PageEditor() {
   const [pinned, setPinned] = useState(false);
   const [bannerUrl, setBannerUrl] = useState('');
   const [bannerGradient, setBannerGradient] = useState('');
+  const [background, setBackground] = useState<PageBackground>({});
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const bgInputRef = useRef<HTMLInputElement | null>(null);
+  const imageTargetRef = useRef<string | null>(null);
+  const dragMovedRef = useRef(false);
   const [showPageSettings, setShowPageSettings] = useState(false);
   const [blocks, setBlocks] = useState<PageBlock[]>([createBlock('text', 0)]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -667,6 +691,7 @@ export default function PageEditor() {
       setPinned(!!page.pinned);
       setBannerUrl(page.banner_url ?? page.bannerUrl ?? '');
       setBannerGradient(page.banner_gradient ?? page.bannerGradient ?? '');
+      setBackground(page.page_background && typeof page.page_background === 'object' ? page.page_background : {});
       const normalized = normalizeBlocks(page.blocks ?? page.content ?? []);
       setBlocks(normalized);
       setSelectedId(normalized[0]?.id ?? null);
@@ -724,12 +749,15 @@ export default function PageEditor() {
       const pageRect = pageRef.current.getBoundingClientRect();
       const dx = event.clientX - pageRect.left - dragState.startX;
       const dy = event.clientY - pageRect.top - dragState.startY;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMovedRef.current = true;
       setBlocks((prev) =>
         prev.map((block) => {
           if (block.id !== dragState.blockId) return block;
           const current = dragState.origin;
           if (dragState.mode === 'move') return setLayout(block, { ...current, x: Math.max(0, current.x + dx), y: Math.max(0, current.y + dy) });
-          return setLayout(block, { ...current, w: Math.max(220, current.w + dx), h: Math.max(block.type === 'divider' ? 36 : 100, current.h + dy) });
+          const minW = block.type === 'image' ? 80 : 220;
+          const minH = block.type === 'divider' ? 36 : block.type === 'image' ? 80 : 100;
+          return setLayout(block, { ...current, w: Math.max(minW, current.w + dx), h: Math.max(minH, current.h + dy) });
         })
       );
     };
@@ -747,6 +775,7 @@ export default function PageEditor() {
     const block = blocks.find((item) => item.id === blockId);
     if (!block || getDisplay(block).locked) return;
     const pageRect = pageRef.current.getBoundingClientRect();
+    dragMovedRef.current = false;
     setSelectedId(blockId);
     setDragState({ mode, blockId, startX: clientX - pageRect.left, startY: clientY - pageRect.top, origin: getLayout(block) });
   }, [blocks]);
@@ -775,6 +804,7 @@ export default function PageEditor() {
         pinned,
         banner_url: bannerUrl || null,
         banner_gradient: bannerGradient || null,
+        page_background: background.url || background.color || background.gradient ? background : null,
         blocks: blocks.map((block) => ({
           ...block,
           meta: {
@@ -792,7 +822,7 @@ export default function PageEditor() {
     } finally {
       setSaving(false);
     }
-  }, [bannerGradient, bannerUrl, blocks, id, loadAuxData, pageDate, pinned, title]);
+  }, [background, bannerGradient, bannerUrl, blocks, id, loadAuxData, pageDate, pinned, title]);
 
   const togglePinned = useCallback(async () => {
     if (!id) return;
@@ -818,6 +848,31 @@ export default function PageEditor() {
     const response = await api.post('/api/life/uploads/pdf', formData);
     updateBlock(blockId, (prev) => ({ ...prev, url: response.url || '', text: prev.text || file.name.replace(/\.pdf$/i, ''), meta: { ...(prev.meta || {}), originalName: response.originalName || file.name } }));
   }, [updateBlock]);
+
+  const uploadImage = useCallback(async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/api/life/uploads/image', formData);
+    return (response?.url as string) || '';
+  }, []);
+
+  const pickImageFor = useCallback((blockId: string) => {
+    imageTargetRef.current = blockId;
+    imageInputRef.current?.click();
+  }, []);
+
+  const pageBackgroundStyle = useMemo<React.CSSProperties>(() => {
+    const layers: string[] = [];
+    const dim = typeof background.dim === 'number' ? background.dim : 0.35;
+    if (background.url) layers.push(`linear-gradient(rgba(8,16,24,${dim}), rgba(8,16,24,${dim}))`, `url(${resolveApiUrl(background.url)})`);
+    else if (background.gradient) layers.push(background.gradient);
+    return {
+      backgroundColor: background.color || '#10202c',
+      backgroundImage: layers.length ? layers.join(', ') : undefined,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+    };
+  }, [background]);
 
   const connections = useMemo(() => {
     const layouts = new Map(visibleBlocks.map((block) => [block.id, getLayout(block)]));
@@ -890,15 +945,72 @@ export default function PageEditor() {
                 <input type="date" value={pageDate} onChange={(e) => setPageDate(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" />
                 <input value={bannerUrl} onChange={(e) => setBannerUrl(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="URL баннера" />
                 <input value={bannerGradient} onChange={(e) => setBannerGradient(e.target.value)} className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="CSS gradient" />
+                <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 md:col-span-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-white/50">Фон страницы</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => bgInputRef.current?.click()} className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white/85 hover:bg-white/10">
+                      <ImageIcon className="mr-2 inline h-4 w-4" />Картинка с компьютера
+                    </button>
+                    <input value={background.url || ''} onChange={(e) => setBackground((prev) => ({ ...prev, url: e.target.value }))} className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="или ссылка на картинку" />
+                    <label className="flex items-center gap-2 text-sm text-white/70">
+                      Цвет
+                      <input type="color" value={background.color || '#10202c'} onChange={(e) => setBackground((prev) => ({ ...prev, color: e.target.value }))} className="h-9 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent" />
+                    </label>
+                    <input value={background.gradient || ''} onChange={(e) => setBackground((prev) => ({ ...prev, gradient: e.target.value }))} className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white outline-none" placeholder="CSS-градиент (если нет картинки)" />
+                    <button type="button" onClick={() => setBackground({})} className="rounded-xl border border-white/10 px-3 py-2 text-sm text-white/60 hover:bg-white/10">Сбросить</button>
+                  </div>
+                  {background.url ? (
+                    <label className="flex items-center gap-3 text-sm text-white/70">
+                      Затемнение
+                      <input type="range" min={0} max={0.9} step={0.05} value={background.dim ?? 0.35} onChange={(e) => setBackground((prev) => ({ ...prev, dim: Number(e.target.value) }))} className="w-48" />
+                      <span className="text-white/45">{Math.round((background.dim ?? 0.35) * 100)}%</span>
+                    </label>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
 
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              const target = imageTargetRef.current;
+              e.currentTarget.value = '';
+              if (!file || !target) return;
+              try {
+                const url = await uploadImage(file);
+                if (url) updateBlock(target, { url });
+              } catch (err: any) {
+                setError(err?.message || 'Не удалось загрузить картинку');
+              }
+            }}
+          />
+          <input
+            ref={bgInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.currentTarget.value = '';
+              if (!file) return;
+              try {
+                const url = await uploadImage(file);
+                if (url) setBackground((prev) => ({ ...prev, url }));
+              } catch (err: any) {
+                setError(err?.message || 'Не удалось загрузить фон');
+              }
+            }}
+          />
           <div className="overflow-auto bg-[#0b1720] p-6">
             <div
               ref={pageRef}
-              className="relative mx-auto rounded-[30px] border border-white/10 bg-[#10202c]"
-              style={{ width: pageBounds.width, height: pageBounds.height }}
+              className="relative mx-auto rounded-[30px] border border-white/10"
+              style={{ width: pageBounds.width, height: pageBounds.height, ...pageBackgroundStyle }}
               onMouseDown={() => {
                 setSelectedId(null);
                 setConnectingFrom(null);
@@ -952,6 +1064,8 @@ export default function PageEditor() {
                   }}
                   onChange={(patch) => updateBlock(block.id, patch)}
                   onUploadPdf={(file) => uploadPdfForBlock(block.id, file)}
+                  onPickImage={() => pickImageFor(block.id)}
+                  wasDragged={() => dragMovedRef.current}
                 />
               ))}
 
@@ -976,6 +1090,9 @@ export default function PageEditor() {
 
                   {contextMenu.kind === 'block' ? (
                     <div className="space-y-1">
+                      {blocks.find((item) => item.id === contextMenu.blockId)?.type === 'image' ? (
+                        <button type="button" onClick={() => { pickImageFor(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Выбрать картинку…</button>
+                      ) : null}
                       <button type="button" onClick={() => { duplicateBlock(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Дублировать блок</button>
                       <button type="button" onClick={() => { const current = blocks.find((b) => b.id === contextMenu.blockId); if (!current) return; const value = window.prompt('Собственное название блока', getDisplay(current).customTitle || ''); if (value !== null) updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { customTitle: value })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Свое название блока</button>
                       <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { hideChrome: !getDisplay(prev).hideChrome })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Показать/скрыть оконтовку</button>

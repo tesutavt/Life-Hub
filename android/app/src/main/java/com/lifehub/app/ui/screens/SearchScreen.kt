@@ -285,7 +285,7 @@ private fun SectionHeader(title: String) {
 private fun ResultRow(emoji: String, title: String, subtitle: String?, tags: List<PageTagRef> = emptyList(), onClick: () -> Unit) {
     val shape = RoundedCornerShape(14.dp)
     Row(
-        Modifier.fillMaxWidth().clip(shape).background(Color.White.copy(alpha = 0.05f)).border(1.dp, Color.White.copy(alpha = 0.08f), shape)
+        Modifier.fillMaxWidth().clip(shape).background(Brand.Ink.copy(alpha = 0.05f)).border(1.dp, Brand.Ink.copy(alpha = 0.08f), shape)
             .clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

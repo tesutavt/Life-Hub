@@ -41,6 +41,8 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppVisibility.foreground = true
+        // Тему могли поменять на компьютере — подтягиваем
+        if (com.lifehub.app.data.Session.token.value != null) lifecycleScope.launch { com.lifehub.app.ui.theme.ThemeManager.sync() }
     }
 
     override fun onStop() {
