@@ -102,12 +102,13 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 // Цвета Steam для страницы ачивок
-private val SteamBg = Color(0xFF1B2838)
-private val SteamPanel = Color(0xFF16202D)
-private val SteamText = Color(0xFFC6D4DF)
-private val SteamMuted = Color(0xFF8F98A0)
-private val SteamBlue = Color(0xFF66C0F4)
-private val SteamBar = Brush.horizontalGradient(listOf(Color(0xFF47BFFF), Color(0xFF1A44C2)))
+// Раньше — фиксированные цвета Steam; теперь цвета выбранной темы (как на ПК с 1.2.1)
+private val SteamBg get() = Brand.Deep
+private val SteamPanel get() = Brand.Card
+private val SteamText get() = Brand.Text
+private val SteamMuted get() = Brand.TextMuted
+private val SteamBlue get() = Brand.Mint
+private val SteamBar get() = Brush.horizontalGradient(listOf(Brand.Mint, Brand.Mint.copy(alpha = 0.6f)))
 
 private fun unlockedAt(iso: String?): String = runCatching {
     val t = OffsetDateTime.parse(iso).atZoneSameInstant(java.time.ZoneId.systemDefault())
@@ -135,7 +136,7 @@ fun AchievementsScreen(onBack: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             Modifier.size(width = 86.dp, height = 116.dp).border(2.dp, Color.White.copy(alpha = 0.8f))
-                                .background(Brush.linearGradient(listOf(Color(0xFF2A475E), SteamBg, SteamBlue))),
+                                .background(Brush.linearGradient(listOf(Brand.Slate, SteamBg, SteamBlue))),
                             contentAlignment = Alignment.Center,
                         ) { Text("🏆", fontSize = 40.sp) }
                         Spacer(Modifier.width(12.dp))
@@ -154,7 +155,7 @@ fun AchievementsScreen(onBack: () -> Unit) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Глобальная статистика", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        Switch(global, { global = it }, colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1A9FFF)))
+                        Switch(global, { global = it }, colors = SwitchDefaults.colors(checkedTrackColor = Brand.Mint))
                     }
                     OutlinedTextField(
                         query, { query = it }, singleLine = true, placeholder = { Text("Поиск…") },
@@ -216,7 +217,7 @@ private fun SteamRow(a: Achievement, global: Boolean, right: @Composable () -> U
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(a.title, color = if (a.earned) Color.White else SteamText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            a.description?.let { Text(it, color = Color(0xFFACB2B8), fontSize = 12.sp) }
+            a.description?.let { Text(it, color = Brand.TextMuted, fontSize = 12.sp) }
             if (global) Text("${"%.1f".format(a.globalPct)} % пользователей · ${rarityLabel(a.rarity)} · +${a.xpReward} XP", color = SteamMuted, fontSize = 11.sp)
         }
         Spacer(Modifier.width(6.dp))
@@ -269,6 +270,14 @@ private fun TrendChart(sec: ReportSection, color: Color) {
             }
         }
     }
+}
+
+/** Единицы с сервера склоняем по числу: «1 отметка», «2 отметки»; «п.п.» — понятнее. */
+private fun unitLabel(unit: String?, n: Double): String = when (unit) {
+    "отметок" -> com.lifehub.app.ui.components.plural(n.toInt(), "отметка", "отметки", "отметок")
+    "курсов" -> com.lifehub.app.ui.components.plural(n.toInt(), "курс", "курса", "курсов")
+    "п.п." -> "% прогресса"
+    else -> unit.orEmpty()
 }
 
 private fun ReportSection?.active() = this != null && (summary.current > 0 || items.any { it.current > 0 })
@@ -328,7 +337,7 @@ fun ReportsScreen(onBack: () -> Unit) {
 private fun ReportChips(r: ReportData) {
     FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         r.sections.entries.filter { it.value.active() }.forEach { (key, s) ->
-            Chip("${SECTION_EMOJI[key] ?: "✨"} ${fmtNum(s!!.summary.current)} ${s.unit}", Brand.Sky)
+            Chip("${SECTION_EMOJI[key] ?: "✨"} ${fmtNum(s!!.summary.current)} ${unitLabel(s.unit, s.summary.current)}", Brand.Sky)
         }
     }
 }
@@ -369,101 +378,6 @@ private fun ReportDetails(r: ReportData) {
 }
 
 // ───────────── Страницы ─────────────
-// ───────────── Путешествия ─────────────
-private val TRIP_STATUSES = listOf("planned" to "Планируется", "done" to "Совершено", "cancelled" to "Отменено")
-
-@Composable
-fun TravelScreen(onBack: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    val state = rememberLoadable { Api.get<Items<TravelPlan>>("/api/life/travel").items }
-    var editing by remember { mutableStateOf<TravelPlan?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().background(Brand.Deep)) {
-        BackTopBar("Путешествия", onBack) {
-            androidx.compose.material3.IconButton({ adding = true }) { Icon(androidx.compose.material.icons.Icons.Default.Add, "Добавить", tint = Brand.Text) }
-        }
-        LoadableContent(state) { trips ->
-            if (trips.isEmpty()) EmptyState("✈️", "Поездок пока нет", "Нажмите «+», чтобы запланировать первую.")
-            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(trips, key = { it.id }) { t ->
-                    LhCard(Modifier.fillMaxWidth(), onClick = { editing = t }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(when (t.status) { "done", "completed" -> "🏁"; "cancelled" -> "🚫"; else -> "✈️" }, fontSize = 24.sp)
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(t.title ?: "Поездка", fontWeight = FontWeight.SemiBold)
-                                Text(listOfNotNull(t.location?.ifBlank { null }, listOfNotNull(t.dateFrom, t.dateTo).joinToString(" — ").ifBlank { null }).joinToString(" · "), color = Brand.TextMuted, fontSize = 12.sp)
-                            }
-                            Chip(TRIP_STATUSES.firstOrNull { it.first == t.status }?.second ?: "Планируется", Brand.Sky)
-                        }
-                        t.notes?.takeIf { it.isNotBlank() }?.let { Text(it, color = Brand.TextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
-                    }
-                }
-            }
-        }
-    }
-    if (adding || editing != null) {
-        TripDialog(editing, onDismiss = { adding = false; editing = null }, onDelete = editing?.let { t -> {
-            editing = null
-            scope.launch { runCatching { Api.delete("/api/life/travel/${t.id}") }; state.reload() }
-        } }) { body ->
-            val current = editing
-            adding = false; editing = null
-            scope.launch {
-                runCatching { if (current == null) Api.post("/api/life/travel", body) else Api.put("/api/life/travel/${current.id}", body) }
-                state.reload()
-            }
-        }
-    }
-}
-
-@Composable
-private fun TripDialog(trip: TravelPlan?, onDismiss: () -> Unit, onDelete: (() -> Unit)?, onSave: (kotlinx.serialization.json.JsonObject) -> Unit) {
-    var title by remember { mutableStateOf(trip?.title.orEmpty()) }
-    var location by remember { mutableStateOf(trip?.location.orEmpty()) }
-    var from by remember { mutableStateOf(trip?.dateFrom.orEmpty()) }
-    var to by remember { mutableStateOf(trip?.dateTo.orEmpty()) }
-    var status by remember { mutableStateOf(trip?.status ?: "planned") }
-    var notes by remember { mutableStateOf(trip?.notes.orEmpty()) }
-    var confirm by remember { mutableStateOf(false) }
-    val dateOk = { v: String -> v.isBlank() || runCatching { java.time.LocalDate.parse(v) }.isSuccess }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Brand.Night,
-        title = { Text(if (trip == null) "Новая поездка" else "Поездка") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedTextField(title, { title = it }, label = { Text("Название") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(location, { location = it }, label = { Text("Место") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedTextField(from, { from = it.take(10) }, label = { Text("С (ГГГГ-ММ-ДД)") }, singleLine = true, isError = !dateOk(from), modifier = Modifier.weight(1f))
-                    OutlinedTextField(to, { to = it.take(10) }, label = { Text("По") }, singleLine = true, isError = !dateOk(to), modifier = Modifier.weight(1f))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TRIP_STATUSES.forEach { (id, label) ->
-                        Text(label, fontSize = 12.sp, color = if (status == id) Brand.Deep else Brand.Text,
-                            modifier = Modifier.clip(CircleShape).background(if (status == id) Brand.Mint else Brand.Ink.copy(alpha = 0.06f)).clickable { status = id }.padding(horizontal = 10.dp, vertical = 6.dp))
-                    }
-                }
-                OutlinedTextField(notes, { notes = it }, label = { Text("Заметки") }, minLines = 2, modifier = Modifier.fillMaxWidth())
-                if (onDelete != null) {
-                    Text(if (confirm) "Точно удалить? Нажмите ещё раз" else "Удалить поездку", color = Brand.Rose, fontSize = 13.sp,
-                        modifier = Modifier.clip(CircleShape).clickable { if (confirm) onDelete() else confirm = true }.padding(vertical = 6.dp))
-                }
-            }
-        },
-        confirmButton = {
-            androidx.compose.material3.TextButton(enabled = title.isNotBlank() && dateOk(from) && dateOk(to), onClick = {
-                onSave(buildJsonObject {
-                    put("title", title.trim()); put("location", location.trim()); put("status", status); put("notes", notes.trim())
-                    put("date_from", from.ifBlank { null }); put("date_to", to.ifBlank { null })
-                })
-            }) { Text("Сохранить", color = Brand.Mint) }
-        },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Отмена", color = Brand.TextMuted) } },
-    )
-}
-
 // ───────────── Оформление профиля ─────────────
 private val SHOWCASES = listOf(
     "achievements" to "🏆 Витрина достижений", "languages" to "🗣️ Языки", "courses" to "🎓 Курсы", "goals" to "🎯 Цели года",

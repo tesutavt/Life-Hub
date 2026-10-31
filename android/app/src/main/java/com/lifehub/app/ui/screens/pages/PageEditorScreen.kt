@@ -456,6 +456,8 @@ private fun BlockFrame(b: PageBlock, raw: JsonObject, ctx: BlockContext, selecte
     Box(
         modifier.clip(shape)
             .then(if (chrome) Modifier.background(BLOCK_BG).border(1.dp, Brand.Ink.copy(alpha = 0.1f), shape) else Modifier)
+            // цвет блока (как ПКМ → «Цвет» на компьютере)
+            .then(d?.color?.takeIf { chrome }?.let { c -> val col = com.lifehub.app.ui.screens.cssColor(c); Modifier.background(col.copy(alpha = 0.15f)).border(1.dp, col.copy(alpha = 0.5f), shape) } ?: Modifier)
             .then(if (selected) Modifier.border(2.dp, Color(0xFF67E8F9), shape) else Modifier),
     ) {
         Column(Modifier.fillMaxSize()) {
@@ -613,6 +615,7 @@ private fun AppearanceDialog(raw: JsonObject, state: PageEditorState, onDone: ()
     var hideChrome by remember { mutableStateOf(flag("hideChrome")) }
     var hideHeader by remember { mutableStateOf(flag("hideHeader")) }
     var locked by remember { mutableStateOf(flag("locked")) }
+    var color by remember { mutableStateOf(d.str("color")) }
     AlertDialog(
         onDismissRequest = onDone, containerColor = Brand.Night,
         title = { Text("Вид блока") },
@@ -622,11 +625,18 @@ private fun AppearanceDialog(raw: JsonObject, state: PageEditorState, onDone: ()
                 Toggle("Без рамки и фона", hideChrome) { hideChrome = it }
                 Toggle("Без заголовка", hideHeader) { hideHeader = it }
                 Toggle("Зафиксировать (не двигать)", locked) { locked = it }
+                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Цвет", fontSize = 14.sp, modifier = Modifier.padding(end = 8.dp))
+                    listOf("#f43f5e", "#f59e0b", "#10b981", "#38bdf8", "#8b5cf6", "#ec4899", "#94a3b8").forEach { c ->
+                        Box(Modifier.padding(2.dp).size(24.dp).clip(CircleShape).background(com.lifehub.app.ui.screens.cssColor(c)).border(2.dp, if (color == c) Brand.Text else Color.Transparent, CircleShape).clickable { color = c })
+                    }
+                    Text("✕", fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp).clip(CircleShape).clickable { color = null }.padding(4.dp))
+                }
             }
         },
         confirmButton = {
             TextButton({
-                state.update(id) { r -> r.withDisplay { it.with("customTitle", JsonPrimitive(title)).with("hideChrome", JsonPrimitive(hideChrome)).with("hideHeader", JsonPrimitive(hideHeader)).with("locked", JsonPrimitive(locked)) } }
+                state.update(id) { r -> r.withDisplay { it.with("customTitle", JsonPrimitive(title)).with("hideChrome", JsonPrimitive(hideChrome)).with("hideHeader", JsonPrimitive(hideHeader)).with("locked", JsonPrimitive(locked)).with("color", color?.let { JsonPrimitive(it) }) } }
                 onDone()
             }) { Text("Готово", color = Brand.Mint) }
         },

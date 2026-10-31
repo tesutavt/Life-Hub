@@ -116,7 +116,8 @@ export default function Habits() {
 
   const progress = (habit: Habit) => {
     const doneCount = currentWeekDates.filter(date => checkMap[date]?.[habit.id]).length;
-    const target = habit.target_per_week || 0;
+    // В неделе 7 дней: цель больше (например, 365) значит «каждый день»
+    const target = Math.min(habit.target_per_week || 0, 7);
     const pct = target ? Math.min(100, Math.round((doneCount * 100) / target)) : 0;
     return { done: doneCount, target, pct };
   };
@@ -214,7 +215,7 @@ export default function Habits() {
                     <div className="w-full h-2 bg-white/10 rounded">
                       <div className="h-2 bg-white rounded" style={{ width: `${pct}%` }} />
                     </div>
-                    <div className="text-xs opacity-70 mt-1">{done} / {target}</div>
+                    <div className="text-xs opacity-70 mt-1">{done} / {target}{(habit.target_per_week || 0) > 7 ? " · каждый день" : " за неделю"}</div>
                   </td>
                   <td className="p-2 text-right">
                     <button onClick={() => removeHabit(habit.id)} className="px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/40">Удалить</button>

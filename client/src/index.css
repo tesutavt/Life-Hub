@@ -332,6 +332,11 @@ select {
   }
 }
 
+@keyframes garland-blink {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
 @keyframes weatherEffectDrift {
   0% {
     transform: translate3d(0, 0, 0);
@@ -371,3 +376,16 @@ select {
   from { opacity: 0; transform: translateY(16px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* Карта путешествий: тёплые «старые» тайлы, записки-подсказки у булавок */
+.lh-vintage-tiles { filter: sepia(0.28) saturate(0.9) brightness(1.02); }
+.lh-pin { background: none; border: none; }
+.leaflet-tooltip.lh-pin-tooltip {
+  background: #fdfbf6; color: #1e293b; border: none; border-radius: 3px; padding: 6px 9px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35); transform-origin: bottom center;
+  font-family: inherit; white-space: nowrap;
+}
+.leaflet-tooltip.lh-pin-tooltip::before { border-top-color: #fdfbf6; }
+.lh-pin-note b { font-size: 13px; }
+.lh-pin-note div { font-size: 11px; color: #475569; }
+.lh-pin-note .lh-pin-meta { margin-top: 2px; color: #64748b; }

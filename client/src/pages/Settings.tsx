@@ -15,6 +15,7 @@ import {
 import { notifyNotificationSettingsChange } from "../notifications/settingsBus";
 import GoogleIntegration from "./settings/sections/GoogleIntegration";
 import WeatherIntegration from "./settings/sections/WeatherIntegration";
+import ShelfIntegrations from "./settings/sections/ShelfIntegrations";
 import InterfacePreferences from "./settings/sections/InterfacePreferences";
 import ReminderSettings from "./settings/sections/ReminderSettings";
 import SystemSettings from "./settings/sections/SystemSettings";
@@ -39,7 +40,7 @@ const SETTINGS_TABS = [
   { id: "notifications", label: "Уведомления", hint: "напоминания и «не беспокоить»", icon: Bell },
   { id: "interface", label: "Меню и интерфейс", hint: "пункты меню, счётчики", icon: LayoutGrid },
   { id: "system", label: "Система", hint: "иконка вкладки", icon: Cog },
-  { id: "integrations", label: "Интеграции", hint: "Google Fit, погода", icon: Plug },
+  { id: "integrations", label: "Интеграции", hint: "Shikimori, Steam, Google, погода", icon: Plug },
 ] as const;
 
 type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
@@ -99,7 +100,11 @@ export default function Settings() {
     updateDocumentFavicon(favicon);
   }, [favicon]);
 
-  const [activeTab, setActiveTab] = useState<SettingsTabId>("appearance");
+  // ?tab=integrations — открыть нужную вкладку по ссылке (например, с полки)
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("tab");
+    return (SETTINGS_TABS.some((t) => t.id === fromUrl) ? fromUrl : "appearance") as SettingsTabId;
+  });
   const handleWeatherBackgroundChange = useCallback(
     (key: WeatherBackgroundKey, value: string) => {
       setWeatherBackgrounds((prev) => ({ ...prev, [key]: value }));
@@ -411,6 +416,7 @@ export default function Settings() {
           )}
           {activeTab === "integrations" && (
             <>
+              <ShelfIntegrations />
               <GoogleIntegration value={google} onChange={(value) => setGoogle(value)} onSubmit={saveGoogle} saving={savingGoogle} authUrl={googleAuthUrl} />
               <WeatherIntegration
                 apiKey={weatherApiKey}

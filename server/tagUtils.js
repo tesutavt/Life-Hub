@@ -7,6 +7,8 @@ export const TAG_ENTITY_TYPES = {
   HABIT: 'habit',
   LOAN: 'loan',
   GOAL: 'goal',
+  SHELF: 'shelf',
+  WISH: 'wish',
 };
 
 export const sortTags = (tags) =>

@@ -9,6 +9,8 @@ import { notifyProfileUpdated } from '../profileBus';
 import { requestAchievementCheck } from '../achievements';
 import { desktop } from '../desktop';
 import { applyDesktopChoice, DEFAULT_DESKTOP_CHOICE, DesktopChoice, DesktopSetupFields } from './DesktopSetup';
+import { loadLocalTheme, PRESETS, setTheme, ThemeMode, ThemeSettings } from '../theme';
+import ShelfIntegrations from '../pages/settings/sections/ShelfIntegrations';
 
 /** Интересы → пункты меню, которые остаются видимыми. */
 const INTERESTS = [
@@ -19,7 +21,9 @@ const INTERESTS = [
   { id: 'missions', emoji: '🔥', title: 'Задания и ачивки', text: 'Очки, XP, награды', menu: ['/daily-missions', '/achievements'] },
   { id: 'pages', emoji: '📝', title: 'Заметки и страницы', text: 'Дневник, конспекты', menu: ['/pages'] },
   { id: 'finance', emoji: '💳', title: 'Финансы', text: 'Кредиты и расходы', menu: [] },
-  { id: 'travel', emoji: '✈️', title: 'Путешествия', text: 'Планы поездок', menu: ['/travel'] },
+  { id: 'travel', emoji: '🗺️', title: 'Путешествия', text: 'Карта мест и маршрутов', menu: ['/travel'] },
+  { id: 'shelf', emoji: '📚', title: 'Полка', text: 'Книги, аниме, игры', menu: ['/shelf'] },
+  { id: 'wishlist', emoji: '🎁', title: 'Вишлист', text: 'Желания и копилки', menu: ['/wishlist'] },
 ] as const;
 type InterestId = (typeof INTERESTS)[number]['id'];
 const OPTIONAL_MENU = Array.from(new Set(INTERESTS.flatMap((i) => i.menu)));
@@ -27,7 +31,7 @@ const OPTIONAL_MENU = Array.from(new Set(INTERESTS.flatMap((i) => i.menu)));
 const HABIT_PRESETS = ['💧 Пить воду', '🚶 Прогулка', '📖 Читать 20 минут', '🧘 Медитация', '🏋️ Зарядка', '😴 Лечь до 23:00'];
 const LEVELS = ['A0', 'A1', 'A2', 'B1', 'B2', 'C1'];
 
-type StepId = 'hello' | 'interests' | 'start' | 'desktop' | 'done';
+type StepId = 'hello' | 'look' | 'interests' | 'start' | 'connect' | 'desktop' | 'done';
 
 /** Мастер первого запуска: имя и аватар, интересы (настраивают меню) и быстрый старт. */
 export default function OnboardingWizard() {
@@ -72,7 +76,34 @@ export default function OnboardingWizard() {
   }, [avatar]);
 
   // На компьютере добавляется шаг про автозапуск, трей и уведомления Windows
-  const steps: StepId[] = isDesktop ? ['hello', 'interests', 'start', 'desktop', 'done'] : ['hello', 'interests', 'start', 'done'];
+  // Шаг «Подключения» — только если выбрана полка (Shikimori и Steam наполняют её сами)
+  const steps: StepId[] = [
+    'hello',
+    'look',
+    'interests',
+    'start',
+    ...(interests.has('shelf') ? (['connect'] as StepId[]) : []),
+    ...(isDesktop ? (['desktop'] as StepId[]) : []),
+    'done',
+  ];
+  const nextOf = (cur: StepId) => steps[steps.indexOf(cur) + 1] || 'done';
+
+  // Оформление применяется сразу — видно, как будет выглядеть приложение
+  const [look, setLook] = useState<ThemeSettings>(() => loadLocalTheme());
+  const changeLook = (patch: Partial<ThemeSettings>) => {
+    const next = { ...look, ...patch };
+    setLook(next);
+    setTheme(next);
+  };
+  const saveLook = async () => {
+    setSaving(true);
+    try {
+      await api.put('/api/life/ui-settings', { theme: look }, { silentSuccess: true, silentError: true });
+      setStep(nextOf('look'));
+    } finally {
+      setSaving(false);
+    }
+  };
   const index = steps.indexOf(step);
   const has = (id: InterestId) => interests.has(id);
 
@@ -102,7 +133,7 @@ export default function OnboardingWizard() {
       await api.post('/api/life/profile', form, { silentSuccess: true });
       notifyProfileUpdated();
       refreshUser();
-      setStep('interests');
+      setStep(nextOf('hello'));
     } finally {
       setSaving(false);
     }
@@ -115,7 +146,7 @@ export default function OnboardingWizard() {
       const hidden = OPTIONAL_MENU.filter((path) => !visible.has(path));
       await api.put('/api/life/ui-settings', { hidden_menu_items: hidden }, { silentSuccess: true });
       notifyHiddenMenuItems(hidden);
-      setStep('start');
+      setStep(nextOf('interests'));
     } finally {
       setSaving(false);
     }
@@ -147,7 +178,7 @@ export default function OnboardingWizard() {
       setCreated(done);
       requestMenuCountersRefresh();
       requestAchievementCheck();
-      setStep(isDesktop ? 'desktop' : 'done');
+      setStep(nextOf('start'));
     } finally {
       setSaving(false);
     }
@@ -206,6 +237,46 @@ export default function OnboardingWizard() {
                   </label>
                 </div>
               </div>
+            </div>
+          )}
+
+          {step === 'look' && (
+            <div>
+              <div className="text-4xl">🎨</div>
+              <h2 className="mt-2 text-2xl font-bold text-white">Как будет выглядеть Life Hub?</h2>
+              <p className="mt-1 text-sm text-white/60">Тема применяется сразу и общая для компьютера и телефона. Позже — свои темы и шрифты в «Настройках → Оформление».</p>
+              <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {PRESETS.map((p) => (
+                  <button key={p.id} type="button" onClick={() => changeLook({ preset: p.id, accent: null })} className={classNames('overflow-hidden rounded-2xl border-2 text-left transition hover:-translate-y-0.5', look.preset === p.id ? 'border-brand-mint' : 'border-white/10')}>
+                    <div className="flex h-12" style={{ background: p.deep }}>
+                      <div className="m-2 flex-1 rounded-lg" style={{ background: p.night, border: `1px solid ${p.slate}` }}>
+                        <div className="m-1.5 h-1.5 w-8 rounded-full" style={{ background: p.accent }} />
+                      </div>
+                    </div>
+                    <div className="px-2 py-1.5 text-xs font-medium text-white">{p.name}</div>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {(['dark', 'light', 'auto'] as ThemeMode[]).map((m) => (
+                  <button key={m} type="button" onClick={() => changeLook({ mode: m })} className={classNames('rounded-full px-3 py-1.5 text-sm transition', look.mode === m ? 'bg-brand-mint text-brand-deep' : 'bg-white/5 text-white/70 hover:bg-white/10')}>
+                    {m === 'dark' ? '🌙 Тёмная' : m === 'light' ? '☀️ Светлая' : '🌓 Как в системе'}
+                  </button>
+                ))}
+                <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-white/70">
+                  <input type="checkbox" checked={look.seasonal !== 'off'} onChange={(e) => changeLook({ seasonal: e.target.checked ? 'auto' : 'off' })} className="h-4 w-4 rounded" />
+                  Сезонные эффекты: сакура, снег, тыквы 🎃
+                </label>
+              </div>
+            </div>
+          )}
+
+          {step === 'connect' && (
+            <div>
+              <div className="text-4xl">🔗</div>
+              <h2 className="mt-2 text-2xl font-bold text-white">Подключения</h2>
+              <p className="mb-4 mt-1 text-sm text-white/60">Необязательно — можно сделать позже в «Настройках → Интеграции». Полка наполнится сама. На телефоне браслет подключается в «Настройках → Браслет и здоровье».</p>
+              <ShelfIntegrations compact />
             </div>
           )}
 
@@ -319,6 +390,7 @@ export default function OnboardingWizard() {
               <div className="animate-[achievement-pop_700ms_ease-out] text-6xl">🎉</div>
               <h2 className="mt-3 text-2xl font-bold text-white">Всё готово{name ? `, ${name}` : ''}!</h2>
               <p className="mt-1 text-sm text-white/60">Пользуйтесь приложением — за действия начисляются XP и ачивки.</p>
+              <p className="mt-2 text-xs text-white/45">📱 На телефоне: установите Life Hub для Android и войдите по QR-коду: меню профиля слева вверху → «Войти на телефоне (QR)». Данные будут общие.</p>
               {created.length > 0 && (
                 <div className="mx-auto mt-4 max-w-sm space-y-1 text-left">
                   {created.map((line) => (
@@ -344,7 +416,7 @@ export default function OnboardingWizard() {
             type="button"
             disabled={saving || (step === 'interests' && interests.size === 0)}
             onClick={() =>
-              step === 'hello' ? saveHello() : step === 'interests' ? saveInterests() : step === 'start' ? saveStart() : step === 'desktop' ? saveDesktop() : finish()
+              step === 'hello' ? saveHello() : step === 'look' ? saveLook() : step === 'interests' ? saveInterests() : step === 'start' ? saveStart() : step === 'connect' ? setStep(nextOf('connect')) : step === 'desktop' ? saveDesktop() : finish()
             }
             className="inline-flex items-center gap-1.5 rounded-full bg-brand-mint px-5 py-2.5 text-sm font-bold text-brand-deep shadow-[0_4px_14px_rgba(39,233,181,0.3)] transition hover:brightness-110 disabled:opacity-50"
           >

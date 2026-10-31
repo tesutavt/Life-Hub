@@ -151,6 +151,8 @@ fun BlockContent(raw: JsonObject, b: PageBlock, ctx: BlockContext) {
         "calendar" -> CalendarBlock(b, ctx)
         "pageNav" -> PageNavBlock(b, ctx)
         "tabs" -> TabsBlock(b, ctx)
+        "checklist" -> ChecklistBlock(raw, ctx)
+        "embed" -> EmbedBlock(raw, ctx)
         else -> Text(blockHtml(b), color = Brand.Text, modifier = Modifier.padding(16.dp))
     }
 }

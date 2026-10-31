@@ -1,5 +1,6 @@
 package com.lifehub.app.ui
 
+import com.lifehub.app.ui.theme.SeasonalOverlay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,8 @@ fun AppRoot() {
                 token == null -> AuthScreen()
                 else -> MainScaffold()
             }
+            // Сезонная атмосфера поверх всего (сакура, снег, тыквы…)
+            SeasonalOverlay()
         }
     }
 }

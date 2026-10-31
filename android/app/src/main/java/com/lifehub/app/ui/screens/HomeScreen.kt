@@ -153,7 +153,8 @@ val MOODS = listOf("😢", "😕", "😐", "🙂", "😄")
 /** Разделы приложения — открываются из шторки «Все разделы». */
 private val SECTIONS = listOf(
     Triple("📅", "Календарь", "calendar"), Triple("🎯", "Цели", "goals"), Triple("💰", "Финансы", "finance"),
-    Triple("📝", "Страницы", "pages"), Triple("📊", "Отчёты", "reports"), Triple("✈️", "Поездки", "travel"),
+    Triple("📝", "Страницы", "pages"), Triple("📊", "Отчёты", "reports"), Triple("🗺️", "Путешествия", "travel"),
+    Triple("📚", "Полка", "shelf"), Triple("🎁", "Вишлист", "wishlist"),
     Triple("🏆", "Ачивки", "achievements"), Triple("🎨", "Оформление", "customize"), Triple("⚙️", "Настройки", "settings"),
 )
 

@@ -3,6 +3,9 @@ import { generateUniqueUsername, getDB, levelFromXp, normalizeUsername } from '.
 import { TAG_ENTITY_TYPES, fetchTagLinks, sortTags, syncTagLinks } from '../../tagUtils.js';
 import { upload, removeLocalUpload } from './storage.js';
 import { createUploadsRouter } from './uploads.js';
+import shelfRouter from './shelf.js';
+import wishlistRouter from './wishlist.js';
+import linksRouter, { dropEntityLinks } from './links.js';
 import languageLearningRouter from './languageLearning.js';
 import studyPlanRouter from './studyPlan.js';
 import { applyGoalAutoChecks, listForUser, trackAction } from '../../achievements/engine.js';
@@ -53,6 +56,9 @@ const normalizeNotificationPreferences = (value) => {
 };
 
 router.use('/uploads', createUploadsRouter());
+router.use('/shelf', shelfRouter);
+router.use('/wishlist', wishlistRouter);
+router.use('/links', linksRouter);
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -1386,6 +1392,31 @@ router.get('/search', async (req, res) => {
     }));
   }
 
+  // Полка и вишлист — тем же способом: по тексту и/или по тегу
+  const searchSimple = async (table, entityType, textCols, cols, order) => {
+    let sql = `SELECT ${cols} FROM ${table} WHERE user_id=?`;
+    const params = [req.user.uid];
+    if (hasTextQuery) {
+      sql += ' AND (' + textCols.map((c) => `COALESCE(${c}, "") GLOB ?`).join(' OR ') + ')';
+      textCols.forEach(() => params.push(searchGlob));
+    }
+    if (selectedTag) {
+      sql += ` AND EXISTS (SELECT 1 FROM tag_links tl WHERE tl.entity_type=? AND tl.entity_id=${table}.id AND tl.user_id=? AND tl.tag_id=?)`;
+      params.push(entityType, req.user.uid, selectedTag.id);
+    }
+    sql += ` ORDER BY ${order} LIMIT ?`;
+    params.push(limit);
+    const rows = await db.all(sql, params).catch(() => []);
+    const tagMap = await fetchTagLinks(db, req.user.uid, entityType, rows.map((r) => r.id));
+    return rows.map((r) => ({ ...r, tags: tagMap.get(r.id) || [] }));
+  };
+  const shelf = shouldSearchOther
+    ? await searchSimple('shelf_items', TAG_ENTITY_TYPES.SHELF, ['title', 'author', 'notes'], 'id, kind, title, author, year, cover_url, status, rating', 'updated_at DESC')
+    : [];
+  const wishlist = shouldSearchOther
+    ? await searchSimple('wishlist_items', TAG_ENTITY_TYPES.WISH, ['title', 'category', 'note'], 'id, title, image_url, price, saved, currency, status, category', 'status, priority DESC')
+    : [];
+
   let loans = [];
   if (shouldSearchOther) {
     let loanSql = 'SELECT id, bank, payment_monthly, remaining, due_day FROM loans WHERE user_id=?';
@@ -1552,6 +1583,8 @@ router.get('/search', async (req, res) => {
     languages,
     courses,
     travel,
+    shelf,
+    wishlist,
     loans,
     habits,
     calendar,
@@ -2571,6 +2604,21 @@ const mapTravelRow = (row, tags = []) => ({
   date_to: row.date_to,
   status: row.status,
   notes: row.notes,
+  lat: row.lat ?? null,
+  lon: row.lon ?? null,
+  country: row.country ?? null,
+  origin_name: row.origin_name ?? null,
+  origin_lat: row.origin_lat ?? null,
+  origin_lon: row.origin_lon ?? null,
+  transport: row.transport ?? null,
+  route: (() => {
+    try {
+      return row.route ? JSON.parse(row.route) : null;
+    } catch {
+      return null;
+    }
+  })(),
+  route_km: row.route_km ?? null,
   tags
 });
 
@@ -2584,9 +2632,157 @@ const mapHabitRow = (row, tags = []) => ({
 
 const travelRouter = express.Router();
 
+// Поиск места для карты: Nominatim (OpenStreetMap). Через сервер — Nominatim требует User-Agent и не любит CORS.
+const nominatim = async (path) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9000);
+  try {
+    const res = await fetch('https://nominatim.openstreetmap.org' + path, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'LifeHub/1.0 (personal travel map)', 'Accept-Language': 'ru,en;q=0.7' },
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+};
+const mapPlace = (x) => ({
+  name: x.name || x.display_name?.split(',')[0] || '',
+  label: x.display_name || '',
+  lat: Number(x.lat),
+  lon: Number(x.lon),
+  country: x.address?.country || null,
+  city: x.address?.city || x.address?.town || x.address?.village || x.address?.state || null,
+});
+
+// ── Маршрут поездки: как ехали — по железной дороге, по трассе, пешком; самолёт и паром — дугой ──
+const TRANSPORTS = ['train', 'car', 'bus', 'bike', 'walk', 'plane', 'ship'];
+const BROUTER_PROFILE = { train: 'rail', car: 'car-fast', bus: 'car-fast', bike: 'trekking', walk: 'hiking-mountain' };
+
+/** Упрощение линии (Дуглас — Пекер): длинный маршрут хранится компактно, форма сохраняется. */
+const simplify = (pts, eps) => {
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const [ax, ay] = pts[a];
+    const [bx, by] = pts[b];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy) || 1e-12;
+    let maxD = 0;
+    let idx = -1;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs(dy * pts[i][0] - dx * pts[i][1] + bx * ay - by * ax) / len;
+      if (d > maxD) { maxD = d; idx = i; }
+    }
+    if (maxD > eps && idx > 0) {
+      keep[idx] = 1;
+      stack.push([a, idx], [idx, b]);
+    }
+  }
+  return pts.filter((_, i) => keep[i]);
+};
+const routeJson = (route) => {
+  if (!Array.isArray(route) || route.length < 2) return null;
+  const pts = route
+    .filter((p) => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1])))
+    .slice(0, 4000)
+    .map((p) => [Math.round(Number(p[0]) * 1e5) / 1e5, Math.round(Number(p[1]) * 1e5) / 1e5]);
+  return pts.length >= 2 ? JSON.stringify(pts) : null;
+};
+const haversineKm = (a, b) => {
+  const r = Math.PI / 180;
+  const h = Math.sin(((b[0] - a[0]) * r) / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(((b[1] - a[1]) * r) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+};
+/** Дуга большого круга — так выглядит путь самолёта на карте. */
+const greatCircle = (a, b, n = 64) => {
+  const r = Math.PI / 180;
+  const [la1, lo1, la2, lo2] = [a[0] * r, a[1] * r, b[0] * r, b[1] * r];
+  const d = 2 * Math.asin(Math.sqrt(Math.sin((la2 - la1) / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin((lo2 - lo1) / 2) ** 2));
+  if (!d) return [a, b];
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const t = i / n;
+    const A = Math.sin((1 - t) * d) / Math.sin(d);
+    const B = Math.sin(t * d) / Math.sin(d);
+    const x = A * Math.cos(la1) * Math.cos(lo1) + B * Math.cos(la2) * Math.cos(lo2);
+    const y = A * Math.cos(la1) * Math.sin(lo1) + B * Math.cos(la2) * Math.sin(lo2);
+    const z = A * Math.sin(la1) + B * Math.sin(la2);
+    return [Math.atan2(z, Math.hypot(x, y)) / r, Math.atan2(y, x) / r];
+  });
+};
+
+travelRouter.post('/route', async (req, res) => {
+  const transport = TRANSPORTS.includes(req.body?.transport) ? req.body.transport : 'car';
+  const from = [Number(req.body?.from?.lat), Number(req.body?.from?.lon)];
+  const to = [Number(req.body?.to?.lat), Number(req.body?.to?.lon)];
+  if (![...from, ...to].every(Number.isFinite)) return res.status(400).json({ error: 'Укажите, откуда и куда' });
+  if (transport === 'plane' || transport === 'ship') {
+    const points = greatCircle(from, to);
+    return res.json({ points, km: Math.round(haversineKm(from, to)), minutes: null, approximate: true });
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  try {
+    const url = `https://brouter.de/brouter?lonlats=${from[1]},${from[0]}|${to[1]},${to[0]}&profile=${BROUTER_PROFILE[transport]}&alternativeidx=0&format=geojson`;
+    const r = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'LifeHub/1.0 (personal travel map)' } });
+    const text = await r.text();
+    if (!r.ok || !text.trim().startsWith('{')) throw new Error(text.slice(0, 160) || `HTTP ${r.status}`);
+    const feature = JSON.parse(text)?.features?.[0];
+    const coords = (feature?.geometry?.coordinates || []).map((c) => [c[1], c[0]]);
+    if (coords.length < 2) throw new Error('пустой маршрут');
+    const points = simplify(coords, 0.0006).slice(0, 4000);
+    res.json({
+      points,
+      km: Math.round(Number(feature.properties?.['track-length'] || 0) / 1000) || Math.round(haversineKm(from, to)),
+      minutes: Math.round(Number(feature.properties?.['total-time'] || 0) / 60) || null,
+      approximate: false,
+    });
+  } catch (error) {
+    // по дорогам не вышло (долго, граница, нет данных) — рисуем прямую, чтобы поездка всё равно была на карте
+    res.json({
+      points: greatCircle(from, to, 24),
+      km: Math.round(haversineKm(from, to)),
+      minutes: null,
+      approximate: true,
+      warning: 'По дорогам проложить не удалось — нарисована прямая. Можно попробовать точку ближе к вокзалу или трассе.',
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+travelRouter.get('/geocode', async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
+  if (!q) return res.json({ items: [] });
+  try {
+    const data = await nominatim('/search?format=jsonv2&addressdetails=1&limit=6&q=' + encodeURIComponent(q));
+    res.json({ items: (data || []).map(mapPlace) });
+  } catch (error) {
+    res.status(502).json({ error: 'Карта не ответила: ' + (error?.name === 'AbortError' ? 'долго нет ответа' : error?.message || 'нет связи') });
+  }
+});
+
+travelRouter.get('/reverse', async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lon = Number(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return res.status(400).json({ error: 'bad_coords' });
+  const empty = { name: '', label: '', lat, lon, country: null, city: null };
+  try {
+    const data = await nominatim(`/reverse?format=jsonv2&addressdetails=1&zoom=10&lat=${lat}&lon=${lon}`);
+    res.json({ place: data && !data.error ? { ...mapPlace(data), lat, lon } : empty });
+  } catch {
+    res.json({ place: empty });
+  }
+});
+
 travelRouter.get('/', async (req, res) => {
   const db = await getDB();
-  const rows = await db.all('SELECT id,title,location,date_from,date_to,status,notes FROM travel_plans WHERE user_id=? ORDER BY date_from DESC, id DESC', [req.user.uid]);
+  const rows = await db.all('SELECT id,title,location,date_from,date_to,status,notes,lat,lon,country,origin_name,origin_lat,origin_lon,transport,route,route_km FROM travel_plans WHERE user_id=? ORDER BY date_from DESC, id DESC', [req.user.uid]);
   const ids = rows.map((row) => row.id);
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, ids);
   res.json({
@@ -2603,11 +2799,14 @@ travelRouter.post('/', async (req, res) => {
   const dateTo = payload.date_to || null;
   const status = typeof payload.status === 'string' ? payload.status : 'planned';
   const notes = typeof payload.notes === 'string' ? payload.notes : null;
+  const coord = (v, max) => (v !== null && v !== '' && Number.isFinite(Number(v)) && Math.abs(Number(v)) <= max ? Number(v) : null);
   const result = await db.run(
-    'INSERT INTO travel_plans(user_id,title,location,date_from,date_to,status,notes) VALUES(?,?,?,?,?,?,?)',
-    [req.user.uid, title, location, dateFrom, dateTo, status, notes]
+    'INSERT INTO travel_plans(user_id,title,location,date_from,date_to,status,notes,lat,lon,country,origin_name,origin_lat,origin_lon,transport,route,route_km) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    [req.user.uid, title, location, dateFrom, dateTo, status, notes, coord(payload.lat, 90), coord(payload.lon, 180), typeof payload.country === 'string' ? payload.country.slice(0, 80) : null,
+      typeof payload.origin_name === 'string' ? payload.origin_name.slice(0, 200) : null, coord(payload.origin_lat, 90), coord(payload.origin_lon, 180),
+      TRANSPORTS.includes(payload.transport) ? payload.transport : null, routeJson(payload.route), Number.isFinite(Number(payload.route_km)) ? Number(payload.route_km) : null]
   );
-  const row = await db.get('SELECT id,title,location,date_from,date_to,status,notes FROM travel_plans WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
+  const row = await db.get('SELECT id,title,location,date_from,date_to,status,notes,lat,lon,country,origin_name,origin_lat,origin_lon,transport,route,route_km FROM travel_plans WHERE id=? AND user_id=?', [result.lastID, req.user.uid]);
   let tags = [];
   if (payload.tags !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, row.id, payload.tags);
@@ -2631,6 +2830,23 @@ travelRouter.put('/:id', async (req, res) => {
   if (payload.date_to !== undefined) { updates.push('date_to=?'); values.push(payload.date_to || null); }
   if (payload.status !== undefined) { updates.push('status=?'); values.push(String(payload.status)); }
   if (payload.notes !== undefined) { updates.push('notes=?'); values.push(payload.notes ? String(payload.notes) : null); }
+  for (const [key, max] of [['lat', 90], ['lon', 180]]) {
+    if (payload[key] === undefined) continue;
+    const v = Number(payload[key]);
+    updates.push(`${key}=?`);
+    values.push(payload[key] !== null && payload[key] !== '' && Number.isFinite(v) && Math.abs(v) <= max ? v : null);
+  }
+  if (payload.country !== undefined) { updates.push('country=?'); values.push(payload.country ? String(payload.country).slice(0, 80) : null); }
+  if (payload.origin_name !== undefined) { updates.push('origin_name=?'); values.push(payload.origin_name ? String(payload.origin_name).slice(0, 200) : null); }
+  for (const [key, max] of [['origin_lat', 90], ['origin_lon', 180]]) {
+    if (payload[key] === undefined) continue;
+    const v = Number(payload[key]);
+    updates.push(`${key}=?`);
+    values.push(payload[key] !== null && payload[key] !== '' && Number.isFinite(v) && Math.abs(v) <= max ? v : null);
+  }
+  if (payload.transport !== undefined) { updates.push('transport=?'); values.push(TRANSPORTS.includes(payload.transport) ? payload.transport : null); }
+  if (payload.route !== undefined) { updates.push('route=?'); values.push(routeJson(payload.route)); }
+  if (payload.route_km !== undefined) { updates.push('route_km=?'); values.push(Number.isFinite(Number(payload.route_km)) && payload.route_km !== null ? Number(payload.route_km) : null); }
   if (payload.tags !== undefined) {
     const synced = await syncTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, req.params.id, payload.tags);
     if (synced === null) {
@@ -2642,7 +2858,7 @@ travelRouter.put('/:id', async (req, res) => {
     const result = await db.run('UPDATE travel_plans SET ' + setClause + ' WHERE id=? AND user_id=?', [...values, req.params.id, req.user.uid]);
     if (result.changes === 0) return res.status(404).json({ error: 'not_found' });
   }
-  const row = await db.get('SELECT id,title,location,date_from,date_to,status,notes FROM travel_plans WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
+  const row = await db.get('SELECT id,title,location,date_from,date_to,status,notes,lat,lon,country,origin_name,origin_lat,origin_lon,transport,route,route_km FROM travel_plans WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   if (!row) return res.status(404).json({ error: 'not_found' });
   const tagMap = await fetchTagLinks(db, req.user.uid, TAG_ENTITY_TYPES.TRAVEL, [row.id]);
   res.json({ travel: mapTravelRow(row, tagMap.get(row.id) || []) });
@@ -2652,6 +2868,7 @@ travelRouter.delete('/:id', async (req, res) => {
   const db = await getDB();
   await db.run('DELETE FROM travel_plans WHERE id=? AND user_id=?', [req.params.id, req.user.uid]);
   await db.run('DELETE FROM tag_links WHERE entity_type=? AND entity_id=? AND user_id=?', [TAG_ENTITY_TYPES.TRAVEL, req.params.id, req.user.uid]);
+  await dropEntityLinks(db, req.user.uid, 'travel', Number(req.params.id));
   res.json({ success: true });
 });
 

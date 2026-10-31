@@ -153,12 +153,13 @@ fun HabitsScreen() {
                     }
                     data.habits.forEach { habit ->
                         val weekCount = days.count { "${habit.id}|$it" in checks }
-                        val target = habit.targetPerWeek
+                        // В неделе 7 дней: цель больше (например, 365) значит «каждый день»
+                        val target = minOf(habit.targetPerWeek, 7)
                         LhCard(Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(habit.title, fontWeight = FontWeight.SemiBold)
-                                    Text(if (target > 0) "$weekCount / $target за неделю" else "$weekCount за неделю", color = Brand.TextMuted, fontSize = 12.sp)
+                                    Text(if (target > 0) "$weekCount / $target " + (if (habit.targetPerWeek > 7) "· каждый день" else "за неделю") else "$weekCount за неделю", color = Brand.TextMuted, fontSize = 12.sp)
                                 }
                                 Text("⋯", fontSize = 20.sp, color = Brand.TextMuted, modifier = Modifier.clip(CircleShape).clickable { editing = habit }.padding(horizontal = 10.dp, vertical = 2.dp))
                             }

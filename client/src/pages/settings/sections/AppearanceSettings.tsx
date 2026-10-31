@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Monitor, Moon, Pencil, Plus, Sun, Trash2 } from 'lucide-react';
 import { api } from '../../../api';
 import {
+  SEASONS,
+  seasonByDate,
   ACCENTS,
   FONTS,
   PRESETS,
@@ -249,6 +251,34 @@ export default function AppearanceSettings() {
             <Toggle checked={theme.boldFocus} onChange={(boldFocus) => update({ boldFocus })} title="Заметные рамки фокуса" hint="Ярче подсвечивать выбранную кнопку или поле — удобно с клавиатуры" />
           </div>
         </div>
+      </div>
+
+      <div className={card}>
+        <div className={label}>Сезонная атмосфера</div>
+        <Toggle
+          checked={theme.seasonal !== 'off'}
+          onChange={(on) => update({ seasonal: on ? 'auto' : 'off' })}
+          title="Сезонные эффекты"
+          hint="Падающая сакура, снег, листья, тыквы и гирлянды поверх интерфейса"
+        />
+        {theme.seasonal !== 'off' ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[{ id: 'auto', label: `По календарю (сейчас ${SEASONS.find((x) => x.id === seasonByDate())?.emoji})`, emoji: '' }, ...SEASONS].map((o) => {
+              const active = theme.seasonal === o.id;
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => update({ seasonal: o.id as ThemeSettings['seasonal'] })}
+                  className={`rounded-full border px-3 py-1.5 text-sm transition ${active ? 'border-brand-mint bg-brand-mint/20 text-white' : 'border-white/10 text-white/70 hover:bg-white/5'}`}
+                >
+                  {o.emoji ? `${o.emoji} ` : ''}{o.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        <div className="mt-2 text-xs text-white/45">Весной падает сакура, летом светлячки, осенью листья, на Хэллоуин — летучие мыши, паутина и тыквы, зимой снег, на Новый год — гирлянда.</div>
       </div>
 
       {editing ? <CustomThemeEditor value={editing} onCancel={() => setEditing(null)} onSave={saveCustom} /> : null}

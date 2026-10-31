@@ -121,7 +121,7 @@ fun MainScaffold() {
         val route = when {
             Regex("^(course|practice|kana|vocab|page|lesson|program|checkpoint)/\\d+$").matches(target) -> target
             target in listOf("learn", "habits", "missions", "profile") -> { openTab(nav, target); return@LaunchedEffect }
-            target in listOf("calendar", "goals", "achievements", "finance", "finance/add", "reports", "pages", "travel", "settings", "search", "customize") -> target
+            target in listOf("calendar", "goals", "achievements", "finance", "finance/add", "reports", "pages", "travel", "shelf", "wishlist", "settings", "search", "customize") -> target
             else -> { openTab(nav, "home"); return@LaunchedEffect }
         }
         nav.navigate(route) { launchSingleTop = true }
@@ -268,7 +268,9 @@ private fun AppNavHost(nav: NavHostController) {
         composable("page/{id}", arguments = listOf(navArgument("id") { type = NavType.IntType })) {
             com.lifehub.app.ui.screens.pages.PageViewScreen(it.arguments!!.getInt("id"), nav)
         }
-        composable("travel") { com.lifehub.app.ui.screens.TravelScreen(back) }
+        composable("travel") { com.lifehub.app.ui.screens.TravelScreen(nav) }
+        composable("shelf") { com.lifehub.app.ui.screens.ShelfScreen(nav) }
+        composable("wishlist") { com.lifehub.app.ui.screens.WishlistScreen(nav) }
         composable("customize") { com.lifehub.app.ui.screens.ProfileCustomizeScreen(back) }
     }
 }

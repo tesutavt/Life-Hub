@@ -155,6 +155,15 @@ async function runMigrations(database) {
     if (!hasUserColumn('fitness_source')) {
       await database.exec('ALTER TABLE users ADD COLUMN fitness_source TEXT;');
     }
+    if (!hasUserColumn('shikimori_nick')) {
+      await database.exec('ALTER TABLE users ADD COLUMN shikimori_nick TEXT;');
+    }
+    if (!hasUserColumn('shikimori_synced_at')) {
+      await database.exec('ALTER TABLE users ADD COLUMN shikimori_synced_at TEXT;');
+    }
+    for (const col of ['steam_id', 'steam_profile', 'steam_key', 'steam_synced_at']) {
+      if (!hasUserColumn(col)) await database.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT;`);
+    }
     if (!hasUserColumn('fitness_synced_at')) {
       await database.exec('ALTER TABLE users ADD COLUMN fitness_synced_at TEXT;');
     }
@@ -388,6 +397,14 @@ async function runMigrations(database) {
     if (!hasTravel('status')) {
       await database.exec("ALTER TABLE travel_plans ADD COLUMN status TEXT DEFAULT 'planned';");
     }
+    // координаты для карты путешествий
+    if (!hasTravel('lat')) await database.exec('ALTER TABLE travel_plans ADD COLUMN lat REAL;');
+    if (!hasTravel('lon')) await database.exec('ALTER TABLE travel_plans ADD COLUMN lon REAL;');
+    if (!hasTravel('country')) await database.exec('ALTER TABLE travel_plans ADD COLUMN country TEXT;');
+    // маршрут: откуда, на чём и линия пути (JSON [[lat, lon], …])
+    for (const [col, type] of [['origin_name', 'TEXT'], ['origin_lat', 'REAL'], ['origin_lon', 'REAL'], ['transport', 'TEXT'], ['route', 'TEXT'], ['route_km', 'REAL']]) {
+      if (!hasTravel(col)) await database.exec(`ALTER TABLE travel_plans ADD COLUMN ${col} ${type};`);
+    }
     await database.exec("UPDATE travel_plans SET status = COALESCE(status, 'planned');");
   }
 
@@ -499,6 +516,24 @@ await database.exec(
 
   await database.exec(`CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, label TEXT NOT NULL, color TEXT DEFAULT '#6366F1', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
 
+  // Полка: книги, манга, аниме, фильмы, сериалы, игры, музыка
+  await database.exec(`CREATE TABLE IF NOT EXISTS shelf_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'book', title TEXT NOT NULL,
+    author TEXT, year INTEGER, cover_url TEXT, description TEXT, source TEXT, external_id TEXT, external_url TEXT,
+    status TEXT DEFAULT 'planned', rating INTEGER, notes TEXT, meta TEXT, position REAL DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
+  // Вишлист: желания с картинкой, ценой, ссылкой и накоплением
+  await database.exec(`CREATE TABLE IF NOT EXISTS wishlist_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, image_url TEXT, link TEXT,
+    price REAL, saved REAL DEFAULT 0, currency TEXT DEFAULT 'RUB', priority INTEGER DEFAULT 2, category TEXT, note TEXT,
+    status TEXT DEFAULT 'want', got_at TEXT, position REAL DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
+  // Ручные связи между вещами разных разделов (пара хранится в упорядоченном виде)
+  await database.exec(`CREATE TABLE IF NOT EXISTS entity_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, a_type TEXT NOT NULL, a_id INTEGER NOT NULL, b_type TEXT NOT NULL, b_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, a_type, a_id, b_type, b_id),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
   await database.exec(`CREATE TABLE IF NOT EXISTS page_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, page_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, page_id, tag_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(page_id) REFERENCES journal_pages(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)`);
 
   await database.exec(`CREATE TABLE IF NOT EXISTS tag_links (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, tag_id INTEGER NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, tag_id, entity_type, entity_id), FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE)`);

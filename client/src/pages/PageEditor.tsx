@@ -6,6 +6,8 @@ import {
   FileText,
   Image as ImageIcon,
   Layers3,
+  Link2,
+  ListChecks,
   Loader2,
   Pin,
   PinOff,
@@ -21,6 +23,7 @@ import PdfReader from '../components/pdf/PdfReader';
 import KanaTrainerBlock from '../components/KanaTrainerBlock';
 import CountdownTimerBlock from '../components/CountdownTimerBlock';
 import TagBadge from '../components/tags/TagBadge';
+import { ChecklistBlock, ChecklistItem, EmbedBlock, EntityRef } from '../components/pages/LinkedBlocks';
 
 type TagOption = { id: number; label: string; color: string };
 type PageOption = { id: number; title: string; tags: TagOption[]; pinned?: boolean };
@@ -37,10 +40,12 @@ type BlockType =
   | 'divider'
   | 'calendar'
   | 'pageNav'
-  | 'tabs';
+  | 'tabs'
+  | 'checklist'
+  | 'embed';
 
 type BlockLayout = { x: number; y: number; w: number; h: number };
-type BlockDisplay = { customTitle: string; hideChrome: boolean; hideHeader: boolean; locked: boolean };
+type BlockDisplay = { customTitle: string; hideChrome: boolean; hideHeader: boolean; locked: boolean; color?: string };
 type TabItem = { id: string; title: string };
 type BlockMeta = {
   layout?: BlockLayout;
@@ -55,6 +60,8 @@ type BlockMeta = {
   activeTabId?: string | null;
   tabGroupId?: string | null;
   tabId?: string | null;
+  checklist?: ChecklistItem[];
+  entity?: EntityRef | null;
 };
 type PageBlock = {
   id: string;
@@ -91,7 +98,13 @@ const BLOCK_PRESETS: Record<BlockType, { label: string; icon: React.ComponentTyp
   calendar: { label: 'Календарь', icon: CalendarDays, size: { w: 580, h: 420 } },
   pageNav: { label: 'Навигация', icon: Layers3, size: { w: 420, h: 360 } },
   tabs: { label: 'Tabs', icon: Layers3, size: { w: 620, h: 420 } },
+  checklist: { label: 'Список задач', icon: ListChecks, size: { w: 380, h: 300 } },
+  embed: { label: 'Карточка из разделов', icon: Link2, size: { w: 440, h: 220 } },
 };
+
+// Цвета подложки блока (ПКМ → «Цвет блока»)
+const BLOCK_COLORS = ['#f43f5e', '#f59e0b', '#10b981', '#38bdf8', '#8b5cf6', '#ec4899', '#94a3b8'];
+const CLIPBOARD_KEY = 'lifehub:block-clipboard';
 
 const formatTitle = (value: string) => (value.trim() ? value.trim() : 'Untitled page');
 const sameDay = (iso: string, day: string) => iso.slice(0, 10) === day;
@@ -532,6 +545,8 @@ function BlockBody({
   if (block.type === 'timer') return <CountdownTimerBlock value={block.meta?.countdownTimer} onChange={(next) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), countdownTimer: next } }))} />;
   if (block.type === 'calendar') return <CalendarBlock block={block} events={calendarItems} tags={tags} onChange={onChange} />;
   if (block.type === 'pageNav') return <PageNavBlock block={block} pages={pages} tags={tags} />;
+  if (block.type === 'checklist') return <ChecklistBlock items={Array.isArray(block.meta?.checklist) ? block.meta!.checklist! : []} onChange={(next) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), checklist: next } }))} />;
+  if (block.type === 'embed') return <EmbedBlock entity={block.meta?.entity || null} onChange={(ref) => onChange((prev) => ({ ...prev, meta: { ...(prev.meta || {}), entity: ref } }))} />;
   if (block.type === 'tabs') return <TabsBlock block={block} groupedCount={groupedCount} selectedBlock={selectedBlock} onAssignSelected={onAssignSelected} onUnassignSelected={onUnassignSelected} onChange={onChange} />;
   return <div className="flex h-full items-center px-4"><div className="w-full border-t border-dashed border-white/30" /></div>;
 }
@@ -581,7 +596,7 @@ function BlockCard({
   const bodyHeight = display.hideHeader ? '100%' : 'calc(100% - 45px)';
 
   return (
-    <div className={`absolute overflow-hidden rounded-[24px] border backdrop-blur-sm transition ${chromeClass}`} style={{ left: layout.x, top: layout.y, width: layout.w, height: layout.h }} onPointerDown={onPointerDown} onMouseDown={(e) => e.stopPropagation()} onContextMenu={onContextMenu}>
+    <div className={`absolute overflow-hidden rounded-[24px] border backdrop-blur-sm transition ${chromeClass}`} style={{ left: layout.x, top: layout.y, width: layout.w, height: layout.h, ...(display.color && !display.hideChrome ? { backgroundColor: `${display.color}26`, borderColor: selected ? undefined : `${display.color}80` } : null) }} onPointerDown={onPointerDown} onMouseDown={(e) => e.stopPropagation()} onContextMenu={onContextMenu}>
       {!display.hideHeader ? (
         <div className={`flex items-center justify-between border-b px-4 py-2 ${display.hideChrome ? 'border-white/0 bg-transparent' : 'border-white/10'}`}>
           <div className="truncate text-xs uppercase tracking-[0.24em] text-white/50">{headerTitle}</div>
@@ -679,6 +694,125 @@ export default function PageEditor() {
     setBlocks((prev) => [...prev, createBlock(type, prev.length, x, y)]);
   }, []);
 
+  // ── Отмена / повтор: снимок раз в паузу между правками (перетаскивание — одним шагом) ──
+  const historyRef = useRef<PageBlock[][]>([]);
+  const futureRef = useRef<PageBlock[][]>([]);
+  const committedRef = useRef<PageBlock[] | null>(null);
+  const skipHistoryRef = useRef(true);
+  const [, setHistoryTick] = useState(0);
+  useEffect(() => {
+    if (dragState) return;
+    if (skipHistoryRef.current) {
+      skipHistoryRef.current = false;
+      committedRef.current = blocks;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (committedRef.current && committedRef.current !== blocks) {
+        historyRef.current = [...historyRef.current.slice(-59), committedRef.current];
+        futureRef.current = [];
+        setHistoryTick((t) => t + 1);
+      }
+      committedRef.current = blocks;
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [blocks, dragState]);
+  const undo = useCallback(() => {
+    const prev = historyRef.current[historyRef.current.length - 1];
+    if (!prev) return;
+    historyRef.current = historyRef.current.slice(0, -1);
+    futureRef.current = [...futureRef.current, blocks];
+    skipHistoryRef.current = true;
+    setBlocks(prev);
+    setHistoryTick((t) => t + 1);
+  }, [blocks]);
+  const redo = useCallback(() => {
+    const next = futureRef.current[futureRef.current.length - 1];
+    if (!next) return;
+    futureRef.current = futureRef.current.slice(0, -1);
+    historyRef.current = [...historyRef.current, blocks];
+    skipHistoryRef.current = true;
+    setBlocks(next);
+    setHistoryTick((t) => t + 1);
+  }, [blocks]);
+
+  // ── Буфер обмена блоков: работает и между страницами ──
+  const copyBlock = useCallback((blockId: string) => {
+    const source = blocks.find((block) => block.id === blockId);
+    if (!source) return;
+    try {
+      localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(source));
+    } catch {
+      // хранилище недоступно — копирование не сработает, но и не сломает редактор
+    }
+  }, [blocks]);
+  const hasClipboard = () => {
+    try {
+      return !!localStorage.getItem(CLIPBOARD_KEY);
+    } catch {
+      return false;
+    }
+  };
+  const pasteBlock = useCallback((x?: number, y?: number) => {
+    let source: PageBlock | null = null;
+    try {
+      source = JSON.parse(localStorage.getItem(CLIPBOARD_KEY) || 'null');
+    } catch {
+      source = null;
+    }
+    if (!source || !source.type) return;
+    const pasted = normalizeBlocks([{ ...source, id: uuid(), relation: null, meta: { ...(source.meta || {}), links: [], tabGroupId: null, tabId: null } }])[0]!;
+    const layout = getLayout(pasted);
+    const placed = setLayout(pasted, { ...layout, x: x ?? layout.x + 36, y: y ?? layout.y + 36 });
+    setBlocks((prev) => [...prev, placed]);
+    setSelectedId(placed.id);
+  }, []);
+
+  // ── Слои: порядок в массиве = порядок отрисовки ──
+  const moveLayer = useCallback((blockId: string, where: 'front' | 'back') => {
+    setBlocks((prev) => {
+      const block = prev.find((b) => b.id === blockId);
+      if (!block) return prev;
+      const rest = prev.filter((b) => b.id !== blockId);
+      return where === 'front' ? [...rest, block] : [block, ...rest];
+    });
+  }, []);
+
+  // ── Превратить текст / заголовок / задачу / список друг в друга ──
+  const convertBlock = useCallback((blockId: string, type: BlockType) => {
+    updateBlock(blockId, (prev) => {
+      if (prev.type === type) return prev;
+      if (type === 'checklist') {
+        const lines = (prev.text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+        const items = (lines.length ? lines : ['']).map((text) => ({ id: uuid(), text, done: prev.type === 'todo' ? !!prev.checked : false, ref: null }));
+        return { ...prev, type, meta: { ...(prev.meta || {}), checklist: items } };
+      }
+      if (prev.type === 'checklist') {
+        const text = (prev.meta?.checklist || []).map((item) => item.text).filter(Boolean).join('\n');
+        return { ...prev, type, text };
+      }
+      return { ...prev, type };
+    });
+  }, [updateBlock]);
+
+  // Горячие клавиши (вне полей ввода, чтобы не мешать обычной правке текста)
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod) return;
+      const key = event.key.toLowerCase();
+      if ((key === 'z' || key === 'я') && !event.shiftKey) { event.preventDefault(); undo(); }
+      else if (key === 'y' || key === 'н' || ((key === 'z' || key === 'я') && event.shiftKey)) { event.preventDefault(); redo(); }
+      else if ((key === 'c' || key === 'с') && selectedId) { copyBlock(selectedId); }
+      else if (key === 'v' || key === 'м') { event.preventDefault(); pasteBlock(); }
+      else if ((key === 'd' || key === 'в') && selectedId) { event.preventDefault(); duplicateBlock(selectedId); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [copyBlock, duplicateBlock, pasteBlock, redo, selectedId, undo]);
+
   const loadPage = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -693,6 +827,9 @@ export default function PageEditor() {
       setBannerGradient(page.banner_gradient ?? page.bannerGradient ?? '');
       setBackground(page.page_background && typeof page.page_background === 'object' ? page.page_background : {});
       const normalized = normalizeBlocks(page.blocks ?? page.content ?? []);
+      skipHistoryRef.current = true;
+      historyRef.current = [];
+      futureRef.current = [];
       setBlocks(normalized);
       setSelectedId(normalized[0]?.id ?? null);
     } catch (err: any) {
@@ -1079,6 +1216,13 @@ export default function PageEditor() {
                   onClick={(event) => event.stopPropagation()}
                 >
                   {contextMenu.kind === 'page' ? (
+                    <div className="mb-1 border-b border-white/10 pb-1">
+                      {hasClipboard() ? <button type="button" onClick={() => { pasteBlock(contextMenu.x, contextMenu.y); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">📋 Вставить блок <span className="text-white/35">Ctrl+V</span></button> : null}
+                      <button type="button" disabled={!historyRef.current.length} onClick={() => { undo(); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10 disabled:opacity-35">↶ Отменить <span className="text-white/35">Ctrl+Z</span></button>
+                      <button type="button" disabled={!futureRef.current.length} onClick={() => { redo(); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10 disabled:opacity-35">↷ Повторить <span className="text-white/35">Ctrl+Y</span></button>
+                    </div>
+                  ) : null}
+                  {contextMenu.kind === 'page' ? (
                     <div className="space-y-1">
                       {(Object.keys(BLOCK_PRESETS) as BlockType[]).map((type) => (
                         <button key={type} type="button" onClick={() => { addBlock(type, contextMenu.x, contextMenu.y); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">
@@ -1093,7 +1237,27 @@ export default function PageEditor() {
                       {blocks.find((item) => item.id === contextMenu.blockId)?.type === 'image' ? (
                         <button type="button" onClick={() => { pickImageFor(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Выбрать картинку…</button>
                       ) : null}
-                      <button type="button" onClick={() => { duplicateBlock(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Дублировать блок</button>
+                      <button type="button" onClick={() => { duplicateBlock(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Дублировать блок <span className="text-white/35">Ctrl+D</span></button>
+                      <button type="button" onClick={() => { copyBlock(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">📋 Копировать <span className="text-white/35">Ctrl+C — вставка и на другой странице</span></button>
+                      <div className="flex gap-1 px-1">
+                        <button type="button" onClick={() => { moveLayer(contextMenu.blockId, 'front'); setContextMenu(null); }} className="flex-1 rounded-xl px-2 py-2 text-left text-sm text-white/80 hover:bg-white/10">⬆ На передний план</button>
+                        <button type="button" onClick={() => { moveLayer(contextMenu.blockId, 'back'); setContextMenu(null); }} className="flex-1 rounded-xl px-2 py-2 text-left text-sm text-white/80 hover:bg-white/10">⬇ Назад</button>
+                      </div>
+                      <div className="flex items-center gap-1.5 px-3 py-2">
+                        <span className="mr-1 text-sm text-white/60">Цвет</span>
+                        {BLOCK_COLORS.map((color) => (
+                          <button key={color} type="button" title={color} onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { color })); setContextMenu(null); }} className="h-5 w-5 rounded-full border border-white/20 transition hover:scale-110" style={{ background: color }} />
+                        ))}
+                        <button type="button" title="Без цвета" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { color: undefined })); setContextMenu(null); }} className="h-5 w-5 rounded-full border border-white/30 text-[10px] leading-none text-white/60">✕</button>
+                      </div>
+                      {['text', 'heading', 'todo', 'checklist'].includes(blocks.find((item) => item.id === contextMenu.blockId)?.type || '') ? (
+                        <div className="flex flex-wrap items-center gap-1 px-3 py-1.5">
+                          <span className="mr-1 text-sm text-white/60">Превратить в</span>
+                          {(['text', 'heading', 'todo', 'checklist'] as BlockType[]).filter((t) => t !== blocks.find((item) => item.id === contextMenu.blockId)?.type).map((t) => (
+                            <button key={t} type="button" onClick={() => { convertBlock(contextMenu.blockId, t); setContextMenu(null); }} className="rounded-lg bg-white/5 px-2 py-1 text-xs text-white/75 hover:bg-white/15">{BLOCK_PRESETS[t].label}</button>
+                          ))}
+                        </div>
+                      ) : null}
                       <button type="button" onClick={() => { const current = blocks.find((b) => b.id === contextMenu.blockId); if (!current) return; const value = window.prompt('Собственное название блока', getDisplay(current).customTitle || ''); if (value !== null) updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { customTitle: value })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Свое название блока</button>
                       <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { hideChrome: !getDisplay(prev).hideChrome })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Показать/скрыть оконтовку</button>
                       <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { hideHeader: !getDisplay(prev).hideHeader })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Показать/скрыть заголовок</button>
@@ -1148,7 +1312,24 @@ export default function PageEditor() {
                         </div>
                       ) : null}
                       {['calendar', 'pageNav'].includes(blocks.find((item) => item.id === contextMenu.blockId)?.type || '') ? (
-                        <button type="button" onClick={() => { const current = blocks.find((item) => item.id === contextMenu.blockId); if (!current) return; const selected = Array.isArray(current.meta?.selectedTagIds) ? current.meta.selectedTagIds : []; const value = window.prompt('ID тегов через запятую', selected.join(', ')); if (value !== null) { const ids = value.split(',').map((item) => Number.parseInt(item.trim(), 10)).filter((item) => Number.isInteger(item)); updateBlock(contextMenu.blockId, (prev) => ({ ...prev, meta: { ...(prev.meta || {}), selectedTagIds: ids } })); } setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Фильтр по тегам</button>
+                        <div className="px-3 py-2">
+                          <div className="mb-1.5 text-sm text-white/60">Фильтр по тегам</div>
+                          <div className="flex max-w-[300px] flex-wrap gap-1">
+                            {tagOptions.length ? tagOptions.map((tag) => {
+                              const current = blocks.find((item) => item.id === contextMenu.blockId);
+                              const selected: number[] = Array.isArray(current?.meta?.selectedTagIds) ? current!.meta!.selectedTagIds! : [];
+                              const on = selected.includes(tag.id);
+                              return (
+                                <button key={tag.id} type="button" onClick={() => updateBlock(contextMenu.blockId, (prev) => {
+                                  const ids: number[] = Array.isArray(prev.meta?.selectedTagIds) ? prev.meta!.selectedTagIds! : [];
+                                  return { ...prev, meta: { ...(prev.meta || {}), selectedTagIds: on ? ids.filter((x) => x !== tag.id) : [...ids, tag.id] } };
+                                })} className="rounded-full border px-2 py-0.5 text-xs transition" style={{ borderColor: on ? tag.color : 'rgba(255,255,255,0.12)', background: on ? `${tag.color}33` : 'transparent', color: on ? '#fff' : tag.color }}>
+                                  #{tag.label}
+                                </button>
+                              );
+                            }) : <span className="text-xs text-white/40">Тегов пока нет</span>}
+                          </div>
+                        </div>
                       ) : null}
                       <button type="button" onClick={() => { removeBlock(contextMenu.blockId); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10">Удалить блок</button>
                     </div>

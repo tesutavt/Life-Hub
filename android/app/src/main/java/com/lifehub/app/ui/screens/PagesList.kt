@@ -231,7 +231,7 @@ private fun PageCard(p: PageSummary, onOpen: () -> Unit, onPin: () -> Unit, onTa
                 Text(p.title?.ifBlank { null } ?: "Без названия", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (p.pinned) {
                     Spacer(Modifier.width(8.dp))
-                    Text("PINNED", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                    Text("ЗАКРЕПЛЕНО", color = Color.Black, fontSize = 9.sp, fontWeight = FontWeight.Bold,
                         modifier = Modifier.clip(CircleShape).background(Color(0xE6FCD34D)).padding(horizontal = 7.dp, vertical = 2.dp))
                 }
             }

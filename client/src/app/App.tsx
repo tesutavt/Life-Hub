@@ -1,5 +1,6 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { normalizeTheme, setTheme } from '../theme';
+import SeasonalEffects from '../components/SeasonalEffects';
 import classNames from 'classnames';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
@@ -14,6 +15,8 @@ import {
   CheckSquare,
   Sparkles,
   Plane,
+  Library,
+  Gift,
   Share2,
   Settings as SettingsIcon,
   UserCircle,
@@ -77,6 +80,8 @@ export const MENU_ITEMS: MenuItem[] = [
   { to: '/daily-missions', label: 'Ежедневные задания', icon: Sparkles, group: 'lifestyle' },
   { to: '/achievements', label: 'Ачивки', icon: Trophy, group: 'lifestyle' },
   { to: '/travel', label: 'Путешествие', icon: Plane, group: 'lifestyle' },
+  { to: '/shelf', label: 'Полка', icon: Library, group: 'lifestyle' },
+  { to: '/wishlist', label: 'Вишлист', icon: Gift, group: 'lifestyle' },
   { to: '/reports', label: 'Отчёты', icon: BarChart3, group: 'system' },
   { to: '/settings', label: 'Настройки', icon: SettingsIcon, group: 'system' }
 ];
@@ -115,6 +120,7 @@ export default function App() {
         <DesktopSetupPrompt />
         <DesktopReminders />
         <Outlet />
+        <SeasonalEffects />
       </main>
     </div>
   );

@@ -23,6 +23,8 @@ import Journal from './pages/Journal'
 import Habits from './pages/Habits'
 import DailyMissions from './pages/DailyMissions'
 import Travel from './pages/Travel'
+import Shelf from './pages/Shelf'
+import Wishlist from './pages/Wishlist'
 import Pages from './pages/Pages';
 import PageEditor from './pages/PageEditor';
 import Settings from './pages/Settings'
@@ -78,6 +80,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="habits" element={<Habits/>} />
               <Route path="daily-missions" element={<DailyMissions/>} />
               <Route path="travel" element={<Travel/>} />
+              <Route path="shelf" element={<Shelf/>} />
+              <Route path="wishlist" element={<Wishlist/>} />
               <Route path="settings" element={<Settings/>} />
               <Route path="finance" element={<Finance/>} />
               <Route path="reports" element={<Reports/>} />

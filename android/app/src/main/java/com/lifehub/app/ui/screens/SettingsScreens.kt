@@ -1,5 +1,6 @@
 package com.lifehub.app.ui.screens
 
+import androidx.compose.material.icons.filled.Extension
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -75,6 +76,7 @@ private val SECTIONS = listOf(
     SettingsSection("notifications", "Уведомления", "напоминания и «не беспокоить»", Icons.Default.NotificationsActive),
     SettingsSection("health", "Браслет и здоровье", "Health Connect: шаги, сон, пульс", Icons.Default.Watch),
     SettingsSection("calendar", "Календарь телефона", "события Life Hub в календаре", Icons.Default.CalendarMonth),
+    SettingsSection("integrations", "Интеграции", "Shikimori и Steam для полки", Icons.Default.Extension),
     SettingsSection("account", "Аккаунт и сервер", "сервер, веб-версия, выход", Icons.Default.Dns),
 )
 
@@ -117,6 +119,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 "health" -> HealthSection()
                 "calendar" -> CalendarSyncSection()
                 "account" -> AccountSection()
+                "integrations" -> IntegrationsSection()
             }
         }
     }
@@ -274,6 +277,26 @@ private fun AppearanceSection() {
     Group("Скругление углов: ${s.radius}") {
         Slider(s.radius.toFloat(), { set(s.copy(radius = (it / 2).toInt() * 2)) }, valueRange = 4f..20f, steps = 7,
             colors = SliderDefaults.colors(thumbColor = Brand.Mint, activeTrackColor = Brand.Mint))
+    }
+    Group("Сезонная атмосфера") {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("Сезонные эффекты", fontSize = 14.sp)
+                Text("Сакура, снег, листья, тыквы и гирлянды", color = Brand.TextMuted, fontSize = 12.sp)
+            }
+            Switch(s.seasonal != "off", { set(s.copy(seasonal = if (it) "auto" else "off")) }, colors = SwitchDefaults.colors(checkedTrackColor = Brand.Mint))
+        }
+        val seasons = listOf("auto" to "📅 По календарю", "spring" to "🌸 Сакура", "summer" to "✨ Светлячки", "autumn" to "🍂 Листопад",
+            "halloween" to "🎃 Хэллоуин", "winter" to "❄️ Снег", "newyear" to "🎄 Новый год")
+        if (s.seasonal != "off") FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            seasons.forEach { (id, label) ->
+                val on = s.seasonal == id
+                Text(label, fontSize = 13.sp, color = if (on) Brand.Deep else Brand.Text,
+                    modifier = Modifier.clip(CircleShape).background(if (on) Brand.Mint else Brand.Ink.copy(alpha = 0.06f)).clickable { set(s.copy(seasonal = id)) }.padding(horizontal = 12.dp, vertical = 8.dp))
+            }
+        }
+        Text("«Авто» меняет атмосферу по календарю: сейчас ${com.lifehub.app.ui.theme.seasonByDate()}.".replace("halloween", "Хэллоуин").replace("newyear", "Новый год").replace("winter", "зима").replace("spring", "весна").replace("summer", "лето").replace("autumn", "осень"),
+            color = Brand.TextFaint, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
     }
     Group("Прочее") {
         Row(verticalAlignment = Alignment.CenterVertically) {

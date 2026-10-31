@@ -64,6 +64,9 @@ import java.net.URLEncoder
 @Serializable data class SearchVocab(val id: Int = 0, val term: String = "", val translation: String = "", val note: String? = null, @SerialName("language_id") val languageId: Int = 0, @SerialName("language_name") val languageName: String = "")
 @Serializable data class SearchAchievement(val id: Int = 0, val title: String = "", val description: String? = null, val icon: String = "🏆", val earned: Boolean = false)
 
+@Serializable data class SearchShelf(val id: Int = 0, val kind: String = "book", val title: String = "", val author: String? = null, val year: Int? = null, val status: String? = null, val tags: List<PageTagRef> = emptyList())
+@Serializable data class SearchWish(val id: Int = 0, val title: String = "", val price: Double? = null, val currency: String? = null, val status: String? = null, val category: String? = null, val tags: List<PageTagRef> = emptyList())
+
 @Serializable
 data class SearchResponse(
     @SerialName("learn_courses") val learnCourses: List<SearchLearnCourse> = emptyList(),
@@ -78,6 +81,8 @@ data class SearchResponse(
     val languages: List<SearchLanguage> = emptyList(),
     val courses: List<SearchCourse> = emptyList(),
     val travel: List<SearchTravel> = emptyList(),
+    val shelf: List<SearchShelf> = emptyList(),
+    val wishlist: List<SearchWish> = emptyList(),
     val loans: List<SearchLoan> = emptyList(),
     val habits: List<SearchHabit> = emptyList(),
     val calendar: List<SearchEvent> = emptyList(),
@@ -99,7 +104,9 @@ private val COMMANDS = listOf(
     SearchCommand("✅", "Привычки", "отметить за сегодня", "habits", "привычки привычка отметить трекер"),
     SearchCommand("🔥", "Ежедневные задания", "награды и очки", "missions", "задания миссии награды очки квесты ежедневные"),
     SearchCommand("🏆", "Ачивки", "все достижения", "achievements", "ачивки достижения награды значки"),
-    SearchCommand("✈️", "Путешествия", "планы поездок", "travel", "путешествия поездки отпуск"),
+    SearchCommand("🗺️", "Путешествия", "карта мест и поездок", "travel", "путешествия поездки отпуск карта мечты"),
+    SearchCommand("📚", "Полка", "книги, манга, аниме, фильмы, игры", "shelf", "полка книги манга аниме фильмы сериалы игры музыка shikimori"),
+    SearchCommand("🎁", "Вишлист", "желания и копилки", "wishlist", "вишлист желания хочу подарки копилка накопить"),
     SearchCommand("📊", "Отчёты", "итоги недели и месяца", "reports", "отчеты отчёты статистика итоги"),
     SearchCommand("🎨", "Оформление профиля", "фон и витрины", "customize", "оформление фон витрина стиль"),
     SearchCommand("⚙️", "Настройки", "напоминания, календарь", "settings", "настройки параметры напоминания уведомления сервер календарь"),
@@ -260,13 +267,26 @@ fun SearchScreen(nav: NavController, initialTagId: Int? = null) {
                     ResultRow("✈️", t.title, listOfNotNull(t.location, listOfNotNull(t.dateFrom, t.dateTo).joinToString(" — ").ifBlank { null }).joinToString(" · "), t.tags) { go("travel") }
                 }
             }
+            if (r.shelf.isNotEmpty()) {
+                header("Полка")
+                items(r.shelf, key = { "sh-${it.id}" }) { x ->
+                    val emoji = mapOf("book" to "📚", "manga" to "📖", "anime" to "🌸", "movie" to "🎬", "series" to "📺", "game" to "🎮", "music" to "💿")[x.kind] ?: "📚"
+                    ResultRow(emoji, x.title, listOfNotNull(x.author, x.year?.toString()).joinToString(" · "), x.tags) { go("shelf") }
+                }
+            }
+            if (r.wishlist.isNotEmpty()) {
+                header("Вишлист")
+                items(r.wishlist, key = { "w-${it.id}" }) { w ->
+                    ResultRow("🎁", w.title, listOfNotNull(w.category, w.price?.let { com.lifehub.app.ui.components.money(it, w.currency) }, if (w.status == "got") "сбылось" else null).joinToString(" · "), w.tags) { go("wishlist") }
+                }
+            }
             if (r.loans.isNotEmpty()) {
                 header("Кредиты")
                 items(r.loans, key = { "loan-${it.id}" }) { l ->
                     ResultRow("🏦", l.bank, listOfNotNull(l.paymentMonthly?.let { "платёж ${it.toInt()}" }, l.remaining?.let { "остаток ${it.toInt()}" }).joinToString(" · "), l.tags) { go("finance") }
                 }
             }
-            val empty = commands.isEmpty() && listOf(r.pages, r.pdfBookmarks, r.languages, r.courses, r.travel, r.loans, r.habits, r.calendar, r.goals, r.learnCourses, r.learnLessons, r.vocab, r.achievements).all { it.isEmpty() }
+            val empty = commands.isEmpty() && listOf(r.pages, r.pdfBookmarks, r.languages, r.courses, r.travel, r.shelf, r.wishlist, r.loans, r.habits, r.calendar, r.goals, r.learnCourses, r.learnLessons, r.vocab, r.achievements).all { it.isEmpty() }
             if (empty && !loading && (input.isNotBlank() || tagId != null)) item { Text("Ничего не найдено", color = Brand.TextMuted, modifier = Modifier.padding(top = 12.dp)) }
             if (input.isBlank() && tagId == null) item { Text("Начните вводить запрос или выберите тег", color = Brand.TextMuted, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp)) }
         }

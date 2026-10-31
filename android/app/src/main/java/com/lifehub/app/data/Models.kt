@@ -454,7 +454,7 @@ data class PageSummary(
 @Serializable data class PageTag(val id: Int = 0, val label: String = "", val color: String? = null, @SerialName("page_count") val pageCount: Int = 0)
 
 @Serializable data class BlockLayout(val x: Double = 0.0, val y: Double = 0.0, val w: Double = 360.0, val h: Double = 190.0)
-@Serializable data class BlockDisplay(val customTitle: String = "", val hideChrome: Boolean = false, val hideHeader: Boolean = false, val locked: Boolean = false)
+@Serializable data class BlockDisplay(val customTitle: String = "", val hideChrome: Boolean = false, val hideHeader: Boolean = false, val locked: Boolean = false, val color: String? = null)
 @Serializable data class PdfMarker(val id: String = "", val title: String = "", val page: Int = 1, val done: Boolean = false)
 @Serializable data class PageTab(val id: String = "", val title: String = "")
 @Serializable data class CountdownTimer(val title: String = "", val target: String = "")
@@ -511,6 +511,17 @@ data class TravelPlan(
     @SerialName("date_to") val dateTo: String? = null,
     val status: String? = null,
     val notes: String? = null,
+    val lat: Double? = null,
+    val lon: Double? = null,
+    val country: String? = null,
+    val tags: List<PageTagRef> = emptyList(),
+    // маршрут: откуда, на чём и линия пути [[lat, lon], …]
+    @SerialName("origin_name") val originName: String? = null,
+    @SerialName("origin_lat") val originLat: Double? = null,
+    @SerialName("origin_lon") val originLon: Double? = null,
+    val transport: String? = null,
+    val route: List<List<Double>>? = null,
+    @SerialName("route_km") val routeKm: Double? = null,
 )
 
 // ───── Курсы (раздел «Курсы» веб-версии) и лента ─────

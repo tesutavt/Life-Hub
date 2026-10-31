@@ -41,6 +41,8 @@ data class ThemeSettings(
     val radius: Int = 12,
     val animations: Boolean = true,
     val boldFocus: Boolean = false,
+    /** Сезонные эффекты: auto — по дате, off — выключены, или spring/summer/autumn/halloween/winter/newyear */
+    val seasonal: String = "auto",
     val customThemes: List<ThemePaletteDto> = emptyList(),
 )
 

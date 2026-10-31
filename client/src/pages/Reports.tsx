@@ -19,6 +19,18 @@ const numberFormatter = new Intl.NumberFormat("ru-RU");
 const dateFormatter = new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium" });
 
 const formatNumber = (value: number) => numberFormatter.format(Math.round(value));
+
+// Единицы с сервера («отметок», «курсов», «п.п.») — склоняем по числу: «1 отметка», «2 отметки»
+const plural = (n: number, one: string, few: string, many: string) => {
+  const a = Math.abs(Math.round(n)) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b === 1) return one;
+  if (b >= 2 && b <= 4) return few;
+  return many;
+};
+const unitLabel = (unit: string, n: number) =>
+  unit === "отметок" ? plural(n, "отметка", "отметки", "отметок") : unit === "курсов" ? plural(n, "курс", "курса", "курсов") : unit === "п.п." ? "% прогресса" : unit;
 const formatSigned = (value: number) => {
   const rounded = Math.round(value);
   if (rounded > 0) return `+${formatNumber(rounded)}`;
@@ -47,7 +59,7 @@ const ReportHistoryCard = ({ report, onOpen }: { report: ReportData; onOpen: (re
           const grew = section.summary.previous > 0 && section.summary.current > section.summary.previous;
           return (
             <span key={section.key} className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1 text-sm text-white/85">
-              {SECTION_EMOJI[section.key] || "✨"} {formatNumber(section.summary.current)} {section.unit}
+              {SECTION_EMOJI[section.key] || "✨"} {formatNumber(section.summary.current)} {unitLabel(section.unit, section.summary.current)}
               {grew && <span className="text-xs text-brand-mint">▲ {formatSigned(section.summary.difference)}</span>}
             </span>
           );

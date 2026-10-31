@@ -18,6 +18,28 @@ export const gradients = {
 };
 
 export type ThemeMode = 'auto' | 'dark' | 'light';
+export type Season = 'spring' | 'summer' | 'autumn' | 'halloween' | 'winter' | 'newyear';
+
+export const SEASONS: { id: Season; label: string; emoji: string }[] = [
+  { id: 'spring', label: 'Весна — сакура', emoji: '🌸' },
+  { id: 'summer', label: 'Лето — светлячки', emoji: '✨' },
+  { id: 'autumn', label: 'Осень — листопад', emoji: '🍂' },
+  { id: 'halloween', label: 'Хэллоуин', emoji: '🎃' },
+  { id: 'winter', label: 'Зима — снег', emoji: '❄️' },
+  { id: 'newyear', label: 'Новый год', emoji: '🎄' },
+];
+
+/** Какой сезон сейчас по календарю (Хэллоуин и Новый год — свои даты). */
+export function seasonByDate(date = new Date()): Season {
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  if ((m === 10 && d >= 20) || (m === 11 && d <= 2)) return 'halloween';
+  if ((m === 12 && d >= 20) || (m === 1 && d <= 10)) return 'newyear';
+  if (m === 12 || m <= 2) return 'winter';
+  if (m <= 5) return 'spring';
+  if (m <= 8) return 'summer';
+  return 'autumn';
+}
 export type Density = 'relaxed' | 'standard' | 'compact';
 
 export type ThemePalette = {
@@ -39,6 +61,8 @@ export type ThemeSettings = {
   radius: number; // 4…20, по умолчанию 12
   animations: boolean;
   boldFocus: boolean;
+  /** Сезонные эффекты: auto — по дате, off — выключены, или конкретный сезон */
+  seasonal: Season | 'auto' | 'off';
   customThemes: ThemePalette[];
 };
 
@@ -73,6 +97,7 @@ export const DEFAULT_THEME: ThemeSettings = {
   radius: 12,
   animations: true,
   boldFocus: false,
+  seasonal: 'auto',
   customThemes: [],
 };
 
@@ -92,6 +117,7 @@ export function normalizeTheme(value: unknown): ThemeSettings {
     radius: Number.isFinite(Number(v.radius)) ? Math.min(20, Math.max(4, Number(v.radius))) : 12,
     animations: v.animations !== false,
     boldFocus: !!v.boldFocus,
+    seasonal: v.seasonal === 'off' || SEASONS.some((x) => x.id === v.seasonal) ? (v.seasonal as ThemeSettings['seasonal']) : 'auto',
     customThemes: custom,
   };
 }

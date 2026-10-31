@@ -42,6 +42,8 @@ val BLOCK_PRESETS = listOf(
     BlockPreset("calendar", "Календарь", "📅", 580, 420),
     BlockPreset("pageNav", "Навигация", "🧭", 420, 360),
     BlockPreset("tabs", "Вкладки", "🗂️", 620, 420),
+    BlockPreset("checklist", "Список задач", "✅", 380, 300),
+    BlockPreset("embed", "Карточка из разделов", "🔗", 440, 220),
 )
 fun presetOf(type: String) = BLOCK_PRESETS.firstOrNull { it.type == type } ?: BLOCK_PRESETS.first()
 

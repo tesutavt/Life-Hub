@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Search as SearchIcon } from 'lucide-react';
 import { matchCommands, SearchCommand } from './searchCommands';
 import TagBadge from './tags/TagBadge';
-import { api } from '../api';
+import { api, resolveApiUrl } from '../api';
 
 type SearchTag = {
   id: number;
@@ -64,6 +64,10 @@ type SearchTravel = {
   tags: SearchTag[];
 };
 
+type SearchShelf = { id: number; kind: string; title: string; author?: string | null; year?: number | null; cover_url?: string | null; status?: string | null; rating?: number | null; tags: SearchTag[] };
+
+type SearchWish = { id: number; title: string; image_url?: string | null; price?: number | null; saved?: number | null; currency?: string | null; status?: string | null; category?: string | null; tags: SearchTag[] };
+
 type SearchLoan = {
   id: number;
   bank: string;
@@ -121,6 +125,8 @@ type SearchResponse = {
   languages: SearchLanguage[];
   courses: SearchCourse[];
   travel: SearchTravel[];
+  shelf: SearchShelf[];
+  wishlist: SearchWish[];
   loans: SearchLoan[];
   habits: SearchHabit[];
   calendar: SearchCalendarEvent[];
@@ -133,6 +139,8 @@ type SearchSection =
   | 'languages'
   | 'courses'
   | 'travel'
+  | 'shelf'
+  | 'wishlist'
   | 'loans'
   | 'habits'
   | 'calendar'
@@ -156,6 +164,8 @@ const DEFAULT_SECTIONS: SearchSection[] = [
   'languages',
   'courses',
   'travel',
+  'shelf',
+  'wishlist',
   'loans',
   'habits',
   'calendar',
@@ -171,8 +181,15 @@ const LANGUAGE_BANNER_FALLBACKS = [
 
 const hasQuery = (value: string) => value.trim().length > 0;
 
+const SHELF_EMOJI: Record<string, string> = { book: '📚', manga: '📖', anime: '🌸', movie: '🎬', series: '📺', game: '🎮', music: '💿' };
+const shelfSubtitle = (x: SearchShelf) => [SHELF_EMOJI[x.kind] || '', x.author, x.year].filter(Boolean).join(' · ');
+const wishSubtitle = (x: SearchWish) => {
+  const sign = !x.currency || x.currency === 'RUB' ? '₽' : x.currency;
+  return [x.category, x.price ? `${Math.round(x.price).toLocaleString('ru-RU')} ${sign}` : null, x.status === 'got' ? 'сбылось' : null].filter(Boolean).join(' · ');
+};
+
 const nothingFound = (r: SearchResponse) =>
-  [r.pages, r.pdf_bookmarks, r.languages, r.courses, r.travel, r.loans, r.habits, r.calendar, r.goals, r.learn_courses, r.learn_lessons, r.vocab, r.achievements].every(
+  [r.pages, r.pdf_bookmarks, r.languages, r.courses, r.travel, r.shelf, r.wishlist, r.loans, r.habits, r.calendar, r.goals, r.learn_courses, r.learn_lessons, r.vocab, r.achievements].every(
     (list) => !list?.length
   );
 
@@ -235,6 +252,8 @@ export default function SiteSearch({
           languages: allowSecondary ? response?.languages || [] : [],
           courses: allowSecondary ? response?.courses || [] : [],
           travel: allowSecondary ? response?.travel || [] : [],
+          shelf: allowSecondary ? response?.shelf || [] : [],
+          wishlist: allowSecondary ? response?.wishlist || [] : [],
           loans: allowSecondary ? response?.loans || [] : [],
           habits: allowSecondary ? response?.habits || [] : [],
           calendar: allowSecondary ? response?.calendar || [] : [],
@@ -705,6 +724,55 @@ export default function SiteSearch({
 
                   <div className="rounded border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/60">No travel found.</div>
                 )}
+              </section>
+            );
+          }
+
+          if (section === 'shelf' || section === 'wishlist') {
+            if (!showSecondarySections) return null;
+            const isShelf = section === 'shelf';
+            const list: (SearchShelf | SearchWish)[] = (isShelf ? results?.shelf : results?.wishlist) ?? [];
+            if (!list.length) return null;
+            return (
+              <section key={section} className="space-y-2">
+                {renderSectionTitle(isShelf ? 'Полка' : 'Вишлист')}
+                <div className="grid gap-2">
+                  {list.map((it) => {
+                    const img = isShelf ? (it as SearchShelf).cover_url : (it as SearchWish).image_url;
+                    const sub = isShelf ? shelfSubtitle(it as SearchShelf) : wishSubtitle(it as SearchWish);
+                    return (
+                      <button
+                        key={it.id}
+                        type="button"
+                        onClick={() => {
+                          navigate(isShelf ? '/shelf' : '/wishlist');
+                          onNavigate?.();
+                        }}
+                        className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left text-sm hover:bg-white/10"
+                      >
+                        {img ? (
+                          <img
+                            src={img.startsWith('/') ? resolveApiUrl(img) : img}
+                            alt=""
+                            className="h-10 w-8 shrink-0 rounded object-cover"
+                            onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                          />
+                        ) : null}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium text-white">{it.title}</span>
+                          {sub ? <span className="block truncate text-xs text-white/55">{sub}</span> : null}
+                          {it.tags.length > 0 && (
+                            <span className="mt-1 flex flex-wrap gap-1">
+                              {it.tags.map((tag) => (
+                                <TagBadge key={tag.id} tag={tag} compact />
+                              ))}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </section>
             );
           }
