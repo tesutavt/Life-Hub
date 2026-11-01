@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { askText } from '../ui/askText';
 import {
   BookmarkPlus,
   Check,
@@ -446,8 +447,8 @@ export default function PdfReader({
                         <button
                           type="button"
                           className="rounded bg-white/10 p-1 hover:bg-white/20"
-                          onClick={() => {
-                            const next = window.prompt('Название закладки', marker.title);
+                          onClick={async () => {
+                            const next = await askText('Название закладки', marker.title);
                             if (!next) return;
                             onRenameMarker?.(marker.id, next.trim() || marker.title);
                           }}
@@ -457,8 +458,8 @@ export default function PdfReader({
                         <button
                           type="button"
                           className="rounded bg-white/10 p-1 hover:bg-white/20"
-                          onClick={() => {
-                            const next = window.prompt('Номер страницы', marker.page != null ? String(marker.page) : '');
+                          onClick={async () => {
+                            const next = await askText('Номер страницы', marker.page != null ? String(marker.page) : '');
                             if (next === null) return;
                             const trimmed = next.trim();
                             if (!trimmed) {

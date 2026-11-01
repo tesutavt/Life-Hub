@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { askText } from '../components/ui/askText';
 import { BadgeCheck, Shield, ShieldCheck, User as UserIcon } from 'lucide-react';
 import Shell from '../components/Shell';
 import { api, resolveApiUrl } from '../api';
@@ -77,7 +78,7 @@ export default function AdminUsers() {
                     <button
                       type="button"
                       onClick={async () => {
-                        const password = window.prompt(`Новый пароль для ${entry.name} (не короче 4 символов):`);
+                        const password = await askText(`Новый пароль для ${entry.name} (не короче 4 символов)`, '', { password: true });
                         if (!password) return;
                         await api.patch(`/api/admin/users/${entry.id}`, { password }, { notifySuccess: 'Пароль изменён' });
                       }}

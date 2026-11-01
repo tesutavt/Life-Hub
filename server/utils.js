@@ -161,7 +161,7 @@ async function runMigrations(database) {
     if (!hasUserColumn('shikimori_synced_at')) {
       await database.exec('ALTER TABLE users ADD COLUMN shikimori_synced_at TEXT;');
     }
-    for (const col of ['steam_id', 'steam_profile', 'steam_key', 'steam_synced_at']) {
+    for (const col of ['steam_id', 'steam_profile', 'steam_key', 'steam_synced_at', 'player_site']) {
       if (!hasUserColumn(col)) await database.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT;`);
     }
     if (!hasUserColumn('fitness_synced_at')) {

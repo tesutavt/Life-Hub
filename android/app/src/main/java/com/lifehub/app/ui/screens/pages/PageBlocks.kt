@@ -110,9 +110,10 @@ class BlockContext(
 )
 
 fun blockHtml(b: PageBlock): AnnotatedString {
-    // Текст редактируется в поле text; meta.html — оформление из старой версии редактора
-    val raw = b.text?.takeIf { it.isNotBlank() } ?: b.meta?.html.orEmpty()
-    val isHtml = b.text.isNullOrBlank() && !b.meta?.html.isNullOrBlank()
+    // meta.html — текст с оформлением (жирный, цвет, списки) из редактора на компьютере; text — тот же текст без оформления.
+    // Показываем оформленный вариант, если он есть; правка текста на телефоне сохраняет простой текст.
+    val isHtml = !b.meta?.html.isNullOrBlank()
+    val raw = if (isHtml) b.meta?.html.orEmpty() else b.text.orEmpty()
     return if (isHtml) runCatching { AnnotatedString.fromHtml(raw) }.getOrDefault(AnnotatedString(raw)) else AnnotatedString(raw)
 }
 

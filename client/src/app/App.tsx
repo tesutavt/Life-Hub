@@ -48,6 +48,7 @@ import AchievementToaster from '../components/AchievementToaster';
 import MissionsDiaryHost from '../components/missions/MissionsDiaryHost';
 import { openMissionsDiary } from '../components/missions/missionsBus';
 import OnboardingWizard from '../components/OnboardingWizard';
+import { AskTextHost } from '../components/ui/askText';
 import DesktopReminders from '../components/DesktopReminders';
 import DesktopSetupPrompt from '../components/DesktopSetup';
 
@@ -121,6 +122,7 @@ export default function App() {
         <DesktopReminders />
         <Outlet />
         <SeasonalEffects />
+        <AskTextHost />
       </main>
     </div>
   );

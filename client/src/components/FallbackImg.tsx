@@ -5,5 +5,5 @@ export default function FallbackImg({ src, fallback, ...rest }: Omit<React.ImgHT
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   if (!src || failed) return <>{fallback}</>;
-  return <img alt="" {...rest} src={src} onError={() => setFailed(true)} />;
+  return <img alt="" decoding="async" {...rest} src={src} onError={() => setFailed(true)} />;
 }

@@ -7,6 +7,7 @@ import FallbackImg from '../components/FallbackImg';
 import TagSelector from '../components/tags/TagSelector';
 import { useTagOptions, TagOption } from '../components/tags/useTagOptions';
 import RelatedPanel from '../components/links/RelatedPanel';
+import PlayerModal from '../components/shelf/PlayerModal';
 import { useShelfIntegrations } from './settings/sections/ShelfIntegrations';
 import { useNavigate } from 'react-router-dom';
 
@@ -371,6 +372,9 @@ function Stars({ value, onChange }: { value: number; onChange: (v: number) => vo
 
 function ItemModal({ item, tagOptions, onClose, onUpdate, onTags, onDelete }: { item: ShelfItem; tagOptions: TagOption[]; onClose: () => void; onUpdate: (p: Partial<ShelfItem>) => void; onTags: (ids: number[]) => void; onDelete: () => void }) {
   const [notes, setNotes] = useState(item.notes || '');
+  // Плеер — для аниме, фильмов и сериалов (сайт задаётся в server/routes/life/player.js или своей ссылкой ниже)
+  const watchable = item.kind === 'anime' || item.kind === 'movie' || item.kind === 'series';
+  const [playing, setPlaying] = useState(false);
   const kindInfo = KINDS.find((k) => k.id === item.kind);
 
   // Сведения с сайта (описание, жанры) сохраняются в Life Hub; у добавленного без описания
@@ -463,6 +467,15 @@ function ItemModal({ item, tagOptions, onClose, onUpdate, onTags, onDelete }: { 
           <Stars value={item.rating || 0} onChange={(rating) => onUpdate({ rating })} />
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} onBlur={() => notes !== (item.notes || '') && onUpdate({ notes })} placeholder="Мои впечатления, любимые моменты, цитаты…" className="h-24 w-full rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-white outline-none" />
           <TagSelector tags={tagOptions} selectedIds={(item.tags || []).map((t) => t.id)} onChange={onTags} label="Теги" emptyState="Тегов пока нет — создайте их на странице «Страницы»." onManageTags={() => window.open('/pages', '_blank')} />
+          {watchable ? (
+            <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+              <button type="button" onClick={() => setPlaying(true)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-mint px-4 py-2.5 text-sm font-semibold text-brand-deep">
+                ▶ Смотреть{item.meta?.progress ? ` · дальше серия ${(item.meta.progress || 0) + 1}` : ''}
+              </button>
+              {(item.meta as any)?.player_url ? <div className="truncate text-center text-[11px] text-white/35">страница на сайте запомнена</div> : null}
+            </div>
+          ) : null}
+          {playing ? <PlayerModal item={item as any} onClose={() => setPlaying(false)} onUpdate={(patch) => onUpdate(patch)} /> : null}
           <RelatedPanel type="shelf" id={item.id} />
           <button type="button" onClick={onDelete} className="flex items-center gap-1.5 text-sm text-white/45 hover:text-rose-300">
             <Trash2 className="h-4 w-4" /> Убрать с полки

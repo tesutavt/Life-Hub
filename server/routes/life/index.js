@@ -4,6 +4,7 @@ import { TAG_ENTITY_TYPES, fetchTagLinks, sortTags, syncTagLinks } from '../../t
 import { upload, removeLocalUpload } from './storage.js';
 import { createUploadsRouter } from './uploads.js';
 import shelfRouter from './shelf.js';
+import playerRouter from './player.js';
 import wishlistRouter from './wishlist.js';
 import linksRouter, { dropEntityLinks } from './links.js';
 import languageLearningRouter from './languageLearning.js';
@@ -56,6 +57,7 @@ const normalizeNotificationPreferences = (value) => {
 };
 
 router.use('/uploads', createUploadsRouter());
+router.use('/shelf/player', playerRouter);
 router.use('/shelf', shelfRouter);
 router.use('/wishlist', wishlistRouter);
 router.use('/links', linksRouter);

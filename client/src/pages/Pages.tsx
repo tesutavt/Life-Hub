@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { Pin, PinOff, Tag as TagIcon, X } from 'lucide-react';
 import Shell from '../components/Shell';
-import { api } from '../api';
+import { api, resolveApiUrl } from '../api';
 import TagManager from '../components/tags/TagManager';
 import TagSelector from '../components/tags/TagSelector';
 import TagBadge from '../components/tags/TagBadge';
@@ -80,7 +80,8 @@ export default function Pages() {
       created_at: row.created_at,
       page_date: row.page_date,
       pinned: !!row.pinned,
-      bannerUrl: row.banner_url ?? row.bannerUrl ?? null,
+      // в списке — лёгкое превью баннера, а не оригинал (огромные картинки подвешивали страницу)
+      bannerUrl: row.banner_thumb ? resolveApiUrl(row.banner_thumb) : row.banner_url ?? row.bannerUrl ?? null,
       bannerGradient: row.banner_gradient ?? row.bannerGradient ?? null,
       tags: Array.isArray(row.tags)
         ? row.tags.map((tag: any) => ({
@@ -221,6 +222,7 @@ export default function Pages() {
                           alt="Предпросмотр баннера"
                           className="absolute inset-0 h-full w-full object-cover"
                           loading="lazy"
+                          decoding="async"
                         />
                       ) : (
                         <div

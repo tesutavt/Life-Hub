@@ -2,6 +2,7 @@ import express from "express";
 import { randomUUID } from "crypto";
 import { getDB } from "../../utils.js";
 import { TAG_ENTITY_TYPES, coerceTagIds, fetchTagLinks, sortTags, syncTagLinks } from "../../tagUtils.js";
+import { thumbUrl } from "../thumb.js";
 
 const router = express.Router();
 
@@ -106,6 +107,7 @@ const mapPageRow = (row) => ({
   page_date: row.page_date,
   banner_url: row.banner_url ?? null,
   banner_gradient: row.banner_gradient ?? null,
+  banner_thumb: thumbUrl(row.banner_url, 960),
   page_background: parseBackground(row.page_background),
   pinned: !!row.pinned
 });

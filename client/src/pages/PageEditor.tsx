@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { askText } from '../components/ui/askText';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -24,6 +25,7 @@ import KanaTrainerBlock from '../components/KanaTrainerBlock';
 import CountdownTimerBlock from '../components/CountdownTimerBlock';
 import TagBadge from '../components/tags/TagBadge';
 import { ChecklistBlock, ChecklistItem, EmbedBlock, EntityRef } from '../components/pages/LinkedBlocks';
+import RichText from '../components/pages/RichText';
 
 type TagOption = { id: number; label: string; color: string };
 type PageOption = { id: number; title: string; tags: TagOption[]; pinned?: boolean };
@@ -62,6 +64,8 @@ type BlockMeta = {
   tabId?: string | null;
   checklist?: ChecklistItem[];
   entity?: EntityRef | null;
+  /** текст с оформлением (жирный, списки, цвет…); простой текст — в block.text */
+  html?: string | null;
 };
 type PageBlock = {
   id: string;
@@ -386,8 +390,8 @@ function TabsBlock({
               event.stopPropagation();
               onChange((prev) => updateTabs(prev, getTabs(prev), tab.id));
             }}
-            onDoubleClick={() => {
-              const value = window.prompt('Название вкладки', tab.title);
+            onDoubleClick={async () => {
+              const value = await askText('Название вкладки', tab.title);
               if (value === null) return;
               onChange((prev) => updateTabs(prev, getTabs(prev).map((item) => (item.id === tab.id ? { ...item, title: value || 'Tab' } : item)), tab.id));
             }}
@@ -470,13 +474,13 @@ function BlockBody({
   onPickImage: () => void;
   wasDragged: () => boolean;
 }) {
-  if (block.type === 'text') return <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent p-4 text-sm leading-6 text-white outline-none" placeholder="Текстовый блок" />;
-  if (block.type === 'heading') return <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent p-4 text-3xl font-semibold leading-tight text-white outline-none" placeholder="Заголовок" />;
+  if (block.type === 'text') return <RichText html={block.meta?.html} text={block.text} placeholder="Текстовый блок — выделите текст для оформления" onChange={({ html, text }) => onChange((prev) => ({ ...prev, text, meta: { ...(prev.meta || {}), html } }))} />;
+  if (block.type === 'heading') return <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="lh-quiet-scroll h-full w-full resize-none overflow-hidden bg-transparent p-4 text-3xl font-semibold leading-tight text-white outline-none" placeholder="Заголовок" />;
   if (block.type === 'todo') {
     return (
       <div className="flex h-full gap-3 p-4">
         <input type="checkbox" checked={!!block.checked} onChange={(e) => onChange({ checked: e.target.checked })} className="mt-1 h-5 w-5 rounded" />
-        <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="h-full w-full resize-none bg-transparent text-sm leading-6 text-white outline-none" placeholder="Описание задачи" />
+        <textarea value={block.text || ''} onChange={(e) => onChange({ text: e.target.value })} className="lh-quiet-scroll h-full w-full resize-none bg-transparent text-sm leading-6 text-white outline-none" placeholder="Описание задачи" />
       </div>
     );
   }
@@ -596,17 +600,18 @@ function BlockCard({
   const bodyHeight = display.hideHeader ? '100%' : 'calc(100% - 45px)';
 
   return (
-    <div className={`absolute overflow-hidden rounded-[24px] border backdrop-blur-sm transition ${chromeClass}`} style={{ left: layout.x, top: layout.y, width: layout.w, height: layout.h, ...(display.color && !display.hideChrome ? { backgroundColor: `${display.color}26`, borderColor: selected ? undefined : `${display.color}80` } : null) }} onPointerDown={onPointerDown} onMouseDown={(e) => e.stopPropagation()} onContextMenu={onContextMenu}>
+    <div className={`group absolute overflow-hidden rounded-[24px] border backdrop-blur-sm transition ${chromeClass}`} style={{ left: layout.x, top: layout.y, width: layout.w, height: layout.h, ...(display.color && !display.hideChrome ? { backgroundColor: `${display.color}26`, borderColor: selected ? undefined : `${display.color}80` } : null) }} onPointerDown={onPointerDown} onMouseDown={(e) => e.stopPropagation()} onContextMenu={onContextMenu}>
       {!display.hideHeader ? (
         <div className={`flex items-center justify-between border-b px-4 py-2 ${display.hideChrome ? 'border-white/0 bg-transparent' : 'border-white/10'}`}>
           <div className="truncate text-xs uppercase tracking-[0.24em] text-white/50">{headerTitle}</div>
           <div className="truncate text-[11px] text-white/30">{display.locked ? 'Зафиксирован' : 'ПКМ для действий'}</div>
         </div>
       ) : null}
-      <div className="overflow-auto" style={{ height: bodyHeight }}>
+      <div className="lh-quiet-scroll overflow-auto" style={{ height: bodyHeight }}>
         <BlockBody block={block} tags={tags} pages={pages} calendarItems={calendarItems} groupedCount={groupedCount} selectedBlock={selectedBlock} onAssignSelected={onAssignSelected} onUnassignSelected={onUnassignSelected} onChange={onChange} onUploadPdf={onUploadPdf} onPickImage={onPickImage} wasDragged={wasDragged} />
       </div>
-      {!display.locked ? <button type="button" onPointerDown={onResizeStart} className="absolute bottom-2 right-2 h-5 w-5 rounded border border-white/10 bg-white/10" aria-label="Resize" /> : null}
+      {/* уголок растягивания — только при наведении или у выделенного блока */}
+      {!display.locked ? <button type="button" onPointerDown={onResizeStart} title="Потяните, чтобы изменить размер" className={`absolute bottom-1.5 right-1.5 h-4 w-4 cursor-nwse-resize rounded-sm border-b-2 border-r-2 border-white/40 transition-opacity ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`} aria-label="Изменить размер" /> : null}
     </div>
   );
 }
@@ -1258,7 +1263,7 @@ export default function PageEditor() {
                           ))}
                         </div>
                       ) : null}
-                      <button type="button" onClick={() => { const current = blocks.find((b) => b.id === contextMenu.blockId); if (!current) return; const value = window.prompt('Собственное название блока', getDisplay(current).customTitle || ''); if (value !== null) updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { customTitle: value })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Свое название блока</button>
+                      <button type="button" onClick={async () => { const blockId = contextMenu.blockId; const current = blocks.find((b) => b.id === blockId); setContextMenu(null); if (!current) return; const value = await askText('Своё название блока', getDisplay(current).customTitle || '', { placeholder: 'Пусто — обычное название' }); if (value !== null) updateBlock(blockId, (prev) => setDisplay(prev, { customTitle: value.trim() })); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Своё название блока</button>
                       <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { hideChrome: !getDisplay(prev).hideChrome })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Показать/скрыть оконтовку</button>
                       <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { hideHeader: !getDisplay(prev).hideHeader })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Показать/скрыть заголовок</button>
                       <button type="button" onClick={() => { updateBlock(contextMenu.blockId, (prev) => setDisplay(prev, { locked: !getDisplay(prev).locked })); setContextMenu(null); }} className="block w-full rounded-xl px-3 py-2 text-left text-sm text-white/80 hover:bg-white/10">Зафиксировать / снять фиксацию</button>

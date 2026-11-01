@@ -41,6 +41,17 @@ export default function ShelfIntegrations({ compact = false }: { compact?: boole
   const [profile, setProfile] = useState("");
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  // Сайт для плеера на полке — шаблон адреса страницы тайтла
+  const [playerSite, setPlayerSite] = useState("");
+  const [playerCodeSite, setPlayerCodeSite] = useState("");
+  const [playerDesktop, setPlayerDesktop] = useState(true);
+  useEffect(() => {
+    api.get("/api/life/shelf/player/config", { silentError: true }).then((res) => {
+      setPlayerSite(res?.site || "");
+      setPlayerCodeSite(res?.code_site || "");
+      setPlayerDesktop(res?.desktop !== false);
+    }).catch(() => {});
+  }, []);
   const [message, setMessage] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -67,7 +78,7 @@ export default function ShelfIntegrations({ compact = false }: { compact?: boole
   return (
     <section className={`space-y-4 rounded-3xl border border-white/10 bg-white/[0.03] ${compact ? "p-4" : "p-5"}`}>
       <div>
-        <div className="text-lg font-semibold text-white">Полка: Shikimori и Steam</div>
+        <div className="text-lg font-semibold text-white">Полка: Shikimori, Steam и плеер</div>
         <div className="text-sm text-white/55">Списки аниме и игр сами появляются на полке со статусами, оценками и часами. Обновляются при открытии полки.</div>
       </div>
 
@@ -119,6 +130,22 @@ export default function ShelfIntegrations({ compact = false }: { compact?: boole
           </div>
         ) : null}
         {message.steam ? <div className="text-xs text-white/70">{message.steam}</div> : null}
+      </div>
+
+      {/* Плеер */}
+      <div className="space-y-2 rounded-2xl border border-white/10 bg-black/10 p-4">
+        <div className="font-medium text-white">▶ Плеер на полке</div>
+        <div className="text-xs leading-5 text-white/50">
+          Адрес вашего сайта, например https://мой-сайт.ru. При «Смотреть» тайтл ищется на сайте (/search?word=название), открывается похожий результат — подтвердите «Это то аниме?», и страница запомнится.
+          {!playerDesktop ? <span className="text-amber-300"> Плеер работает, когда сервер — приложение Life Hub для Windows.</span> : null}
+        </div>
+        <div className="flex gap-2">
+          <input value={playerSite} onChange={(e) => setPlayerSite(e.target.value)} placeholder={playerCodeSite || "https://мой-сайт.ru"} className={field} />
+          <button type="button" disabled={!!busy} onClick={() => run("player", () => api.put("/api/life/shelf/player/config", { site: playerSite.trim() }, quiet), (res) => (res?.site ? "Сохранено — плеер возьмёт этот адрес" : "Очищено" + (playerCodeSite ? " — будет использоваться адрес из кода" : "")))} className="shrink-0 rounded-xl bg-brand-mint px-4 text-sm font-semibold text-brand-deep disabled:opacity-40">
+            {busy === "player" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Сохранить"}
+          </button>
+        </div>
+        {message.player ? <div className="text-xs text-white/70">{message.player}</div> : null}
       </div>
     </section>
   );

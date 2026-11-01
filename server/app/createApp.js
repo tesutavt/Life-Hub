@@ -17,6 +17,7 @@ import { requireAuth } from '../utils.js';
 import { registerClientAssets } from './registerClientAssets.js';
 import { createCorsOptions, parseAllowedOrigins } from '../config/cors.js';
 import { UPLOADS_DIR } from '../config/paths.js';
+import thumbRouter from '../routes/thumb.js';
 
 export function createApp(options = {}) {
   const { corsOrigins } = options;
@@ -43,6 +44,8 @@ export function createApp(options = {}) {
   app.use('/api/public', publicRouter);
   app.use('/api/fitness', fitness.public);
   app.use('/api/tts', ttsRouter);
+  // превью картинок: ссылки подписаны сервером, поэтому без входа (их грузит <img>)
+  app.use('/api/thumb', thumbRouter);
 
   app.use('/api/loans', requireAuth, loansRouter);
   app.use('/api/banks', requireAuth, banksRouter);
